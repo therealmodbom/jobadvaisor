@@ -30,7 +30,7 @@ None.
 
 ## Non-goals
 
-- What the score means, and graded evals with strength-weighted metrics.
+- What the score means (#27), and graded evals with strength-weighted metrics.
 - Any change to labels already stored, or a migration.
 - Using the strength for the correction counter, `best_open`, or chip polarity: direction alone drives them.
 - A strength for imported labels or for a rating given without a verdict (a verdict derived from a chip has no strength).
