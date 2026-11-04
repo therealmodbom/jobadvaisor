@@ -2,7 +2,7 @@
 
 ## Why
 
-The goal is to follow how well the extraction approach performs over time, and to know with numbers whether a cheaper extractor such as `typesafe/jev-1.14.0` is as good as the current one before `EXTRACTOR_MODEL` is switched (issue #69, the extraction half of #58). Today's `feature_extraction` eval runs one model against hand-written expectations on the demo persona only, measures no latency and keeps no history. Real postings have no expected values, so the ground truth has to grow out of the runs themselves.
+The goal is to follow how well the extraction approach performs over time, and to know with numbers whether a cheaper extractor such as `typesafe/jev-1.14.0` is as good as the current one before `EXTRACTOR_MODEL` is switched. Today's `feature_extraction` eval runs one model against hand-written expectations on the demo persona only, measures no latency and keeps no history. Real postings have no expected values, so the ground truth has to grow out of the runs themselves.
 
 ## What Changes
 
@@ -10,9 +10,9 @@ The goal is to follow how well the extraction approach performs over time, and t
 - Each run appends one record to a JSONL file under the state directory: date, model, base URL, hashes of the extraction instructions and of the feature set, the app's commit, metrics with case counts, cost, latency, errors. The run's extracted values are stored next to it, outside both repositories; the command refuses a state directory inside this repository or the data repository, and DeepEval's own run files are kept there too (no posting text in them). A history view prints the records, so the performance of the extraction approach can be followed across days, including the effect of a prompt or feature-set change.
 - The command compares two or more stored runs (typically different models): agreement per feature, cost and latency side by side, and a disagreements file for the user, the postings that differ most first. The user's judgements are merged as extraction labels in the data repository (`--settle`).
 - Once labels exist, every run also reports accuracy against them, with the case count.
-- The accuracy against labels is a custom DeepEval metric, and the same cases run as a test suite through `deepeval test run` (excluded from the default test run, fails below an optional minimum accuracy). Agreement, comparison, metering, records and the Langfuse mirror stay own code. Moving the existing evals the same way is issue #72.
+- The accuracy against labels is a custom DeepEval metric, and the same cases run as a test suite through `deepeval test run` (excluded from the default test run, fails below an optional minimum accuracy). Agreement, comparison, metering, records and the Langfuse mirror stay own code. Moving the existing evals the same way is issue #34.
 - With Langfuse configured, each run is also recorded there as an experiment (scores, cost, latency). The JSONL file stays the history the command reads.
-- The record format carries a `role` (`extractor`, `judge`, `decider`) so the scoring benchmark (#70) reuses it. Only `extractor` is built here.
+- The record format carries a `role` (`extractor`, `judge`, `decider`) so the scoring benchmark (#33) reuses it. Only `extractor` is built here.
 
 ## Capabilities
 
@@ -35,10 +35,10 @@ None.
 
 ## Non-goals
 
-- Judge and decision-model comparison, precision@k and the time split (#70). Only the record format is prepared for it.
+- Judge and decision-model comparison, precision@k and the time split (#33). Only the record format is prepared for it.
 - Switching `EXTRACTOR_MODEL`. The user decides from the runs.
 - Rescoring stored postings.
 - A web UI, scheduling or a run on a new model's release. The command stays a script, as evals may.
-- Replacing the existing `feature_extraction` eval or its demo `expected.json`, or moving any existing eval onto DeepEval (#72).
+- Replacing the existing `feature_extraction` eval or its demo `expected.json`, or moving any existing eval onto DeepEval (#34).
 - DeepEval's hosted report store (Confident AI) and judge-model metrics.
 - A checker model that settles disagreements.

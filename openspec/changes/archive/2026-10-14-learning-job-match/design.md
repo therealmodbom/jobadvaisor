@@ -87,7 +87,7 @@ In this change a decision model has one production path, the default content-gua
 
 ### Shared tools
 
-`fetch_posting`, `check_exclusions`, `extract_features`, `find_similar_labeled`, `score_posting` and `research_company` are LangChain tools in `jobadvaisor/tools/`. Graph nodes call the same functions directly, and the agent gets them as tools. `research_company` needs no search provider (decision, 2026-10-11): it returns what the user's stored postings of that company say, and the employer's home page, fetched over plain HTTP from a host its postings link to, or from a website the caller names. A host counts as a job board, not the employer's site, when it is a known board or applicant-tracking host, login-walled, or used by another company's postings. With neither source it answers "nothing found", and nothing else depends on it. A search provider plugs in later as one more source (issue #9).
+`fetch_posting`, `check_exclusions`, `extract_features`, `find_similar_labeled`, `score_posting` and `research_company` are LangChain tools in `jobadvaisor/tools/`. Graph nodes call the same functions directly, and the agent gets them as tools. `research_company` needs no search provider (decision, 2026-10-11): it returns what the user's stored postings of that company say, and the employer's home page, fetched over plain HTTP from a host its postings link to, or from a website the caller names. A host counts as a job board, not the employer's site, when it is a known board or applicant-tracking host, login-walled, or used by another company's postings. With neither source it answers "nothing found", and nothing else depends on it. A search provider plugs in later as one more source (issue #3).
 
 ### Triage graph
 

@@ -2,7 +2,7 @@
 
 ## Why
 
-The cut of a LinkedIn page to the posting body (`linkedin-posting-body`, issue #26) keeps the description and the criteria block. LinkedIn also shows a pay range box above the description, for the postings whose employer supplies one. The box names the employer as its source ("This range is provided by …"), and its figures usually appear nowhere in the description, so the cut drops the only place the pay is stated. The already repaired texts keep the box.
+The cut of a LinkedIn page to the posting body (`linkedin-posting-body`) keeps the description and the criteria block. LinkedIn also shows a pay range box above the description, for the postings whose employer supplies one. The box names the employer as its source ("This range is provided by …"), and its figures usually appear nowhere in the description, so the cut drops the only place the pay is stated. The already repaired texts keep the box.
 
 ## What Changes
 

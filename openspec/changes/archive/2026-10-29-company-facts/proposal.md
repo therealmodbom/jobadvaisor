@@ -2,7 +2,7 @@
 
 ## Why
 
-`company_stage` ("startup", "sme", "scale-up", "enterprise", "agency") is decided from the posting text and the company name in the prompt. A posting rarely states its employer's size or age, so the extractor answers `unknown` or from what the model remembers about well-known companies, which cannot be checked and is wrong for small ones. The extractor benchmark (#69) showed this while labelling `company_stage`; the user looks the facts up by hand on the company's LinkedIn page. Issue #79.
+`company_stage` ("startup", "sme", "scale-up", "enterprise", "agency") is decided from the posting text and the company name in the prompt. A posting rarely states its employer's size or age, so the extractor answers `unknown` or from what the model remembers about well-known companies, which cannot be checked and is wrong for small ones. The extractor benchmark showed this while labelling `company_stage`; the user looks the facts up by hand on the company's LinkedIn page.
 
 Verified on 2026-10-29 against two LinkedIn company pages fetched without a login: the page carries a size class (`about-us__size`, e.g. "51-200 employees") and, when the company filled it in, a founding year (`about-us__foundedOn`). The job page links to the company page (`topcard__org-name-link`).
 

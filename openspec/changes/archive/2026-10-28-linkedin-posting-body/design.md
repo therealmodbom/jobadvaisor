@@ -44,4 +44,4 @@ The stored text has no separate raw field (schema version 2). The page chrome of
 
 ## Open Questions
 
-- `linkedin.com` leaving `DEFAULT_LOGIN_WALL_HOSTS` is a separate decision (issue #26); it changes configuration and the intake eval's LinkedIn case, not this spec.
+- `linkedin.com` leaving `DEFAULT_LOGIN_WALL_HOSTS` is a separate decision; it changes configuration and the intake eval's LinkedIn case, not this spec.

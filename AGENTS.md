@@ -49,8 +49,8 @@ Worktrees live under `worktrees/` (gitignored), one per branch: `git worktree ad
 
 The history lives in OpenSpec, not here: `openspec/specs/` is the baseline (one folder per capability) and `openspec/changes/archive/` holds every finished change with its proposal, design and tasks. Open work is in the GitHub issues. Keep this section to a pointer plus the last two archived changes; when archiving a change, drop the oldest entry.
 
-- `extractor-benchmark` (issue #69): `python -m jobadvaisor.evals.extractor_benchmark` runs one extractor model, or with `--role decider` the hosted decision model, over the stored postings, scores it against optional `extraction-labels.json` and compares stored runs.
-- `company-facts` (issue #79): intake looks up an employer's size class and founding year once per company and stores them as `companies/<id>.json`; the extractor gets them as a `<company_facts>` block. `python -m jobadvaisor.data.fill_company_facts` backfills older postings.
+- `extractor-benchmark`: `python -m jobadvaisor.evals.extractor_benchmark` runs one extractor model, or with `--role decider` the hosted decision model, over the stored postings, scores it against optional `extraction-labels.json` and compares stored runs.
+- `company-facts`: intake looks up an employer's size class and founding year once per company and stores them as `companies/<id>.json`; the extractor gets them as a `<company_facts>` block. `python -m jobadvaisor.data.fill_company_facts` backfills older postings.
 
 The README covers setup, the demo persona, the pool workflow and the evals. `docs/company-facts.md` and `docs/extractor-benchmark.md` hold the longer guides.
 
