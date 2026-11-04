@@ -8,7 +8,7 @@ Matching a profile against a posting's text misses a lot. Many of the criteria t
 
 The interface is in German, the code and the documentation are in English. It runs for one user on localhost. Your data never lives in this repository. It stays in a separate git repository that you own.
 
-This is a portfolio project in an early stage. Issues are welcome, but there is no promise to merge pull requests.
+Built by Manuel Siebeneicher as a portfolio project in AI engineering. It is in an early stage. Issues are welcome, but there is no promise to merge pull requests.
 
 ## How it works
 
