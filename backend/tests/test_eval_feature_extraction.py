@@ -70,7 +70,7 @@ def test_cli_skips_an_eval_whose_model_is_not_configured(monkeypatch, capsys):
     assert extraction == {"eval": "feature_extraction",
                           "skipped": "EXTRACTOR_MODEL or LLM_MODEL is not set"}
     assert [row["skipped"] for row in guard["classifiers"]] == ["MISTRAL_API_KEY is not set",
-                                                                "DECIDER_MODEL is not set"]
+                                                                "--model is not given"]
 
 
 def test_cli_reports_a_failing_eval_and_keeps_the_others(monkeypatch, capsys):

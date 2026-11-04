@@ -1,7 +1,10 @@
-"""`python -m jobadvaisor.evals [--data PATH] [--out DIR] [--only NAME ...]`
+"""`python -m jobadvaisor.evals [--data PATH] [--out DIR] [--only NAME ...] [--model M]
+[--base-url U]`
 
 Runs the evals against a data repository (default: the demo persona), prints one JSON report
-per eval, and writes them to `--out` when given. Results from data other than the demo persona
+per eval, and writes them to `--out` when given. `--model` names the decision model that
+`content_guard` and `decider_competitor` test (a regression run passes `GUARD_MODEL`, a search
+run a candidate); without it those rows are skipped. Results from data other than the demo persona
 are always written, by default to `<STATE_DIRECTORY>/<repository key>/evals/`, and never inside
 this repository.
 """
@@ -29,7 +32,7 @@ from jobadvaisor.evals import (
 from jobadvaisor.evals import decider as decider_competitor
 from jobadvaisor.guard import MISTRAL_MODEL, DeciderClassifier, MistralModeration
 from jobadvaisor.index import LabelIndex, PostingIndex, state_path
-from jobadvaisor.llm import ModelNotConfiguredError, chat_model, decider, embeddings
+from jobadvaisor.llm import Decider, ModelNotConfiguredError, chat_model, decider_client, embeddings
 from jobadvaisor.settings import REPOSITORY_ROOT, Settings
 from jobadvaisor.tools.guard import content_guard as configured_guard
 
@@ -79,24 +82,26 @@ def _agent(repository: DataRepository, settings: Settings) -> dict:
                      settings.agent_model or settings.llm_model)
 
 
-def _decider_competitor(repository: DataRepository, settings: Settings) -> dict:
-    """The decision-model competitor, skipped without `DECIDER_MODEL` before any index work."""
-    chosen = decider(settings)
-    if chosen is None:
+def _decider_competitor(repository: DataRepository, settings: Settings,
+                        candidate: Decider | None) -> dict:
+    """The decision-model competitor for `candidate` (`--model`), skipped without one before any
+    index work."""
+    if candidate is None:
         return decider_competitor.run(repository, None, None, None)
     return decider_competitor.run(repository, _synced_index(repository, settings),
-                                  configured_guard(settings), chosen)
+                                  configured_guard(settings), candidate)
 
 
-def _content_guard(repository: DataRepository, settings: Settings) -> dict:
-    """The content-guard eval for Mistral Moderation and the decision model, each with its own
-    default thresholds and skipped with its reason when not configured."""
-    chosen = decider(settings)
+def _content_guard(repository: DataRepository, settings: Settings,
+                   candidate: Decider | None) -> dict:
+    """The content-guard eval for Mistral Moderation and the decision-model `candidate`
+    (`--model`; the regression run passes `GUARD_MODEL` there), each with its own default
+    thresholds and skipped with its reason when not available."""
     classifiers = [
         (MistralModeration(settings.mistral_api_key) if settings.mistral_api_key else None,
          {"classifier": MISTRAL_MODEL, "skipped": "MISTRAL_API_KEY is not set"}),
-        (DeciderClassifier(chosen) if chosen else None,
-         {"classifier": "decider", "skipped": "DECIDER_MODEL is not set"})]
+        (DeciderClassifier(candidate) if candidate else None,
+         {"classifier": "decider", "skipped": "--model is not given"})]
     rows = [content_guard.run(repository, classifier, classifier.thresholds) if classifier
             else skipped for classifier, skipped in classifiers]
     return {"eval": "content_guard", "classifiers": rows}
@@ -111,7 +116,6 @@ EVALS: dict[str, Eval] = {
         settings.extractor_model or settings.llm_model),
     "scoring": _scoring,
     "baseline": lambda repository, settings: baseline.run(repository),
-    "content_guard": _content_guard,
     "intake": lambda repository, settings: intake.run(
         lambda target: chat_model("intake", settings), configured_guard(settings),
         settings.intake_model or settings.llm_model),
@@ -123,14 +127,23 @@ EVALS: dict[str, Eval] = {
         minimum_labels=settings.competitor_min_labels),
     "agent": _agent,
     "graph_vs_agent": _graph_vs_agent,
+}
+
+# Evals of a decision model that each run names with `--model`, never from a setting.
+CANDIDATE_EVALS: dict[str, Callable[[DataRepository, Settings, Decider | None], dict]] = {
+    "content_guard": _content_guard,
     "decider_competitor": _decider_competitor,
 }
 
 
-def _run(name: str, repository: DataRepository, settings: Settings) -> dict:
+def _run(name: str, repository: DataRepository, settings: Settings,
+         candidate: Decider | None) -> dict:
     """One eval's report, its skip reason when a model it needs is not configured, or its error,
-    so one failing eval never discards the reports of the others."""
+    so one failing eval never discards the reports of the others. `candidate` is the decision
+    model named with `--model`, given to the evals in `CANDIDATE_EVALS`."""
     try:
+        if name in CANDIDATE_EVALS:
+            return CANDIDATE_EVALS[name](repository, settings, candidate)
         return EVALS[name](repository, settings)
     except ModelNotConfiguredError as error:
         return {"eval": name, "skipped": str(error)}
@@ -143,9 +156,15 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="python -m jobadvaisor.evals")
     parser.add_argument("--data", type=Path, default=FIXTURE_DIRECTORY)
     parser.add_argument("--out", type=Path)
-    parser.add_argument("--only", nargs="+", choices=list(EVALS), default=list(EVALS))
+    names = [*EVALS, *CANDIDATE_EVALS]
+    parser.add_argument("--only", nargs="+", choices=names, default=names)
+    parser.add_argument("--model", help="decision model for `content_guard` and "
+                                        "`decider_competitor`; without it their rows are skipped")
+    parser.add_argument("--base-url", help="base URL of --model (default: LLM_BASE_URL)")
     args = parser.parse_args(argv)
     settings = Settings()
+    candidate = (decider_client(args.model, args.base_url or settings.llm_base_url, settings)
+                 if args.model else None)
     out = args.out
     if args.data.resolve() != FIXTURE_DIRECTORY.resolve():
         out = out or state_path(settings, args.data) / "evals"
@@ -153,7 +172,7 @@ def main(argv: list[str] | None = None) -> None:
             parser.error(f"reports for data other than the demo persona must lie outside this "
                          f"repository; {out} does not (set --out or STATE_DIRECTORY)")
     repository = load(args.data)
-    reports = [_run(name, repository, settings) for name in args.only]
+    reports = [_run(name, repository, settings, candidate) for name in args.only]
     text = json.dumps(reports, indent=2, ensure_ascii=False)
     print(text)
     if out:

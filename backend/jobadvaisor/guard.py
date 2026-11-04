@@ -1,8 +1,9 @@
 """Content-guard classifiers and `screen_content` (`design.md` → Content guard).
 
 A classifier maps a text to a score per category; a text is flagged when a configured category
-reaches its threshold. The decision model is the default classifier, since it led the first
-content-guard eval; Mistral Moderation is the fallback without `DECIDER_MODEL`.
+reaches its threshold. The classifier is chosen in this order: the model in `GUARD_MODEL` (it led
+the first content-guard eval; it must answer the router's `questions` format), else Mistral
+Moderation with `MISTRAL_API_KEY`, else none, which turns screening off.
 """
 
 import json
@@ -12,7 +13,7 @@ from typing import Protocol
 import httpx
 
 from jobadvaisor.data.models import Guard
-from jobadvaisor.llm import Decider, decider
+from jobadvaisor.llm import Decider, guard_model
 from jobadvaisor.settings import Settings
 
 MISTRAL_URL = "https://api.mistral.ai/v1/moderations"
@@ -82,9 +83,9 @@ class DeciderClassifier:
 
 
 def classifier_from_settings(settings: Settings) -> Classifier | None:
-    """The decision model with `DECIDER_MODEL`, else Mistral Moderation with `MISTRAL_API_KEY`,
-    else `None`: screening is off."""
-    if chosen := decider(settings):
+    """The `GUARD_MODEL` classifier, else Mistral Moderation with `MISTRAL_API_KEY`, else `None`:
+    screening is off."""
+    if chosen := guard_model(settings):
         return DeciderClassifier(chosen)
     return MistralModeration(settings.mistral_api_key) if settings.mistral_api_key else None
 

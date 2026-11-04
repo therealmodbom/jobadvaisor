@@ -4,8 +4,8 @@ from langfuse.langchain import CallbackHandler
 from jobadvaisor.llm import (
     ModelNotConfiguredError,
     chat_model,
-    decider,
     embeddings,
+    guard_model,
     model_client,
     tracing,
 )
@@ -41,12 +41,12 @@ def test_role_without_any_model_names_the_missing_settings():
         chat_model("agent", settings())
 
 
-def test_llm_api_key_reaches_chat_embedding_and_decider_clients():
+def test_llm_api_key_reaches_chat_embedding_and_guard_model_clients():
     config = settings(llm_model="openai/m", llm_base_url=ROUTER, llm_api_key="router-key",
-                      embedding_model="openai/e", decider_model="typesafe/jev")
+                      embedding_model="openai/e", guard_model="typesafe/jev")
     assert chat_model("intake", config).openai_api_key.get_secret_value() == "router-key"
     assert embeddings(config).openai_api_key.get_secret_value() == "router-key"
-    assert decider(config).client.api_key == "router-key"
+    assert guard_model(config).client.api_key == "router-key"
 
 
 def test_router_embeddings_send_text_not_token_ids():
@@ -54,17 +54,17 @@ def test_router_embeddings_send_text_not_token_ids():
     assert embeddings(config).check_embedding_ctx_length is False
 
 
-def test_decider_reads_its_own_settings_with_llm_base_url_as_fallback():
-    config = settings(llm_base_url=ROUTER, llm_api_key="k", decider_model="typesafe/jev")
-    assert (decider(config).model, str(decider(config).client.base_url)) == ("typesafe/jev",
-                                                                            ROUTER + "/")
-    override = settings(llm_base_url=ROUTER, llm_api_key="k", decider_model="typesafe/jev",
-                        decider_base_url="https://decider.example.com/v1")
-    assert str(decider(override).client.base_url) == "https://decider.example.com/v1/"
+def test_guard_model_reads_its_own_settings_with_llm_base_url_as_fallback():
+    config = settings(llm_base_url=ROUTER, llm_api_key="k", guard_model="typesafe/jev")
+    assert (guard_model(config).model, str(guard_model(config).client.base_url)) == (
+        "typesafe/jev", ROUTER + "/")
+    override = settings(llm_base_url=ROUTER, llm_api_key="k", guard_model="typesafe/jev",
+                        guard_base_url="https://guard.example.com/v1")
+    assert str(guard_model(override).client.base_url) == "https://guard.example.com/v1/"
 
 
-def test_decider_is_none_without_decider_model():
-    assert decider(settings(llm_api_key="k")) is None
+def test_guard_model_is_none_without_the_setting():
+    assert guard_model(settings(llm_api_key="k")) is None
 
 
 def test_tracing_stays_off_without_both_langfuse_keys():

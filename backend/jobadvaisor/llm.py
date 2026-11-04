@@ -72,13 +72,14 @@ def embeddings(settings: Settings) -> Embeddings:
                            **_connection(base_url, settings.llm_api_key), **extra)
 
 
-def decider(settings: Settings) -> Decider | None:
-    """The decision model from `DECIDER_MODEL` and `DECIDER_BASE_URL` (falling back to
-    `LLM_BASE_URL`), or `None` when `DECIDER_MODEL` is unset, so its eval rows are skipped."""
-    if not settings.decider_model:
+def guard_model(settings: Settings) -> Decider | None:
+    """The content guard's classifier model from `GUARD_MODEL` and `GUARD_BASE_URL` (falling back
+    to `LLM_BASE_URL`), called in the router's `questions` format; `None` when `GUARD_MODEL` is
+    unset."""
+    if not settings.guard_model:
         return None
-    return decider_client(settings.decider_model,
-                          settings.decider_base_url or settings.llm_base_url, settings)
+    return decider_client(settings.guard_model,
+                          settings.guard_base_url or settings.llm_base_url, settings)
 
 
 def decider_client(model: str, base_url: str | None, settings: Settings) -> Decider:

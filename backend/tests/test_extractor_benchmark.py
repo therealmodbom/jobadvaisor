@@ -362,7 +362,7 @@ def cli(monkeypatch, tmp_path_factory, labelled, deepeval):
     state = tmp_path_factory.mktemp("cli-state")
     config = {"state_directory": state, "extractor_model": "vendor/configured",
               "extractor_base_url": "https://router.example/v1",
-              "decider_model": "vendor/jev", "llm_base_url": "https://router.example/v1"}
+              "llm_base_url": "https://router.example/v1"}
 
     def run_main(*arguments, **changes):
         monkeypatch.setattr(extractor_benchmark, "Settings",
@@ -382,17 +382,23 @@ def cli(monkeypatch, tmp_path_factory, labelled, deepeval):
     return run_main
 
 
-def test_main_runs_the_decision_model_for_the_decider_role(cli, capsys):
-    cli("--role", "decider", "--limit", "2")
+def test_main_runs_the_named_decision_model_for_the_decider_role(cli, capsys):
+    cli("--role", "decider", "--model", "vendor/jev", "--limit", "2")
     assert cli.decided == [("vendor/jev", "https://router.example/v1")] and cli.built == []
     output = capsys.readouterr().out
     assert "vendor/jev" in output and "decision model" in output
     assert re.search(r"postings\s+2\b", output)
 
 
-def test_main_runs_another_decision_model_for_one_run(cli):
-    cli("--role", "decider", "--model", "typesafe/jev-1.14.0")
-    assert cli.decided == [("typesafe/jev-1.14.0", "https://router.example/v1")]
+def test_main_takes_the_base_url_of_the_decider_role_from_the_option(cli):
+    cli("--role", "decider", "--model", "m", "--base-url", "https://other.example/v1")
+    assert cli.decided == [("m", "https://other.example/v1")]
+
+
+def test_main_needs_a_model_for_the_decider_role_even_with_a_guard_model_set(cli, capsys):
+    with pytest.raises(SystemExit):
+        cli("--role", "decider", guard_model="vendor/guard")
+    assert "--model" in capsys.readouterr().err and cli.decided == []
 
 
 def test_main_runs_the_configured_extractor_and_prints_the_table(cli, capsys):
