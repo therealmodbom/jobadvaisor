@@ -34,7 +34,7 @@ See proposal.md for motivation. Today a `Label` holds `verdict` (`positive` | `n
 
 **Judge and agent show the strength as plain words.** `tools/scoring._example` appends it after the verdict only when set (`positive (strong)`, `negative (weak)`), so a line for a label without strength is byte-identical to today's. The agent's `your_rating` and its rating summaries carry `strength` the same way. `similar` retrieval and the example choice do not use the strength.
 
-**Eval.** The judge line is the only LLM-facing change, and the scoring eval (`python -m jobadvaisor.evals`) covers it. Data: the demo persona's rating labels now carry a strength derived from the utility margin to the threshold (`STRONG_MARGIN`, no random draws, so the rest of the fixture is unchanged), which puts strength-bearing examples into the judge's prompts. Metrics: precision@k on the held-out labels, which must not drop against the run before this change, and a new `by_level` block in the report with the count and mean score per verdict/strength, so a run shows whether the judge separates "auf jeden Fall" from "vielleicht". The paid suite runs only on an explicit decision; none is run in this change. A strength-weighted metric is #58.
+**Eval.** The judge line is the only LLM-facing change, and the scoring eval (`python -m jobadvaisor.evals`) covers it. Data: the demo persona's rating labels now carry a strength derived from the utility margin to the threshold (`STRONG_MARGIN`, no random draws, so the rest of the fixture is unchanged), which puts strength-bearing examples into the judge's prompts. Metrics: precision@k on the held-out labels, which must not drop against the run before this change, and a new `by_level` block in the report with the count and mean score per verdict/strength, so a run shows whether the judge separates "auf jeden Fall" from "vielleicht". The paid suite runs only on an explicit decision; none is run in this change. A strength-weighted metric is a separate, later issue.
 
 **ADR.** [ADR 0008](../../../../docs/decisions/0008-rating-strength-as-a-second-label-field.md) holds the field-versus-wider-verdict decision.
 
@@ -42,5 +42,5 @@ See proposal.md for motivation. Today a `Label` holds `verdict` (`positive` | `n
 
 - [A client that omits `strength` on a later call clears it] → the hook carries it through every action, and a frontend test covers a chip toggle and a note edit after a level.
 - [Two meanings of "no strength" (legacy yes vs. explicitly plain)] → they are the same stored state by design; the UI shows "Ja" / "Nein" for it.
-- [The weak levels reach the judge as a new word in the prompt] → the model may read "weak" as noise; the direction still carries the score, and #58 can measure the effect.
+- [The weak levels reach the judge as a new word in the prompt] → the model may read "weak" as noise; the direction still carries the score, and a later strength-weighted metric can measure the effect.
 - [Archive order with `rated-pool`] → this change only adds requirements, so it archives cleanly before or after `rated-pool`; `posting-pool`'s delta carries its Purpose in case it creates the capability.

@@ -2,7 +2,7 @@
 
 ## Why
 
-The user's rating is binary today. A posting they cannot call a clear yes or no stays unrated, so it never teaches the judge anything and never leaves the "noch nicht bewertet" filter. Adding the strength of the opinion lets them mark unclear postings, and gives the judge and the ranking more signal. Issue #59.
+The user's rating is binary today. A posting they cannot call a clear yes or no stays unrated, so it never teaches the judge anything and never leaves the "noch nicht bewertet" filter. Adding the strength of the opinion lets them mark unclear postings, and gives the judge and the ranking more signal.
 
 ## What Changes
 
@@ -30,11 +30,11 @@ None.
 
 ## Non-goals
 
-- What the score means (#57) and graded evals with strength-weighted metrics (#58).
+- What the score means, and graded evals with strength-weighted metrics.
 - Any change to labels already stored, or a migration.
 - Using the strength for the correction counter, `best_open`, or chip polarity: direction alone drives them.
 - A strength for imported labels or for a rating given without a verdict (a verdict derived from a chip has no strength).
-- A strength-weighted eval metric: the scoring eval gets a per-level report and strength-bearing demo labels, and keeps measuring the direction. #58 owns graded evals.
+- A strength-weighted eval metric: the scoring eval gets a per-level report and strength-bearing demo labels, and keeps measuring the direction. A later change owns graded evals.
 
 ## Impact
 

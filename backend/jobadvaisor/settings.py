@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     then `local.env` (non-secret choices such as models and URLs). Both files are gitignored.
     `<role>_model` / `<role>_base_url` override `llm_model` / `llm_base_url` for one role.
     Unset optional values are `None`; tracing stays off without its keys. `search_api_key` is
-    reserved for a web-search provider, which no tool uses yet (issue #9).
+    reserved for a web-search provider, which no tool uses yet (issue #3).
     `competitor_min_labels` is the training-label minimum of the logistic-regression eval.
     `langfuse_base_url` also reads the earlier name `LANGFUSE_HOST`; `LANGFUSE_BASE_URL` wins.
     `state_directory` holds the rebuildable local stores, outside this repository by default.
