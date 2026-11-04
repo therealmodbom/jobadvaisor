@@ -135,6 +135,24 @@ def test_base_url_goes_with_model(candidate_run):
     assert built == [("m", "https://other.example/v1")]
 
 
+def test_a_failing_candidate_client_fails_only_the_evals_that_need_it(monkeypatch, capsys):
+    def broken(model, base_url, settings):
+        raise RuntimeError("no API key")
+
+    monkeypatch.setattr(cli, "Settings", lambda: Settings(_env_file=None))
+    monkeypatch.setattr(cli, "decider_client", broken)
+    cli.main(["--only", "baseline", "content_guard", "--model", "m"])
+    baseline, guard = json.loads(capsys.readouterr().out)
+    assert "error" not in baseline
+    assert guard == {"eval": "content_guard", "error": "RuntimeError: no API key"}
+
+
+def test_the_candidate_is_built_once_for_both_evals(candidate_run):
+    built, _ = candidate_run
+    cli.main(["--only", "decider_competitor", "content_guard", "--model", "m"])
+    assert built == [("m", "https://router.example/v1")]
+
+
 def test_the_guard_setting_alone_does_not_make_a_candidate(candidate_run):
     built, seen = candidate_run
     cli.main(["--only", "decider_competitor", "content_guard"])

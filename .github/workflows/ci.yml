@@ -104,6 +104,7 @@ jobs:
       LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
       EMBEDDING_MODEL: ${{ vars.EMBEDDING_MODEL }}
       GUARD_MODEL: ${{ vars.GUARD_MODEL }}
+      GUARD_BASE_URL: ${{ vars.GUARD_BASE_URL }}
     steps:
       - if: env.LLM_API_KEY == ''
         run: echo "::notice::Evals skipped, the LLM_API_KEY secret is not set"
@@ -118,8 +119,11 @@ jobs:
       - if: env.LLM_API_KEY != ''
         run: uv run playwright install --with-deps chromium
       - if: env.LLM_API_KEY != ''
-        # --model makes the content guard row test the model the app runs (a regression run)
-        run: uv run python -m jobadvaisor.evals --out eval-results --model "$GUARD_MODEL" > /dev/null
+        # --model/--base-url make the content guard row test the model the app runs (a regression
+        # run); an empty GUARD_BASE_URL falls back to LLM_BASE_URL, as in the app
+        run: >-
+          uv run python -m jobadvaisor.evals --out eval-results
+          --model "$GUARD_MODEL" --base-url "$GUARD_BASE_URL" > /dev/null
       - if: env.LLM_API_KEY != ''
         name: Summary
         run: >-

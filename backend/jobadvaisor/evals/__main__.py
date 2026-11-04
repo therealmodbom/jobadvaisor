@@ -13,6 +13,7 @@ import argparse
 import json
 from collections.abc import Callable
 from datetime import UTC, datetime
+from functools import cache
 from pathlib import Path
 
 from jobadvaisor.data.demo_persona import FIXTURE_DIRECTORY
@@ -137,13 +138,14 @@ CANDIDATE_EVALS: dict[str, Callable[[DataRepository, Settings, Decider | None], 
 
 
 def _run(name: str, repository: DataRepository, settings: Settings,
-         candidate: Decider | None) -> dict:
+         candidate: Callable[[], Decider | None]) -> dict:
     """One eval's report, its skip reason when a model it needs is not configured, or its error,
-    so one failing eval never discards the reports of the others. `candidate` is the decision
-    model named with `--model`, given to the evals in `CANDIDATE_EVALS`."""
+    so one failing eval never discards the reports of the others. `candidate` builds the decision
+    model named with `--model` (`None` without it), only for the evals in `CANDIDATE_EVALS`, so a
+    client that cannot be built fails those evals alone."""
     try:
         if name in CANDIDATE_EVALS:
-            return CANDIDATE_EVALS[name](repository, settings, candidate)
+            return CANDIDATE_EVALS[name](repository, settings, candidate())
         return EVALS[name](repository, settings)
     except ModelNotConfiguredError as error:
         return {"eval": name, "skipped": str(error)}
@@ -163,8 +165,8 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--base-url", help="base URL of --model (default: LLM_BASE_URL)")
     args = parser.parse_args(argv)
     settings = Settings()
-    candidate = (decider_client(args.model, args.base_url or settings.llm_base_url, settings)
-                 if args.model else None)
+    candidate = cache(lambda: decider_client(
+        args.model, args.base_url or settings.llm_base_url, settings) if args.model else None)
     out = args.out
     if args.data.resolve() != FIXTURE_DIRECTORY.resolve():
         out = out or state_path(settings, args.data) / "evals"
