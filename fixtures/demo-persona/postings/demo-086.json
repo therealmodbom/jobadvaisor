@@ -1,0 +1,17 @@
+{
+  "schema_version": "1",
+  "title": "iOS Developer",
+  "company": "Demo Co. Alder",
+  "location_raw": "Brightwater Bay, on-site",
+  "text": "Demo Co. Alder is a scale-up building media apps. We are looking for a mid-level iOS Developer to join our mobile team. Work is on-site in our Brightwater Bay office.\n\nOur stack: swift. You will improve app performance and stability, build offline-first features and ship features end to end.\n\nA yearly learning budget.",
+  "source_type": "text",
+  "urls": [],
+  "added_at": "2026-04-14T03:00:00Z",
+  "presented_at": "2026-04-20T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-04-14T03:00:00Z"
+  }
+}

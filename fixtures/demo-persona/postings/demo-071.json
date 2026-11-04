@@ -1,0 +1,18 @@
+{
+  "schema_version": "1",
+  "title": "Senior Backend Developer (Mobile APIs)",
+  "company": "Demo Co. Hazel",
+  "location_raw": "Northhaven (hybrid)",
+  "text": "Demo Co. Hazel is an agency building education apps. We are looking for a senior-level Backend Developer (Mobile APIs) to join our mobile team. Work is two office days a week in Northhaven.\n\nOur stack: python, csharp. You will ship features end to end, improve app performance and stability and review code with the team.\n\nA small, senior team. You will mentor less experienced colleagues.\n\nThe role includes a 24/7 on-call rotation.",
+  "source_type": "url",
+  "urls": [
+    "https://careers.example.org/hazel/071"
+  ],
+  "added_at": "2026-04-04T16:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-04-04T16:00:00Z"
+  }
+}

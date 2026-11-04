@@ -1,0 +1,20 @@
+{
+  "schema_version": "1",
+  "title": "Senior React Native Developer",
+  "company": "Demo Co. Juniper",
+  "location_raw": "Northhaven, on-site",
+  "text": "Demo Co. Juniper is a startup building banking apps. We are looking for a senior-level React Native Developer to join our mobile team. Work is on-site in our Northhaven office.\n\nOur stack: typescript, dart. You will improve app performance and stability, own the release process and build offline-first features.\n\nRegular hack days. You will mentor less experienced colleagues.",
+  "source_type": "url",
+  "urls": [
+    "https://jobs.example.com/postings/013"
+  ],
+  "added_at": "2026-03-06T03:00:00Z",
+  "presented_at": "2026-03-30T09:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-03-06T03:00:00Z"
+  },
+  "legacy_decision": "discarded"
+}

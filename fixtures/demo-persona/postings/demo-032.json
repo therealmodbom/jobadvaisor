@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "title": "Senior Android Developer",
+  "company": "Demo Co. Spruce",
+  "location_raw": "Fennick (hybrid)",
+  "text": "Demo Co. Spruce is a scale-up building fitness apps. We are looking for a senior-level Android Developer to join our mobile team. Work is two office days a week in Fennick.\n\nOur stack: kotlin. You will improve app performance and stability, work closely with design and product and build offline-first features.\n\nFour-day weeks in summer. You will mentor less experienced colleagues.",
+  "source_type": "url",
+  "urls": [
+    "https://careers.example.org/spruce/032"
+  ],
+  "added_at": "2026-03-10T04:00:00Z",
+  "presented_at": "2026-03-16T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-03-10T04:00:00Z"
+  }
+}

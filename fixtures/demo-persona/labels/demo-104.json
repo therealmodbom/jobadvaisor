@@ -1,0 +1,11 @@
+{
+  "schema_version": "1",
+  "kind": "rating",
+  "verdict": "negative",
+  "strength": "strong",
+  "chips": [
+    "wrong-stack"
+  ],
+  "note": "Salary range missing.",
+  "rated_at": "2026-04-30T04:00:00Z"
+}

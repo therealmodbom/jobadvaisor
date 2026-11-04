@@ -1,0 +1,114 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "link .env and local.env",
+      "detail": "In a worktree, symlink the main checkout's local.env (settings) and its .env (secrets without a Keychain), if one exists; never copies or prints them",
+      "type": "shell",
+      "command": "main=$(git worktree list --porcelain | awk '/^worktree /{print $2; exit}'); for name in .env local.env; do if [ -e \"$name\" ]; then echo \"$name present\"; elif [ -n \"$main\" ] && [ \"$main\" != \"$(pwd)\" ] && [ -e \"$main/$name\" ]; then ln -sfn \"$main/$name\" \"$name\" && echo \"symlinked $name -> $main/$name\"; elif [ \"$name\" = local.env ]; then echo \"MISSING $name: create it from .env.example (no source file found to link)\"; fi; done",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "git: enable pre-commit hook",
+      "detail": "Points git at .githooks so commits on main are blocked (once per clone, see AGENTS.md)",
+      "type": "shell",
+      "command": "git config core.hooksPath .githooks && echo \"core.hooksPath=$(git config --get core.hooksPath)\"",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "backend: install",
+      "type": "shell",
+      "command": "uv sync --directory backend",
+      "problemMatcher": []
+    },
+    {
+      "label": "backend: install browser (playwright)",
+      "detail": "Chromium for the rendered-fetch step of intake",
+      "type": "shell",
+      "command": "uv run --directory backend playwright install chromium",
+      "problemMatcher": []
+    },
+    {
+      "label": "frontend: install",
+      "type": "shell",
+      "command": "npm ci",
+      "options": { "cwd": "${workspaceFolder}/frontend" },
+      "problemMatcher": []
+    },
+    {
+      "label": "frontend: build",
+      "detail": "Builds frontend/dist, which the backend serves at /",
+      "type": "shell",
+      "command": "npm run build",
+      "options": { "cwd": "${workspaceFolder}/frontend" },
+      "problemMatcher": []
+    },
+    {
+      "label": "demo: fresh data copy",
+      "detail": "Stop the demo backend first. Replaces ~/.jobadvaisor/demo-data with a fresh copy of fixtures/demo-persona and deletes its runs and index in ~/.jobadvaisor/demo-state",
+      "type": "shell",
+      "command": "mkdir -p \"$HOME/.jobadvaisor\" && rm -rf \"$HOME/.jobadvaisor/demo-data\" \"$HOME/.jobadvaisor/demo-state\" && cp -R fixtures/demo-persona \"$HOME/.jobadvaisor/demo-data\" && echo \"fresh demo data at $HOME/.jobadvaisor/demo-data, no runs\"",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "0 - setup worktree",
+      "detail": "Everything a fresh clone or worktree needs before the app runs",
+      "group": { "kind": "build", "isDefault": true },
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "link .env and local.env",
+        "git: enable pre-commit hook",
+        "backend: install",
+        "backend: install browser (playwright)",
+        "frontend: install",
+        "frontend: build"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "backend: pytest",
+      "type": "shell",
+      "command": "uv run --directory backend pytest -q",
+      "group": { "kind": "test", "isDefault": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "backend: lint (ruff)",
+      "type": "shell",
+      "command": "uv run --directory backend ruff check .",
+      "problemMatcher": []
+    },
+    {
+      "label": "frontend: test",
+      "type": "shell",
+      "command": "npm test",
+      "group": "test",
+      "options": { "cwd": "${workspaceFolder}/frontend" },
+      "problemMatcher": []
+    },
+    {
+      "label": "frontend: lint",
+      "type": "shell",
+      "command": "npm run lint",
+      "options": { "cwd": "${workspaceFolder}/frontend" },
+      "problemMatcher": []
+    },
+    {
+      "label": "openspec: validate",
+      "type": "shell",
+      "command": "openspec validate learning-job-match --strict",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "evals: demo persona (real API spend)",
+      "detail": "All evals on the demo persona; report under ~/.jobadvaisor/eval-results",
+      "type": "shell",
+      "command": "uv run --directory backend python -m jobadvaisor.evals --out \"$HOME/.jobadvaisor/eval-results\"",
+      "problemMatcher": []
+    }
+  ]
+}

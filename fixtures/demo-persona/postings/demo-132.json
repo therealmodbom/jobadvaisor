@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "title": "React Native Developer",
+  "company": "Demo Co. Spruce",
+  "location_raw": "Eastmere, on-site",
+  "text": "Demo Co. Spruce is a scale-up building fitness apps. We are looking for a mid-level React Native Developer to join our mobile team. Work is on-site in our Eastmere office.\n\nOur stack: typescript. You will ship features end to end, work closely with design and product and own the release process.\n\nA small, senior team.",
+  "source_type": "url",
+  "urls": [
+    "https://careers.example.org/spruce/132"
+  ],
+  "added_at": "2026-05-13T09:00:00Z",
+  "presented_at": "2026-05-18T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-05-13T09:00:00Z"
+  }
+}

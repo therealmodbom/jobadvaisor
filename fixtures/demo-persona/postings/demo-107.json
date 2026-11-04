@@ -1,0 +1,17 @@
+{
+  "schema_version": "1",
+  "title": "Flutter Developer",
+  "company": "Demo Co. Willow",
+  "location_raw": "Remote",
+  "text": "Demo Co. Willow is an agency building logistics apps. We are looking for a mid-level Flutter Developer to join our mobile team. Work is fully remote within the country.\n\nOur stack: dart, java. You will own the release process, ship features end to end and build offline-first features.\n\nRegular hack days.",
+  "source_type": "text",
+  "urls": [],
+  "added_at": "2026-04-27T09:00:00Z",
+  "presented_at": "2026-05-04T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-04-27T09:00:00Z"
+  }
+}

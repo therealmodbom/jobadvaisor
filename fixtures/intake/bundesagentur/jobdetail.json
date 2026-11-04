@@ -1,0 +1,23 @@
+{
+  "aenderungsdatum": "2026-10-02T08:14:55.123",
+  "allianzpartnerName": null,
+  "arbeitgeberKundennummerHash": "fictional-hash-0001",
+  "arbeitszeitVollzeit": true,
+  "datumErsteVeroeffentlichung": "2026-09-30",
+  "eintrittszeitraum": {"von": "2026-11-01"},
+  "firma": "Kranich Logistiksysteme GmbH",
+  "hauptberuf": "Softwareentwickler/in",
+  "homeofficemoeglich": true,
+  "istArbeitnehmerUeberlassung": false,
+  "istPrivateArbeitsvermittlung": false,
+  "referenznummer": "10000-0000000001-S",
+  "stellenangebotsBeschreibung": "Kranich Logistiksysteme entwickelt Lagerverwaltungssoftware für mittelständische Händler.\n\nIhre Aufgaben:\n- Weiterentwicklung unserer Java- und Kotlin-Services\n- Anbindung von Scannern und Fördertechnik über REST und MQTT\n- Code-Reviews im Team aus fünf Entwicklerinnen und Entwicklern\n\nIhr Profil:\n- Abgeschlossenes Studium der Informatik oder vergleichbare Ausbildung\n- Mindestens drei Jahre Erfahrung in der Backend-Entwicklung\n- Gute Deutschkenntnisse",
+  "stellenangebotsTitel": "Softwareentwickler Backend (m/w/d)",
+  "stellenangebotsart": "ARBEIT",
+  "stellenlokationen": [
+    {"adresse": {"land": "DEUTSCHLAND", "ort": "Kassel", "plz": "34117", "region": "Hessen"}, "breite": 51.3, "laenge": 9.5},
+    {"adresse": {"land": "DEUTSCHLAND", "ort": "Göttingen", "plz": "37073", "region": "Niedersachsen"}, "breite": 51.5, "laenge": 9.9}
+  ],
+  "verguetungsangabe": "KEINE_ANGABEN",
+  "vertragsdauer": "UNBEFRISTET"
+}

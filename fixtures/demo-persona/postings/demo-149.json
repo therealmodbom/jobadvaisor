@@ -1,0 +1,18 @@
+{
+  "schema_version": "1",
+  "title": "Mobile Developer (Kotlin Multiplatform)",
+  "company": "Demo Co. Juniper",
+  "location_raw": "Northhaven, on-site",
+  "text": "Demo Co. Juniper is a startup building banking apps. We are looking for a mid-level Mobile Developer (Kotlin Multiplatform) to join our mobile team. Work is on-site in our Northhaven office.\n\nOur stack: kotlin, swift. You will review code with the team, work closely with design and product and own the release process.\n\nModern devices for testing.",
+  "source_type": "url",
+  "urls": [
+    "https://careers.example.org/juniper/149"
+  ],
+  "added_at": "2026-05-24T05:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-05-24T05:00:00Z"
+  }
+}

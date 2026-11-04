@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "title": "iOS Developer",
+  "company": "Demo Co. Maple",
+  "location_raw": "Remote",
+  "text": "Demo Co. Maple is a startup building banking apps. We are looking for a mid-level iOS Developer to join our mobile team. Work is fully remote within the country.\n\nOur stack: swift. You will review code with the team, own the release process and work closely with design and product.\n\nRegular hack days.",
+  "source_type": "url",
+  "urls": [
+    "https://careers.example.org/maple/059"
+  ],
+  "added_at": "2026-03-27T23:00:00Z",
+  "presented_at": "2026-03-30T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-03-27T23:00:00Z"
+  }
+}

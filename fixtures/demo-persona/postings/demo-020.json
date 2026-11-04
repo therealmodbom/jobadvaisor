@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "title": "Game Client Developer",
+  "company": "Demo Co. Elm",
+  "location_raw": "Remote",
+  "text": "Demo Co. Elm is a startup building media apps. We are looking for a mid-level Game Client Developer to join our mobile team. Work is fully remote within the country.\n\nOur stack: csharp. You will own the release process, review code with the team and ship features end to end.\n\nA yearly learning budget.",
+  "source_type": "url",
+  "urls": [
+    "https://careers.example.org/elm/020"
+  ],
+  "added_at": "2026-03-02T20:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-03-02T20:00:00Z"
+  },
+  "legacy_decision": "discarded"
+}

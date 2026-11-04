@@ -1,0 +1,17 @@
+{
+  "schema_version": "1",
+  "title": "Senior Mobile Developer (Kotlin Multiplatform)",
+  "company": "Demo Co. Pine",
+  "location_raw": "Northhaven, on-site",
+  "text": "Demo Co. Pine is an agency building fitness apps. We are looking for a senior-level Mobile Developer (Kotlin Multiplatform) to join our mobile team. Work is on-site in our Northhaven office.\n\nOur stack: swift. You will build offline-first features, ship features end to end and review code with the team.\n\nA yearly learning budget. You will mentor less experienced colleagues.",
+  "source_type": "pdf",
+  "urls": [],
+  "added_at": "2026-03-27T11:00:00Z",
+  "presented_at": "2026-03-30T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-03-27T11:00:00Z"
+  }
+}

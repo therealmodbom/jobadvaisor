@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "title": "Backend Developer (Mobile APIs)",
+  "company": "Demo Co. Alder",
+  "location_raw": "Northhaven (hybrid)",
+  "text": "Demo Co. Alder is a scale-up building media apps. We are looking for a mid-level Backend Developer (Mobile APIs) to join our mobile team. Work is two office days a week in Northhaven.\n\nOur stack: kotlin, go. You will work closely with design and product, review code with the team and own the release process.\n\nFlexible hours.",
+  "source_type": "url",
+  "urls": [
+    "https://jobs.example.com/postings/037"
+  ],
+  "added_at": "2026-03-13T23:00:00Z",
+  "presented_at": "2026-03-16T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-03-13T23:00:00Z"
+  }
+}

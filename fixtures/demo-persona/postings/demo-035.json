@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "title": "iOS Developer",
+  "company": "Demo Co. Cypress",
+  "location_raw": "Remote",
+  "text": "Demo Co. Cypress is a startup building media apps. We are looking for a mid-level iOS Developer to join our mobile team. Work is fully remote within the country.\n\nOur stack: swift. You will work closely with design and product, improve app performance and stability and review code with the team.\n\nFour-day weeks in summer.",
+  "source_type": "url",
+  "urls": [
+    "https://careers.example.org/cypress/035"
+  ],
+  "added_at": "2026-03-12T18:00:00Z",
+  "presented_at": "2026-03-16T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-03-12T18:00:00Z"
+  }
+}

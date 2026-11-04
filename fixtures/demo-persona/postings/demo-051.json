@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "title": "Junior Mobile QA Engineer",
+  "company": "Demo Co. Linden",
+  "location_raw": "Eastmere, on-site",
+  "text": "Demo Co. Linden is an agency building travel apps. We are looking for a junior-level Mobile QA Engineer to join our mobile team. Work is on-site in our Eastmere office.\n\nOur stack: kotlin. You will own the release process, review code with the team and ship features end to end.\n\nFour-day weeks in summer.",
+  "source_type": "url",
+  "urls": [
+    "https://careers.example.org/linden/051"
+  ],
+  "added_at": "2026-03-22T06:00:00Z",
+  "presented_at": "2026-03-23T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-03-22T06:00:00Z"
+  }
+}

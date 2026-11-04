@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "title": "Lead Android Developer",
+  "company": "Demo Co. Cedar",
+  "location_raw": "Remote",
+  "text": "Demo Co. Cedar is a startup building education apps. We are looking for a lead-level Android Developer to join our mobile team. Work is fully remote within the country.\n\nOur stack: kotlin. You will improve app performance and stability, review code with the team and build offline-first features.\n\nA yearly learning budget. You will mentor less experienced colleagues.",
+  "source_type": "url",
+  "urls": [
+    "https://careers.example.org/cedar/046"
+  ],
+  "added_at": "2026-03-19T13:00:00Z",
+  "presented_at": "2026-03-23T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-03-19T13:00:00Z"
+  }
+}

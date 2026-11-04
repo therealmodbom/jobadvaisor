@@ -1,0 +1,28 @@
+#!/bin/sh
+#
+# Block direct commits to main. This repository develops on feature branches
+# and merges via Pull Request.
+#
+# Enable once per clone (hooks config is local, not committed):
+#
+#     git config core.hooksPath .githooks
+#
+# Self-contained on purpose: no external scripts, no environment variables, so
+# it works for anyone who clones this repository.
+
+# During rebase/merge HEAD is detached and symbolic-ref fails, allow those.
+branch=$(git symbolic-ref --short HEAD 2>/dev/null) || exit 0
+
+if [ "$branch" = "main" ]; then
+    echo "BLOCKED: direct commits to 'main' are not allowed in this repository."
+    echo ""
+    echo "  git switch -c <type>/<short-name>"
+    echo "  git commit ..."
+    echo "  gh pr create"
+    echo ""
+    echo "To bypass deliberately (rare, and you should have a reason):"
+    echo "  git commit --no-verify"
+    exit 1
+fi
+
+exit 0

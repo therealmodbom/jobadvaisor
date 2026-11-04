@@ -1,0 +1,17 @@
+{
+  "schema_version": "1",
+  "title": "Junior iOS Developer",
+  "company": "Demo Co. Cypress",
+  "location_raw": "Remote",
+  "text": "Demo Co. Cypress is a startup building media apps. We are looking for a junior-level iOS Developer to join our mobile team. Work is fully remote within the country.\n\nOur stack: swift. You will ship features end to end, build offline-first features and own the release process.\n\nA yearly learning budget.",
+  "source_type": "pdf",
+  "urls": [],
+  "added_at": "2026-05-08T04:00:00Z",
+  "presented_at": "2026-05-11T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-05-08T04:00:00Z"
+  }
+}

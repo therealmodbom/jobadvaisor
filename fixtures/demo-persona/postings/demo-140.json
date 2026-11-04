@@ -1,0 +1,17 @@
+{
+  "schema_version": "1",
+  "title": "Junior React Native Developer",
+  "company": "Demo Co. Oak",
+  "location_raw": "Fennick, on-site",
+  "text": "Demo Co. Oak is a scale-up building education apps. We are looking for a junior-level React Native Developer to join our mobile team. Work is on-site in our Fennick office.\n\nOur stack: typescript, kotlin. You will work closely with design and product, review code with the team and own the release process.\n\nFlexible hours.",
+  "source_type": "text",
+  "urls": [],
+  "added_at": "2026-05-18T16:00:00Z",
+  "presented_at": "2026-05-25T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-05-18T16:00:00Z"
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "`scores/<id>.json`: the stored fit score of `postings/<id>.json`. `score` is 0-10,\n`example_ids` the rated postings the judge was shown, `scored_at` when the pass wrote it.",
+  "properties": {
+    "schema_version": {
+      "const": "1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "score": {
+      "maximum": 10,
+      "minimum": 0,
+      "title": "Score",
+      "type": "integer"
+    },
+    "reasoning": {
+      "title": "Reasoning",
+      "type": "string"
+    },
+    "example_ids": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Example Ids",
+      "type": "array"
+    },
+    "scored_at": {
+      "format": "date-time",
+      "title": "Scored At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "score",
+    "reasoning",
+    "scored_at"
+  ],
+  "title": "Score",
+  "type": "object"
+}

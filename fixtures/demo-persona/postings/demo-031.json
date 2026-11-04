@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "title": "Lead React Native Developer",
+  "company": "Demo Co. Yew",
+  "location_raw": "Remote",
+  "text": "Demo Co. Yew is a startup building health apps. We are looking for a lead-level React Native Developer to join our mobile team. Work is fully remote within the country.\n\nOur stack: typescript. You will build offline-first features, own the release process and work closely with design and product.\n\nFour-day weeks in summer. You will mentor less experienced colleagues.",
+  "source_type": "url",
+  "urls": [
+    "https://careers.example.org/yew/031"
+  ],
+  "added_at": "2026-03-09T13:00:00Z",
+  "presented_at": "2026-03-16T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-03-09T13:00:00Z"
+  }
+}

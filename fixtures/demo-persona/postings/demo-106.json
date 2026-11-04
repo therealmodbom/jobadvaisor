@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "title": "Lead Backend Developer (Mobile APIs)",
+  "company": "Demo Co. Elm",
+  "location_raw": "Eastmere, on-site",
+  "text": "Demo Co. Elm is a startup building media apps. We are looking for a lead-level Backend Developer (Mobile APIs) to join our mobile team. Work is on-site in our Eastmere office.\n\nOur stack: kotlin, go, csharp. You will improve app performance and stability, own the release process and work closely with design and product.\n\nRegular hack days. You will mentor less experienced colleagues.",
+  "source_type": "url",
+  "urls": [
+    "https://jobs.example.com/postings/106"
+  ],
+  "added_at": "2026-04-26T12:00:00Z",
+  "presented_at": "2026-04-27T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-04-26T12:00:00Z"
+  }
+}

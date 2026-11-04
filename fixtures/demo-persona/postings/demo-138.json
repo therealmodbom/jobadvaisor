@@ -1,0 +1,17 @@
+{
+  "schema_version": "1",
+  "title": "Flutter Developer",
+  "company": "unknown",
+  "location_raw": "Northhaven, on-site",
+  "text": "Demo Co. Spruce is a scale-up building fitness apps. We are looking for a mid-level Flutter Developer to join our mobile team. Work is on-site in our Northhaven office.\n\nOur stack: dart, typescript. You will review code with the team, ship features end to end and work closely with design and product.\n\nA small, senior team.",
+  "source_type": "pdf",
+  "urls": [],
+  "added_at": "2026-05-17T09:00:00Z",
+  "presented_at": "2026-05-18T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-05-17T09:00:00Z"
+  }
+}

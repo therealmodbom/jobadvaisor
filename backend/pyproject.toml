@@ -1,0 +1,47 @@
+[project]
+name = "jobadvaisor"
+version = "0.1.0"
+description = "Local-first AI job search assistant with a learning job match."
+license = "MIT"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "chromadb>=1.5.9",
+    "deepeval>=4.2,<4.3",
+    "fastapi>=0.143.0",
+    "httpx>=0.28.1",
+    "langchain>=1.4.4",
+    "langchain-openai>=1.7.0",
+    "langfuse>=4.17.0",
+    "langgraph>=1.2.14",
+    "langgraph-checkpoint-sqlite>=3.1.1",
+    "openai>=3.28.0",
+    "playwright>=1.63.0",
+    "pydantic-settings>=2.15.0",
+    "pypdf>=6.20.0",
+    "python-multipart>=0.0.32",
+    "uvicorn>=0.54.0",
+]
+
+[dependency-groups]
+dev = [
+    "jsonschema>=4.26.0",
+    "pytest",
+    "ruff",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+# The browser walkthrough needs a built frontend; run it with `pytest -m e2e` (a later -m wins).
+# DeepEval's pytest plugin would import deepeval at startup and fix its `.deepeval` folder in the
+# working directory before `load_deepeval` can move it into the state directory.
+addopts = "-m 'not e2e' -p no:deepeval"
+markers = ["e2e: browser walkthrough of the real app (needs `npm --prefix frontend run build`)"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

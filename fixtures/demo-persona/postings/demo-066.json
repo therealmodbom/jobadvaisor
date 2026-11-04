@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "title": "Senior Mobile Developer (Kotlin Multiplatform)",
+  "company": "Demo Co. Birch",
+  "location_raw": "Oldmoor, on-site",
+  "text": "Demo Co. Birch is a startup building banking apps. We are looking for a senior-level Mobile Developer (Kotlin Multiplatform) to join our mobile team. Work is on-site in our Oldmoor office.\n\nOur stack: kotlin, swift, go. You will build offline-first features, review code with the team and ship features end to end.\n\nRegular hack days. You will mentor less experienced colleagues.",
+  "source_type": "url",
+  "urls": [
+    "https://careers.example.org/birch/066"
+  ],
+  "added_at": "2026-04-01T05:00:00Z",
+  "presented_at": "2026-04-06T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-04-01T05:00:00Z"
+  }
+}

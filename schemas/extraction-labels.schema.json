@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "`extraction-labels.json`: hand-settled feature values, `labels[posting ID][feature ID]`,\nshaped like the extractor's output for the feature's type (text, list of options, boolean,\nnumber). `min_accuracy` (0 to 1) is the user's bar for the extractor; absent means the\nbenchmark only reports. The loader checks that every posting and feature exists.",
+  "properties": {
+    "schema_version": {
+      "const": "1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "min_accuracy": {
+      "anyOf": [
+        {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Min Accuracy"
+    },
+    "labels": {
+      "additionalProperties": {
+        "additionalProperties": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ]
+        },
+        "type": "object"
+      },
+      "default": {},
+      "title": "Labels",
+      "type": "object"
+    }
+  },
+  "required": [
+    "schema_version"
+  ],
+  "title": "ExtractionLabels",
+  "type": "object"
+}

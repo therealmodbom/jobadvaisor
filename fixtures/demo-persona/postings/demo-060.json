@@ -1,0 +1,17 @@
+{
+  "schema_version": "1",
+  "title": "Junior iOS Developer",
+  "company": "Demo Co. Spruce",
+  "location_raw": "Brightwater Bay, on-site",
+  "text": "Demo Co. Spruce is a scale-up building fitness apps. We are looking for a junior-level iOS Developer to join our mobile team. Work is on-site in our Brightwater Bay office.\n\nOur stack: swift. You will own the release process, build offline-first features and ship features end to end.\n\nFour-day weeks in summer.",
+  "source_type": "pdf",
+  "urls": [],
+  "added_at": "2026-03-28T13:00:00Z",
+  "presented_at": "2026-03-30T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-03-28T13:00:00Z"
+  }
+}

@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "`companies/<id>.json`: what a lookup found about one employer, `<id>` being `company_id`\nof `name`. `size_class` is LinkedIn's range without the word employees (\"51-200\",\n\"10,001+\"), `founded` a four-digit year; each is absent when the source did not state it, so\na record may hold neither (a completed lookup that found nothing). Both facts come from one\n`source` (\"linkedin\" or \"website\", the last one read for a record without facts; \"manual\"\nfor a record the user entered, `source_url` then pointing at what they read) at\n`source_url`, looked up or entered at `fetched_at`.",
+  "properties": {
+    "schema_version": {
+      "const": "1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "name": {
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "size_class": {
+      "anyOf": [
+        {
+          "pattern": "^\\d[\\d,]*(-\\d[\\d,]*|\\+)$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Size Class"
+    },
+    "founded": {
+      "anyOf": [
+        {
+          "maximum": 9999,
+          "minimum": 1000,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Founded"
+    },
+    "source": {
+      "enum": [
+        "linkedin",
+        "website",
+        "manual"
+      ],
+      "title": "Source",
+      "type": "string"
+    },
+    "source_url": {
+      "minLength": 1,
+      "title": "Source Url",
+      "type": "string"
+    },
+    "fetched_at": {
+      "format": "date-time",
+      "title": "Fetched At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "name",
+    "source",
+    "source_url",
+    "fetched_at"
+  ],
+  "title": "Company",
+  "type": "object"
+}

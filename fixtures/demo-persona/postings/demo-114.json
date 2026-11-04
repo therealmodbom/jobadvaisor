@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "title": "Android Developer",
+  "company": "Demo Co. Elm",
+  "location_raw": "Eastmere (hybrid)",
+  "text": "Demo Co. Elm is a startup building media apps. We are looking for a mid-level Android Developer to join our mobile team. Work is two office days a week in Eastmere.\n\nOur stack: kotlin, java, typescript. You will own the release process, work closely with design and product and ship features end to end.\n\nA small, senior team.",
+  "source_type": "url",
+  "urls": [
+    "https://jobs.example.com/postings/114"
+  ],
+  "added_at": "2026-05-02T10:00:00Z",
+  "presented_at": "2026-05-04T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-05-02T10:00:00Z"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "title": "Junior Mobile QA Engineer",
+  "company": "Demo Co. Elm",
+  "location_raw": "Northhaven (hybrid)",
+  "text": "Demo Co. Elm is a startup building media apps. We are looking for a junior-level Mobile QA Engineer to join our mobile team. Work is two office days a week in Northhaven.\n\nOur stack: python, dart. You will build offline-first features, work closely with design and product and own the release process.\n\nFlexible hours.",
+  "source_type": "url",
+  "urls": [
+    "https://careers.example.org/elm/080"
+  ],
+  "added_at": "2026-04-10T08:00:00Z",
+  "presented_at": "2026-04-13T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-04-10T08:00:00Z"
+  }
+}

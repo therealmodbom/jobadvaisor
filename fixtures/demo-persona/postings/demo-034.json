@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "title": "Flutter Developer",
+  "company": "Demo Co. Fir",
+  "location_raw": "Remote",
+  "text": "Demo Co. Fir is a startup building travel apps. We are looking for a mid-level Flutter Developer to join our mobile team. Work is fully remote within the country.\n\nOur stack: dart. You will ship features end to end, improve app performance and stability and review code with the team.\n\nModern devices for testing.",
+  "source_type": "url",
+  "urls": [
+    "https://careers.example.org/fir/034"
+  ],
+  "added_at": "2026-03-11T20:00:00Z",
+  "presented_at": "2026-03-16T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-03-11T20:00:00Z"
+  }
+}

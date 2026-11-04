@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "title": "Backend Developer (Mobile APIs)",
+  "company": "Demo Co. Fir",
+  "location_raw": "Remote",
+  "text": "Demo Co. Fir is a startup building travel apps. We are looking for a mid-level Backend Developer (Mobile APIs) to join our mobile team. Work is fully remote within the country.\n\nOur stack: kotlin, python, go. You will ship features end to end, improve app performance and stability and own the release process.\n\nA small, senior team.",
+  "source_type": "url",
+  "urls": [
+    "https://careers.example.org/fir/005"
+  ],
+  "added_at": "2026-03-10T06:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-03-10T06:00:00Z"
+  },
+  "legacy_decision": "kept"
+}

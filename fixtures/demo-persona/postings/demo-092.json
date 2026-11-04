@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "title": "Junior iOS Developer",
+  "company": "Demo Co. Linden",
+  "location_raw": "Fennick (hybrid)",
+  "text": "Demo Co. Linden is an agency building travel apps. We are looking for a junior-level iOS Developer to join our mobile team. Work is two office days a week in Fennick.\n\nOur stack: swift. You will build offline-first features, ship features end to end and improve app performance and stability.\n\nFlexible hours.",
+  "source_type": "url",
+  "urls": [
+    "https://jobs.example.com/postings/092"
+  ],
+  "added_at": "2026-04-17T16:00:00Z",
+  "presented_at": "2026-04-20T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-04-17T16:00:00Z"
+  }
+}

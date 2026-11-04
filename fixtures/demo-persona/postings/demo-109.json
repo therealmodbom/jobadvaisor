@@ -1,0 +1,17 @@
+{
+  "schema_version": "1",
+  "title": "Android Developer",
+  "company": "Demo Co. Linden",
+  "location_raw": "Remote",
+  "text": "Demo Co. Linden is an agency building travel apps. We are looking for a mid-level Android Developer to join our mobile team. Work is fully remote within the country.\n\nOur stack: kotlin, java, csharp. You will own the release process, ship features end to end and work closely with design and product.\n\nFlexible hours.",
+  "source_type": "pdf",
+  "urls": [],
+  "added_at": "2026-04-28T22:00:00Z",
+  "presented_at": "2026-05-04T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-04-28T22:00:00Z"
+  }
+}

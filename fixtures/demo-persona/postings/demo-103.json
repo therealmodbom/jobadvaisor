@@ -1,0 +1,17 @@
+{
+  "schema_version": "1",
+  "title": "Lead Mobile Developer (Kotlin Multiplatform)",
+  "company": "Demo Co. Larch",
+  "location_raw": "Fennick, on-site",
+  "text": "Demo Co. Larch is a startup building travel apps. We are looking for a lead-level Mobile Developer (Kotlin Multiplatform) to join our mobile team. Work is on-site in our Fennick office.\n\nOur stack: kotlin, swift. You will ship features end to end, improve app performance and stability and work closely with design and product.\n\nFour-day weeks in summer. You will mentor less experienced colleagues.",
+  "source_type": "text",
+  "urls": [],
+  "added_at": "2026-04-25T09:00:00Z",
+  "presented_at": "2026-04-27T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-04-25T09:00:00Z"
+  }
+}

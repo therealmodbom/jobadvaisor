@@ -1,0 +1,10 @@
+{
+  "schema_version": "1",
+  "kind": "rating",
+  "verdict": "positive",
+  "strength": "strong",
+  "chips": [
+    "great-stack"
+  ],
+  "rated_at": "2026-05-14T03:00:00Z"
+}

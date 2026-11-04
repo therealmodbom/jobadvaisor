@@ -1,0 +1,20 @@
+{
+  "schema_version": "1",
+  "title": "Lead Android Developer",
+  "company": "Demo Co. Yew",
+  "location_raw": "Remote",
+  "text": "Demo Co. Yew is a startup building health apps. We are looking for a lead-level Android Developer to join our mobile team. Work is fully remote within the country.\n\nOur stack: java. You will work closely with design and product, improve app performance and stability and own the release process.\n\nRegular hack days. You will mentor less experienced colleagues.",
+  "source_type": "url",
+  "urls": [
+    "https://jobs.example.com/postings/015"
+  ],
+  "added_at": "2026-03-09T18:00:00Z",
+  "presented_at": "2026-04-06T09:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-03-09T18:00:00Z"
+  },
+  "legacy_decision": "discarded"
+}

@@ -1,0 +1,17 @@
+{
+  "schema_version": "1",
+  "title": "Senior Android Developer",
+  "company": "Demo Co. Birch",
+  "location_raw": "Eastmere, on-site",
+  "text": "Demo Co. Birch is a startup building banking apps. We are looking for a senior-level Android Developer to join our mobile team. Work is on-site in our Eastmere office.\n\nOur stack: java. You will own the release process, ship features end to end and work closely with design and product.\n\nFour-day weeks in summer. You will mentor less experienced colleagues.",
+  "source_type": "pdf",
+  "urls": [],
+  "added_at": "2026-04-19T10:00:00Z",
+  "presented_at": "2026-04-20T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-04-19T10:00:00Z"
+  }
+}

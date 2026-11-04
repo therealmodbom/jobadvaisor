@@ -1,0 +1,12 @@
+{
+  "schema_version": "1",
+  "kind": "rating",
+  "verdict": "positive",
+  "strength": "weak",
+  "chips": [
+    "fitting-seniority",
+    "great-stack"
+  ],
+  "note": "Commute would be long.",
+  "rated_at": "2026-04-28T07:00:00Z"
+}

@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "title": "Mobile Developer (Kotlin Multiplatform)",
+  "company": "Demo Co. Larch",
+  "location_raw": "Eastmere, on-site",
+  "text": "Demo Co. Larch is a startup building travel apps. We are looking for a mid-level Mobile Developer (Kotlin Multiplatform) to join our mobile team. Work is on-site in our Eastmere office.\n\nOur stack: kotlin, swift. You will review code with the team, ship features end to end and work closely with design and product.\n\nFour-day weeks in summer.",
+  "source_type": "url",
+  "urls": [
+    "https://jobs.example.com/postings/101"
+  ],
+  "added_at": "2026-04-23T14:00:00Z",
+  "presented_at": "2026-04-27T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-04-23T14:00:00Z"
+  }
+}

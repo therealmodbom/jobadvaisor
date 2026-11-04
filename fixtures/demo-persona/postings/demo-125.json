@@ -1,0 +1,17 @@
+{
+  "schema_version": "1",
+  "title": "Mobile QA Engineer",
+  "company": "Demo Co. Hawthorn",
+  "location_raw": "Remote",
+  "text": "Demo Co. Hawthorn is a startup building education apps. We are looking for a mid-level Mobile QA Engineer to join our mobile team. Work is fully remote within the country.\n\nOur stack: kotlin. You will ship features end to end, work closely with design and product and review code with the team.\n\nA small, senior team.",
+  "source_type": "text",
+  "urls": [],
+  "added_at": "2026-05-09T10:00:00Z",
+  "presented_at": "2026-05-11T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-05-09T10:00:00Z"
+  }
+}

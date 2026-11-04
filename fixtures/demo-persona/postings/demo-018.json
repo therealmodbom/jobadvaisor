@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "title": "Senior React Native Developer",
+  "company": "Demo Co. Linden",
+  "location_raw": "Northhaven (hybrid)",
+  "text": "Demo Co. Linden is an agency building travel apps. We are looking for a senior-level React Native Developer to join our mobile team. Work is two office days a week in Northhaven.\n\nOur stack: typescript. You will ship features end to end, review code with the team and work closely with design and product.\n\nA yearly learning budget. You will mentor less experienced colleagues.",
+  "source_type": "url",
+  "urls": [
+    "https://careers.example.org/linden/018"
+  ],
+  "added_at": "2026-03-05T06:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-03-05T06:00:00Z"
+  },
+  "legacy_decision": "discarded"
+}

@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Jobs</title>
+</head>
+<body>
+<div id="app">Loading…</div>
+<script>
+  setTimeout(() => {
+    document.getElementById("app").innerHTML = `
+      <h1>Machine Learning Engineer</h1>
+      <p>Brightwater Health AG, Basel (on site)</p>
+      <p>Brightwater Health builds diagnostic software for hospital laboratories. You train and
+      ship models that flag anomalous blood test results, using Python, PyTorch and our own
+      labelling tools, and you work closely with two clinicians on the team.</p>
+      <p>We expect a degree in a quantitative field and two years of production machine
+      learning experience.</p>
+      <p>We offer a hybrid schedule with three office days, a yearly conference budget and
+      relocation support for candidates moving to Basel.</p>
+      <p>Our hiring process has a call with the team lead, a case study on a small anonymised
+      dataset, and a day with the team in our lab. We answer every application within two
+      weeks.</p>`;
+  }, 50);
+</script>
+</body>
+</html>

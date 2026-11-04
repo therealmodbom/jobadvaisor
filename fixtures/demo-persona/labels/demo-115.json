@@ -1,0 +1,12 @@
+{
+  "schema_version": "1",
+  "kind": "rating",
+  "verdict": "negative",
+  "strength": "strong",
+  "chips": [
+    "onsite-only",
+    "wrong-stack"
+  ],
+  "note": "Team size sounds right.",
+  "rated_at": "2026-05-05T09:00:00Z"
+}

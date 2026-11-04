@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "title": "Senior React Native Developer",
+  "company": "Demo Co. Fir",
+  "location_raw": "Remote",
+  "text": "Demo Co. Fir is a startup building travel apps. We are looking for a senior-level React Native Developer to join our mobile team. Work is fully remote within the country.\n\nOur stack: typescript. You will build offline-first features, own the release process and review code with the team.\n\nRegular hack days. You will mentor less experienced colleagues.",
+  "source_type": "url",
+  "urls": [
+    "https://jobs.example.com/postings/026"
+  ],
+  "added_at": "2026-03-10T04:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-03-10T04:00:00Z"
+  },
+  "legacy_decision": "discarded"
+}

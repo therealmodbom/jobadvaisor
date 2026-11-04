@@ -1,0 +1,17 @@
+{
+  "schema_version": "1",
+  "title": "Mobile QA Engineer",
+  "company": "Demo Co. Birch",
+  "location_raw": "Remote",
+  "text": "Demo Co. Birch is a startup building banking apps. We are looking for a mid-level Mobile QA Engineer to join our mobile team. Work is fully remote within the country.\n\nOur stack: python. You will own the release process, review code with the team and improve app performance and stability.\n\nA small, senior team.",
+  "source_type": "text",
+  "urls": [],
+  "added_at": "2026-03-25T19:00:00Z",
+  "presented_at": "2026-03-30T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-03-25T19:00:00Z"
+  }
+}

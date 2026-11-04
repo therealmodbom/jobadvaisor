@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "`labels/<id>.json`: the label of `postings/<id>.json`. `verdict` is required, except for\nkind `imported_not_preference`, where it is absent. `strength` (`weak` | `strong`) is\noptional and only with a verdict; absent means a plain yes or no. `chips` hold reason chip\nIDs.",
+  "else": {
+    "properties": {
+      "verdict": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "verdict"
+    ]
+  },
+  "if": {
+    "properties": {
+      "kind": {
+        "const": "imported_not_preference"
+      }
+    }
+  },
+  "properties": {
+    "schema_version": {
+      "const": "1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "rating",
+        "imported_interest",
+        "imported_rejection",
+        "imported_not_preference"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "verdict": {
+      "anyOf": [
+        {
+          "enum": [
+            "positive",
+            "negative"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Verdict"
+    },
+    "strength": {
+      "anyOf": [
+        {
+          "enum": [
+            "weak",
+            "strong"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Strength"
+    },
+    "chips": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Chips",
+      "type": "array"
+    },
+    "note": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Note"
+    },
+    "rated_at": {
+      "format": "date-time",
+      "title": "Rated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "kind",
+    "rated_at"
+  ],
+  "then": {
+    "properties": {
+      "verdict": {
+        "type": "null"
+      }
+    }
+  },
+  "title": "Label",
+  "type": "object"
+}

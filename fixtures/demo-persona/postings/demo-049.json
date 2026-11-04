@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "title": "Senior Flutter Developer",
+  "company": "Demo Co. Yew",
+  "location_raw": "Oldmoor (hybrid)",
+  "text": "Demo Co. Yew is a startup building health apps. We are looking for a senior-level Flutter Developer to join our mobile team. Work is two office days a week in Oldmoor.\n\nOur stack: dart, swift. You will improve app performance and stability, work closely with design and product and review code with the team.\n\nRegular hack days. You will mentor less experienced colleagues.",
+  "source_type": "url",
+  "urls": [
+    "https://jobs.example.com/postings/049"
+  ],
+  "added_at": "2026-03-21T00:00:00Z",
+  "presented_at": "2026-03-23T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-03-21T00:00:00Z"
+  }
+}

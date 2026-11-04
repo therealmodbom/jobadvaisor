@@ -1,0 +1,12 @@
+{
+  "schema_version": "1",
+  "kind": "rating",
+  "verdict": "negative",
+  "strength": "strong",
+  "chips": [
+    "onsite-only",
+    "too-senior"
+  ],
+  "note": "Interesting product, vague role.",
+  "rated_at": "2026-03-17T09:00:00Z"
+}

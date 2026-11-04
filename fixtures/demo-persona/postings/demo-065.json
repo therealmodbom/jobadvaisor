@@ -1,0 +1,17 @@
+{
+  "schema_version": "1",
+  "title": "Junior Backend Developer (Mobile APIs)",
+  "company": "Demo Co. Beech",
+  "location_raw": "Remote",
+  "text": "Demo Co. Beech is a scale-up building education apps. We are looking for a junior-level Backend Developer (Mobile APIs) to join our mobile team. Work is fully remote within the country.\n\nOur stack: kotlin, python, go. You will improve app performance and stability, build offline-first features and own the release process.\n\nFlexible hours.",
+  "source_type": "text",
+  "urls": [],
+  "added_at": "2026-03-31T04:00:00Z",
+  "presented_at": "2026-04-06T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-03-31T04:00:00Z"
+  }
+}

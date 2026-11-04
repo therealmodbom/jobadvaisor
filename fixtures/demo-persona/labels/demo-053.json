@@ -1,0 +1,12 @@
+{
+  "schema_version": "1",
+  "kind": "rating",
+  "verdict": "positive",
+  "strength": "weak",
+  "chips": [
+    "fitting-seniority",
+    "great-stack"
+  ],
+  "note": "Would apply.",
+  "rated_at": "2026-03-31T04:00:00Z"
+}

@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "title": "iOS Developer",
+  "company": "Demo Co. Hazel",
+  "location_raw": "Remote",
+  "text": "Demo Co. Hazel is an agency building education apps. We are looking for a mid-level iOS Developer to join our mobile team. Work is fully remote within the country.\n\nOur stack: swift. You will ship features end to end, own the release process and build offline-first features.\n\nA yearly learning budget.",
+  "source_type": "url",
+  "urls": [
+    "https://jobs.example.com/postings/014"
+  ],
+  "added_at": "2026-03-07T12:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-03-07T12:00:00Z"
+  },
+  "legacy_decision": "kept"
+}

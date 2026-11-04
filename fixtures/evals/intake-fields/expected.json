@@ -1,0 +1,27 @@
+{
+  "comment": "Expected posting fields; the demo entries are derived from the attributes the generator wrote them from, the pages are hand-written. title and company list every accepted answer; location is correct when the answer contains it. pages are served from fixtures/intake/pages; text postings are pasted as their demo text, pdf postings uploaded as a PDF of it.",
+  "pages": {
+    "static.html": {"title": ["Backend Engineer (Go)", "Backend Engineer"], "company": ["Harbor Freight Analytics GmbH", "Harbor Freight Analytics"], "location": "Bremen"},
+    "rendered.html": {"title": ["Machine Learning Engineer"], "company": ["Brightwater Health AG", "Brightwater Health"], "location": "Basel"},
+    "jsonld-no-company.html": {"title": ["Frontend Developer"], "company": ["Orchard Lane Software GmbH", "Orchard Lane Software"], "location": "Remote"}
+  },
+  "text": {
+    "demo-101": {"title": ["Mobile Developer (Kotlin Multiplatform)"], "company": ["Demo Co. Larch"], "location": "Eastmere"},
+    "demo-103": {"title": ["Mobile Developer (Kotlin Multiplatform)", "Lead Mobile Developer (Kotlin Multiplatform)"], "company": ["Demo Co. Larch"], "location": "Fennick"},
+    "demo-105": {"title": ["Mobile Developer (Kotlin Multiplatform)", "Senior Mobile Developer (Kotlin Multiplatform)"], "company": ["Demo Co. Ash"], "location": "Remote"},
+    "demo-107": {"title": ["Flutter Developer"], "company": ["Demo Co. Willow"], "location": "Remote"},
+    "demo-109": {"title": ["Android Developer"], "company": ["Demo Co. Linden"], "location": "Remote"},
+    "demo-111": {"title": ["Android Developer"], "company": ["Demo Co. Hazel"], "location": "Brightwater Bay"},
+    "demo-113": {"title": ["Mobile Developer (Kotlin Multiplatform)"], "company": ["Demo Co. Rowan"], "location": "Northhaven"},
+    "demo-115": {"title": ["React Native Developer", "Senior React Native Developer"], "company": ["Demo Co. Willow"], "location": "Brightwater Bay"},
+    "demo-117": {"title": ["Game Client Developer", "Lead Game Client Developer"], "company": ["Demo Co. Spruce"], "location": "Eastmere"},
+    "demo-119": {"title": ["Backend Developer (Mobile APIs)"], "company": ["Demo Co. Spruce"], "location": "Oldmoor"}
+  },
+  "pdf": {
+    "demo-121": {"title": ["Flutter Developer"], "company": ["Demo Co. Cedar"], "location": "Oldmoor"},
+    "demo-123": {"title": ["Mobile QA Engineer"], "company": ["Demo Co. Elm"], "location": "Oldmoor"},
+    "demo-125": {"title": ["Mobile QA Engineer"], "company": ["Demo Co. Hawthorn"], "location": "Remote"},
+    "demo-127": {"title": ["Android Developer"], "company": ["Demo Co. Ash"], "location": "Northhaven"},
+    "demo-129": {"title": ["Game Client Developer"], "company": ["Demo Co. Cypress"], "location": "Fennick"}
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "title": "Backend Developer (Mobile APIs)",
+  "company": "Demo Co. Juniper",
+  "location_raw": "Brightwater Bay (hybrid)",
+  "text": "Demo Co. Juniper is a startup building banking apps. We are looking for a mid-level Backend Developer (Mobile APIs) to join our mobile team. Work is two office days a week in Brightwater Bay.\n\nOur stack: kotlin, python, go, swift. You will review code with the team, work closely with design and product and ship features end to end.\n\nFlexible hours.",
+  "source_type": "url",
+  "urls": [
+    "https://jobs.example.com/postings/116"
+  ],
+  "added_at": "2026-05-03T07:00:00Z",
+  "presented_at": "2026-05-04T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-05-03T07:00:00Z"
+  }
+}

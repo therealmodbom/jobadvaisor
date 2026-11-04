@@ -1,0 +1,304 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "ExclusionRule": {
+      "additionalProperties": false,
+      "description": "A hard-exclusion predicate over a raw posting field.\n\n`contains_any` takes a list of strings; `matches_regex` and `equals` take one string. A\n`matches_regex` value must compile as a Python regular expression.",
+      "else": {
+        "properties": {
+          "value": {
+            "type": "string"
+          }
+        }
+      },
+      "if": {
+        "properties": {
+          "operator": {
+            "const": "contains_any"
+          }
+        }
+      },
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "field": {
+          "enum": [
+            "title",
+            "text",
+            "company",
+            "location_raw",
+            "urls"
+          ],
+          "title": "Field",
+          "type": "string"
+        },
+        "operator": {
+          "enum": [
+            "contains_any",
+            "matches_regex",
+            "equals"
+          ],
+          "title": "Operator",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "id",
+        "field",
+        "operator",
+        "value"
+      ],
+      "then": {
+        "properties": {
+          "value": {
+            "type": "array"
+          }
+        }
+      },
+      "title": "ExclusionRule",
+      "type": "object"
+    },
+    "Feature": {
+      "additionalProperties": false,
+      "description": "One extracted feature. `categorical` and `list` draw from `options`, which they require;\nother types have no `options`, and `text` takes a short free-text value. \"unknown\" is always\nallowed as a value and is not listed.",
+      "else": {
+        "properties": {
+          "options": {
+            "type": "null"
+          }
+        }
+      },
+      "if": {
+        "properties": {
+          "type": {
+            "enum": [
+              "categorical",
+              "list"
+            ]
+          }
+        }
+      },
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "description": {
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "categorical",
+            "list",
+            "boolean",
+            "number",
+            "text"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "options": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Options"
+        }
+      },
+      "required": [
+        "id",
+        "description",
+        "type"
+      ],
+      "then": {
+        "properties": {
+          "options": {
+            "minItems": 1
+          }
+        },
+        "required": [
+          "options"
+        ]
+      },
+      "title": "Feature",
+      "type": "object"
+    },
+    "ImportMapping": {
+      "additionalProperties": false,
+      "description": "What the columns and values of the user's job list mean for the list import. Column names\nand `values` keys match trimmed and without case. `status_column` and `assessment_column`\nname the columns holding the list's status and the user's own assessment (absent: none).\n`values` maps a status value as the list writes it to the application status it stands for\n(`skip`: the entry is not imported); a value it does not name is open.",
+      "properties": {
+        "status_column": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Status Column"
+        },
+        "assessment_column": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assessment Column"
+        },
+        "values": {
+          "additionalProperties": {
+            "enum": [
+              "open",
+              "applied",
+              "done",
+              "skip"
+            ],
+            "type": "string"
+          },
+          "default": {},
+          "title": "Values",
+          "type": "object"
+        }
+      },
+      "title": "ImportMapping",
+      "type": "object"
+    },
+    "ReasonChip": {
+      "additionalProperties": false,
+      "description": "A reason the user can attach to a rating; labels store its `id`. `polarity` names the\nverdict it explains (\"positive\" or \"negative\"); a chip without one fits both.",
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "polarity": {
+          "anyOf": [
+            {
+              "enum": [
+                "positive",
+                "negative"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Polarity"
+        }
+      },
+      "required": [
+        "id",
+        "label"
+      ],
+      "title": "ReasonChip",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "`policy-pack.json`: hard-exclusion rules, reason chips and the feature set. IDs are unique\nwithin each of the three lists. `login_wall_hosts` lists hosts intake never fetches\nanonymously (a host matches itself and its subdomains); absent means the app's defaults.\n`import_mapping` is the list import's last confirmed mapping; absent until the first import.",
+  "properties": {
+    "schema_version": {
+      "const": "1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "exclusion_rules": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ExclusionRule"
+      },
+      "title": "Exclusion Rules",
+      "type": "array"
+    },
+    "reason_chips": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ReasonChip"
+      },
+      "title": "Reason Chips",
+      "type": "array"
+    },
+    "feature_set": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Feature"
+      },
+      "title": "Feature Set",
+      "type": "array"
+    },
+    "login_wall_hosts": {
+      "anyOf": [
+        {
+          "items": {
+            "pattern": "^[a-z0-9-]+(\\.[a-z0-9-]+)+$",
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Login Wall Hosts"
+    },
+    "import_mapping": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ImportMapping"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "schema_version"
+  ],
+  "title": "PolicyPack",
+  "type": "object"
+}

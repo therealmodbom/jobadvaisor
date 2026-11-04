@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "title": "Android Developer",
+  "company": "Demo Co. Ash",
+  "location_raw": "Northhaven, on-site",
+  "text": "Demo Co. Ash is a scale-up building logistics apps. We are looking for a mid-level Android Developer to join our mobile team. Work is on-site in our Northhaven office.\n\nOur stack: kotlin, dart. You will improve app performance and stability, own the release process and work closely with design and product.\n\nFlexible hours.",
+  "source_type": "url",
+  "urls": [
+    "https://careers.example.org/ash/127"
+  ],
+  "added_at": "2026-05-10T08:00:00Z",
+  "presented_at": "2026-05-11T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-05-10T08:00:00Z"
+  }
+}

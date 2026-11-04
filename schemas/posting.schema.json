@@ -1,0 +1,236 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "Guard": {
+      "additionalProperties": false,
+      "description": "The content guard's result for a posting. `released_at` is set once the user releases a\nflagged posting.",
+      "properties": {
+        "flagged": {
+          "title": "Flagged",
+          "type": "boolean"
+        },
+        "categories": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Categories",
+          "type": "array"
+        },
+        "checked_by": {
+          "minLength": 1,
+          "title": "Checked By",
+          "type": "string"
+        },
+        "checked_at": {
+          "format": "date-time",
+          "title": "Checked At",
+          "type": "string"
+        },
+        "released_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Released At"
+        }
+      },
+      "required": [
+        "flagged",
+        "checked_by",
+        "checked_at"
+      ],
+      "title": "Guard",
+      "type": "object"
+    },
+    "Origin": {
+      "additionalProperties": false,
+      "description": "Where an imported posting came from: the `table` (section heading) of the import list,\n`fit` (the user's own assessment) and `status` (the list's status value), the last two as\nthe list wrote them. Both are absent when the list had none.",
+      "properties": {
+        "table": {
+          "minLength": 1,
+          "title": "Table",
+          "type": "string"
+        },
+        "fit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fit"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Status"
+        }
+      },
+      "required": [
+        "table"
+      ],
+      "title": "Origin",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "`postings/<id>.json`; the ID is the file name and matches ^[a-z0-9][a-z0-9-]{0,63}$.\nVersions 1 and 2 load; version 1 has no `status` or `origin` and reads as status open without\nan origin. New postings are written as version 2. `status` is the user's application status.\n`urls` holds the submitted URL first when `source_type` is url. `guard` absent means never\nscreened; `legacy_decision` is written only by an exporter. Unresolved `title`, `company` or\n`location_raw` hold \"unknown\".",
+  "if": {
+    "properties": {
+      "source_type": {
+        "const": "url"
+      }
+    }
+  },
+  "properties": {
+    "schema_version": {
+      "enum": [
+        "1",
+        "2"
+      ],
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "title": {
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    },
+    "company": {
+      "minLength": 1,
+      "title": "Company",
+      "type": "string"
+    },
+    "location_raw": {
+      "minLength": 1,
+      "title": "Location Raw",
+      "type": "string"
+    },
+    "text": {
+      "minLength": 1,
+      "title": "Text",
+      "type": "string"
+    },
+    "source_type": {
+      "enum": [
+        "url",
+        "text",
+        "pdf"
+      ],
+      "title": "Source Type",
+      "type": "string"
+    },
+    "urls": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Urls",
+      "type": "array"
+    },
+    "added_at": {
+      "format": "date-time",
+      "title": "Added At",
+      "type": "string"
+    },
+    "presented_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Presented At"
+    },
+    "status": {
+      "default": "open",
+      "enum": [
+        "open",
+        "applied",
+        "done"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "origin": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Origin"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "guard": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Guard"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "legacy_decision": {
+      "anyOf": [
+        {
+          "enum": [
+            "kept",
+            "discarded"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Legacy Decision"
+    }
+  },
+  "required": [
+    "schema_version",
+    "title",
+    "company",
+    "location_raw",
+    "text",
+    "source_type",
+    "added_at"
+  ],
+  "then": {
+    "properties": {
+      "urls": {
+        "minItems": 1
+      }
+    },
+    "required": [
+      "urls"
+    ]
+  },
+  "title": "Posting",
+  "type": "object"
+}

@@ -1,0 +1,20 @@
+schema: spec-driven
+
+# Project context, shown to AI when creating artifacts.
+context: |
+  Domain: local-first AI job search assistant. Core is a learning job match (human-in-the-loop feedback on postings feeds future scoring). Later changes add CV tailoring, cover letters, a Markdown/PDF review UI and job sourcing.
+  Stack: Python + FastAPI, LangGraph (hybrid: fixed triage graph with ReAct nodes, plus a conversational agent using the same tools), LangChain chat models (provider-agnostic), React + Vite + TypeScript frontend.
+  Persistence: user data lives in a separate private git data repository with a documented JSON-Schema format. Local default is SQLite (LangGraph checkpoints) and Chroma (vector index). Postgres (local Docker or Supabase) is a later adapter change for both stores: LangGraph checkpoints and pgvector.
+  Privacy: no personal data in this repository, ever. Tests, CI and demos use the fictional demo persona fixture.
+  Read docs/kickoff-brief.md for the agreed scope and decisions, and AGENTS.md for the workflow.
+  ADR vs. design.md: follow the "ADR or OpenSpec design.md" rule in AGENTS.md.
+  Feature branch + PR only, never commit to main (enforced by .githooks/pre-commit).
+
+# Per-artifact rules.
+rules:
+  proposal:
+    - Always include a "Non-goals" section
+  design:
+    - Every LLM-backed behavior names its eval (metric and data) in the same change
+  tasks:
+    - Plan no archive step and no task that waits for the merge; `openspec archive` runs on the change's last PR before it merges (AGENTS.md, Archive).

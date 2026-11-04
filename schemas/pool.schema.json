@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "PoolPass": {
+      "additionalProperties": false,
+      "description": "One finished pass: when, how many postings it `scored`, the `corrections` and `rated`\ncounts it measured, and the resulting `rate` (absent when too few ratings to compute one).\n`started_at` is when the pass began; absent in passes written before slice 2.",
+      "properties": {
+        "started_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Started At"
+        },
+        "finished_at": {
+          "format": "date-time",
+          "title": "Finished At",
+          "type": "string"
+        },
+        "scored": {
+          "minimum": 0,
+          "title": "Scored",
+          "type": "integer"
+        },
+        "corrections": {
+          "minimum": 0,
+          "title": "Corrections",
+          "type": "integer"
+        },
+        "rated": {
+          "minimum": 0,
+          "title": "Rated",
+          "type": "integer"
+        },
+        "rate": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rate"
+        }
+      },
+      "required": [
+        "finished_at",
+        "scored",
+        "corrections",
+        "rated"
+      ],
+      "title": "PoolPass",
+      "type": "object"
+    },
+    "PoolSettings": {
+      "additionalProperties": false,
+      "description": "The two user-editable pool settings. The minimum ratings for a rate is fixed in code.",
+      "properties": {
+        "correction_threshold": {
+          "default": 10,
+          "minimum": 1,
+          "title": "Correction Threshold",
+          "type": "integer"
+        },
+        "correction_rate": {
+          "default": 0.3,
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Correction Rate",
+          "type": "number"
+        }
+      },
+      "title": "PoolSettings",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "`pool.json`: `settings` and the `passes` history, one entry appended per pass. A missing\nfile means the defaults and an empty history.",
+  "properties": {
+    "schema_version": {
+      "const": "1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "settings": {
+      "$ref": "#/$defs/PoolSettings",
+      "default": {
+        "correction_threshold": 10,
+        "correction_rate": 0.3
+      }
+    },
+    "passes": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/PoolPass"
+      },
+      "title": "Passes",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version"
+  ],
+  "title": "Pool",
+  "type": "object"
+}

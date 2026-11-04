@@ -1,0 +1,12 @@
+{
+  "schema_version": "1",
+  "kind": "rating",
+  "verdict": "positive",
+  "strength": "strong",
+  "chips": [
+    "fitting-seniority",
+    "great-stack"
+  ],
+  "note": "Interesting product, vague role.",
+  "rated_at": "2026-05-12T10:00:00Z"
+}

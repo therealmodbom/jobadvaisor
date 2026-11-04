@@ -1,0 +1,20 @@
+{
+  "schema_version": "1",
+  "title": "Backend Developer (Mobile APIs)",
+  "company": "Demo Co. Yew",
+  "location_raw": "Fennick, on-site",
+  "text": "Demo Co. Yew is a startup building health apps. We are looking for a mid-level Backend Developer (Mobile APIs) to join our mobile team. Work is on-site in our Fennick office.\n\nOur stack: kotlin, python, go. You will improve app performance and stability, review code with the team and own the release process.\n\nFlexible hours.",
+  "source_type": "url",
+  "urls": [
+    "https://jobs.example.com/postings/004"
+  ],
+  "added_at": "2026-03-09T15:00:00Z",
+  "presented_at": "2026-03-30T09:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-03-09T15:00:00Z"
+  },
+  "legacy_decision": "discarded"
+}

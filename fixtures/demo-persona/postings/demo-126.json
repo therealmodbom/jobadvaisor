@@ -1,0 +1,17 @@
+{
+  "schema_version": "1",
+  "title": "Senior Android Developer",
+  "company": "Demo Co. Larch",
+  "location_raw": "Fennick (hybrid)",
+  "text": "Demo Co. Larch is a startup building travel apps. We are looking for a senior-level Android Developer to join our mobile team. Work is two office days a week in Fennick.\n\nOur stack: kotlin. You will work closely with design and product, improve app performance and stability and ship features end to end.\n\nA yearly learning budget. You will mentor less experienced colleagues.",
+  "source_type": "text",
+  "urls": [],
+  "added_at": "2026-05-10T03:00:00Z",
+  "presented_at": "2026-05-11T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-05-10T03:00:00Z"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "title": "iOS Developer",
+  "company": "Demo Co. Willow",
+  "location_raw": "Remote",
+  "text": "Demo Co. Willow is an agency building logistics apps. We are looking for a mid-level iOS Developer to join our mobile team. Work is fully remote within the country.\n\nOur stack: swift. You will own the release process, review code with the team and work closely with design and product.\n\nFlexible hours.",
+  "source_type": "url",
+  "urls": [
+    "https://careers.example.org/willow/023"
+  ],
+  "added_at": "2026-03-05T09:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-03-05T09:00:00Z"
+  },
+  "legacy_decision": "discarded"
+}

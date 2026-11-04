@@ -1,0 +1,22 @@
+{
+  "description": "One hand-written posting whose text states neither its employer's size nor its stage, and the employer's company record (invented, as the whole demo persona). The extractor can only know the company_stage from the facts block: a global group founded in 1978 with more than 10,000 employees is an enterprise.",
+  "posting": {
+    "schema_version": "1",
+    "title": "Android Developer",
+    "company": "Demo Co. Granite",
+    "location_raw": "Remote",
+    "text": "We are looking for an Android developer for our mobile team. Work is fully remote within the country. Our stack: Kotlin. You will ship features end to end, review code with the team and improve app performance and stability. Flexible hours.",
+    "source_type": "text",
+    "added_at": "2026-03-02T09:00:00Z"
+  },
+  "company": {
+    "schema_version": "1",
+    "name": "Demo Co. Granite",
+    "size_class": "10,001+",
+    "founded": 1978,
+    "source": "linkedin",
+    "source_url": "https://www.linkedin.com/company/demo-co-granite",
+    "fetched_at": "2026-03-02T09:00:00Z"
+  },
+  "expected": {"company_stage": "enterprise"}
+}

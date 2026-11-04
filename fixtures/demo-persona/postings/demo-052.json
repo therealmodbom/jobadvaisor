@@ -1,0 +1,17 @@
+{
+  "schema_version": "1",
+  "title": "Junior Mobile Developer (Kotlin Multiplatform)",
+  "company": "Demo Co. Ash",
+  "location_raw": "Oldmoor (hybrid)",
+  "text": "Demo Co. Ash is a scale-up building logistics apps. We are looking for a junior-level Mobile Developer (Kotlin Multiplatform) to join our mobile team. Work is two office days a week in Oldmoor.\n\nOur stack: kotlin, swift. You will improve app performance and stability, work closely with design and product and build offline-first features.\n\nFour-day weeks in summer.",
+  "source_type": "text",
+  "urls": [],
+  "added_at": "2026-03-23T01:00:00Z",
+  "presented_at": "2026-03-23T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-03-23T01:00:00Z"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "title": "Mobile Developer (Kotlin Multiplatform)",
+  "company": "Demo Co. Juniper",
+  "location_raw": "Oldmoor, on-site",
+  "text": "Demo Co. Juniper is a startup building banking apps. We are looking for a mid-level Mobile Developer (Kotlin Multiplatform) to join our mobile team. Work is on-site in our Oldmoor office.\n\nOur stack: kotlin, swift, dart. You will build offline-first features, own the release process and ship features end to end.\n\nFour-day weeks in summer.",
+  "source_type": "url",
+  "urls": [
+    "https://careers.example.org/juniper/048"
+  ],
+  "added_at": "2026-03-20T13:00:00Z",
+  "presented_at": "2026-03-23T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-03-20T13:00:00Z"
+  }
+}

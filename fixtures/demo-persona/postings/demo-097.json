@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "title": "Senior Flutter Developer",
+  "company": "Demo Co. Spruce",
+  "location_raw": "Remote",
+  "text": "Demo Co. Spruce is a scale-up building fitness apps. We are looking for a senior-level Flutter Developer to join our mobile team. Work is fully remote within the country.\n\nOur stack: dart. You will own the release process, ship features end to end and improve app performance and stability.\n\nA small, senior team. You will mentor less experienced colleagues.",
+  "source_type": "url",
+  "urls": [
+    "https://careers.example.org/spruce/097"
+  ],
+  "added_at": "2026-04-21T01:00:00Z",
+  "presented_at": "2026-04-27T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-04-21T01:00:00Z"
+  }
+}

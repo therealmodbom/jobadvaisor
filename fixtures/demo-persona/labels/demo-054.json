@@ -1,0 +1,11 @@
+{
+  "schema_version": "1",
+  "kind": "rating",
+  "verdict": "positive",
+  "strength": "strong",
+  "chips": [
+    "good-domain",
+    "great-stack"
+  ],
+  "rated_at": "2026-04-01T11:00:00Z"
+}

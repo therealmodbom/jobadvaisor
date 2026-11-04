@@ -1,0 +1,17 @@
+{
+  "schema_version": "1",
+  "title": "Flutter Developer",
+  "company": "Demo Co. Ash",
+  "location_raw": "Remote",
+  "text": "Demo Co. Ash is a scale-up building logistics apps. We are looking for a mid-level Flutter Developer to join our mobile team. Work is fully remote within the country.\n\nOur stack: dart. You will build offline-first features, review code with the team and own the release process.\n\nFour-day weeks in summer.",
+  "source_type": "text",
+  "urls": [],
+  "added_at": "2026-05-16T13:00:00Z",
+  "presented_at": "2026-05-18T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-05-16T13:00:00Z"
+  }
+}

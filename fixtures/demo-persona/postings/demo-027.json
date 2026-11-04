@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "title": "Lead Android Developer",
+  "company": "Demo Co. Cedar",
+  "location_raw": "Fennick, on-site",
+  "text": "Demo Co. Cedar is a startup building education apps. We are looking for a lead-level Android Developer to join our mobile team. Work is on-site in our Fennick office.\n\nOur stack: kotlin. You will ship features end to end, build offline-first features and review code with the team.\n\nA small, senior team. You will mentor less experienced colleagues.",
+  "source_type": "url",
+  "urls": [
+    "https://careers.example.org/cedar/027"
+  ],
+  "added_at": "2026-03-08T07:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-03-08T07:00:00Z"
+  },
+  "legacy_decision": "kept"
+}

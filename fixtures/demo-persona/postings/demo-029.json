@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "title": "Senior Flutter Developer",
+  "company": "Demo Co. Linden",
+  "location_raw": "Remote",
+  "text": "Demo Co. Linden is an agency building travel apps. We are looking for a senior-level Flutter Developer to join our mobile team. Work is fully remote within the country.\n\nOur stack: dart. You will ship features end to end, improve app performance and stability and build offline-first features.\n\nA small, senior team. You will mentor less experienced colleagues.",
+  "source_type": "url",
+  "urls": [
+    "https://careers.example.org/linden/029"
+  ],
+  "added_at": "2026-03-03T19:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-03-03T19:00:00Z"
+  },
+  "legacy_decision": "discarded"
+}

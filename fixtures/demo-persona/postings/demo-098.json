@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "title": "Senior Flutter Developer",
+  "company": "Demo Co. Hawthorn",
+  "location_raw": "Brightwater Bay (hybrid)",
+  "text": "Demo Co. Hawthorn is a startup building education apps. We are looking for a senior-level Flutter Developer to join our mobile team. Work is two office days a week in Brightwater Bay.\n\nOur stack: dart, java. You will work closely with design and product, improve app performance and stability and review code with the team.\n\nA yearly learning budget. You will mentor less experienced colleagues.",
+  "source_type": "url",
+  "urls": [
+    "https://careers.example.org/hawthorn/098"
+  ],
+  "added_at": "2026-04-22T02:00:00Z",
+  "presented_at": "2026-04-27T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-04-22T02:00:00Z"
+  }
+}

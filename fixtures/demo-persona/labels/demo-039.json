@@ -1,0 +1,11 @@
+{
+  "schema_version": "1",
+  "kind": "rating",
+  "verdict": "positive",
+  "strength": "strong",
+  "chips": [
+    "great-stack",
+    "remote-possible"
+  ],
+  "rated_at": "2026-03-19T03:00:00Z"
+}

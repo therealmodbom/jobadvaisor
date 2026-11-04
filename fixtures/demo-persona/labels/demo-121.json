@@ -1,0 +1,9 @@
+{
+  "schema_version": "1",
+  "kind": "rating",
+  "verdict": "negative",
+  "strength": "strong",
+  "chips": [],
+  "note": "Team size sounds right.",
+  "rated_at": "2026-05-12T18:00:00Z"
+}

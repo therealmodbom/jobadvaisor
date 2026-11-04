@@ -1,0 +1,20 @@
+{
+  "schema_version": "1",
+  "title": "Lead Game Client Developer",
+  "company": "Demo Co. Spruce",
+  "location_raw": "Fennick (hybrid)",
+  "text": "Demo Co. Spruce is a scale-up building fitness apps. We are looking for a lead-level Game Client Developer to join our mobile team. Work is two office days a week in Fennick.\n\nOur stack: csharp, dart. You will work closely with design and product, build offline-first features and ship features end to end.\n\nModern devices for testing. You will mentor less experienced colleagues.",
+  "source_type": "url",
+  "urls": [
+    "https://careers.example.org/spruce/017"
+  ],
+  "added_at": "2026-03-04T11:00:00Z",
+  "presented_at": "2026-03-23T09:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-03-04T11:00:00Z"
+  },
+  "legacy_decision": "discarded"
+}

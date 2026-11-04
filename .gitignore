@@ -1,0 +1,36 @@
+# Secrets
+.env
+.env.local
+.env.*.local
+
+# Personal non-secret settings (models, URLs, paths)
+local.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+dist/
+
+# Local stores (rebuildable)
+*.sqlite
+*.sqlite3
+chroma/
+
+# OS
+.DS_Store
+
+# Worktrees
+worktrees/
+.claude/worktrees/
+
+# Superpowers brainstorming artefacts
+.superpowers/
+
+# Playwright MCP writes snapshots/screenshots into the repo root
+.playwright-mcp/

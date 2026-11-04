@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "title": "Android Developer",
+  "company": "Demo Co. Alder",
+  "location_raw": "Remote",
+  "text": "Demo Co. Alder is a scale-up building media apps. We are looking for a mid-level Android Developer to join our mobile team. Work is fully remote within the country.\n\nOur stack: java. You will own the release process, improve app performance and stability and build offline-first features.\n\nA small, senior team.",
+  "source_type": "url",
+  "urls": [
+    "https://jobs.example.com/postings/120"
+  ],
+  "added_at": "2026-05-06T04:00:00Z",
+  "presented_at": "2026-05-11T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-05-06T04:00:00Z"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "title": "Junior React Native Developer",
+  "company": "Demo Co. Beech",
+  "location_raw": "Brightwater Bay, on-site",
+  "text": "Demo Co. Beech is a scale-up building education apps. We are looking for a junior-level React Native Developer to join our mobile team. Work is on-site in our Brightwater Bay office.\n\nOur stack: typescript. You will own the release process, ship features end to end and review code with the team.\n\nModern devices for testing.",
+  "source_type": "url",
+  "urls": [
+    "https://careers.example.org/beech/134"
+  ],
+  "added_at": "2026-05-15T05:00:00Z",
+  "presented_at": "2026-05-18T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-05-15T05:00:00Z"
+  }
+}

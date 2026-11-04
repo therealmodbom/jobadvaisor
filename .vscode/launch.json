@@ -1,0 +1,51 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Backend: uvicorn (FastAPI)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": ["--factory", "jobadvaisor.api.app:create_app", "--reload", "--port", "8710"],
+      "cwd": "${workspaceFolder}/backend",
+      "python": "${workspaceFolder}/backend/.venv/bin/python",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "Backend: uvicorn on demo copy",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": ["--factory", "jobadvaisor.api.app:create_app", "--reload", "--port", "8710"],
+      "cwd": "${workspaceFolder}/backend",
+      "python": "${workspaceFolder}/backend/.venv/bin/python",
+      "env": {
+        "DATA_REPOSITORY": "${env:HOME}/.jobadvaisor/demo-data",
+        "STATE_DIRECTORY": "${env:HOME}/.jobadvaisor/demo-state"
+      },
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "Frontend: Vite (5710)",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run dev",
+      "cwd": "${workspaceFolder}/frontend"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Full stack: backend + frontend",
+      "configurations": ["Backend: uvicorn (FastAPI)", "Frontend: Vite (5710)"],
+      "stopAll": true
+    },
+    {
+      "name": "Fresh demo: backend + frontend",
+      "preLaunchTask": "demo: fresh data copy",
+      "configurations": ["Backend: uvicorn on demo copy", "Frontend: Vite (5710)"],
+      "stopAll": true
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "description": "Expected features for 20 demo persona postings, derived from the attributes the generator wrote them from (rules checked against the earlier hand-written entries), against the demo policy pack's feature set. A remote posting names no office, so its location is unknown.",
+  "postings": {
+    "demo-031": {"role_type": "cross-platform", "seniority": "lead", "domain": "health", "tech_stack": ["typescript"], "location": "unknown", "remote_option": "remote", "company_stage": "startup"},
+    "demo-032": {"role_type": "android", "seniority": "senior", "domain": "fitness", "tech_stack": ["kotlin"], "location": "Fennick", "remote_option": "hybrid", "company_stage": "scale-up"},
+    "demo-033": {"role_type": "cross-platform", "seniority": "mid", "domain": "fitness", "tech_stack": ["kotlin"], "location": "Brightwater Bay", "remote_option": "hybrid", "company_stage": "scale-up"},
+    "demo-035": {"role_type": "ios", "seniority": "mid", "domain": "media", "tech_stack": ["swift"], "location": "unknown", "remote_option": "remote", "company_stage": "startup"},
+    "demo-037": {"role_type": "backend", "seniority": "mid", "domain": "media", "tech_stack": ["kotlin", "go"], "location": "Northhaven", "remote_option": "hybrid", "company_stage": "scale-up"},
+    "demo-038": {"role_type": "game", "seniority": "lead", "domain": "logistics", "tech_stack": ["csharp"], "location": "Oldmoor", "remote_option": "onsite", "company_stage": "scale-up"},
+    "demo-039": {"role_type": "android", "seniority": "mid", "domain": "education", "tech_stack": ["kotlin", "java"], "location": "Northhaven", "remote_option": "hybrid", "company_stage": "startup"},
+    "demo-040": {"role_type": "game", "seniority": "senior", "domain": "travel", "tech_stack": ["csharp", "dart"], "location": "Brightwater Bay", "remote_option": "hybrid", "company_stage": "startup"},
+    "demo-041": {"role_type": "backend", "seniority": "senior", "domain": "fitness", "tech_stack": ["python", "go", "swift"], "location": "Oldmoor", "remote_option": "hybrid", "company_stage": "agency"},
+    "demo-042": {"role_type": "android", "seniority": "lead", "domain": "logistics", "tech_stack": ["java", "kotlin"], "location": "Eastmere", "remote_option": "hybrid", "company_stage": "agency"},
+    "demo-043": {"role_type": "ios", "seniority": "senior", "domain": "banking", "tech_stack": ["swift"], "location": "Brightwater Bay", "remote_option": "onsite", "company_stage": "startup"},
+    "demo-044": {"role_type": "backend", "seniority": "mid", "domain": "education", "tech_stack": ["kotlin"], "location": "Oldmoor", "remote_option": "onsite", "company_stage": "scale-up"},
+    "demo-045": {"role_type": "android", "seniority": "junior", "domain": "fitness", "tech_stack": ["kotlin", "java", "csharp"], "location": "Oldmoor", "remote_option": "hybrid", "company_stage": "scale-up"},
+    "demo-046": {"role_type": "android", "seniority": "lead", "domain": "education", "tech_stack": ["kotlin"], "location": "unknown", "remote_option": "remote", "company_stage": "startup"},
+    "demo-048": {"role_type": "cross-platform", "seniority": "mid", "domain": "banking", "tech_stack": ["kotlin", "swift", "dart"], "location": "Oldmoor", "remote_option": "onsite", "company_stage": "startup"},
+    "demo-049": {"role_type": "cross-platform", "seniority": "senior", "domain": "health", "tech_stack": ["dart", "swift"], "location": "Oldmoor", "remote_option": "hybrid", "company_stage": "startup"},
+    "demo-050": {"role_type": "qa", "seniority": "mid", "domain": "health", "tech_stack": ["python", "kotlin"], "location": "Oldmoor", "remote_option": "hybrid", "company_stage": "startup"},
+    "demo-051": {"role_type": "qa", "seniority": "junior", "domain": "travel", "tech_stack": ["kotlin"], "location": "Eastmere", "remote_option": "onsite", "company_stage": "agency"},
+    "demo-055": {"role_type": "cross-platform", "seniority": "senior", "domain": "fitness", "tech_stack": ["kotlin"], "location": "Eastmere", "remote_option": "onsite", "company_stage": "scale-up"},
+    "demo-060": {"role_type": "ios", "seniority": "junior", "domain": "fitness", "tech_stack": ["swift"], "location": "Brightwater Bay", "remote_option": "onsite", "company_stage": "scale-up"}
+  }
+}

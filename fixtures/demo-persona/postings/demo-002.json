@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "title": "Android Developer",
+  "company": "Demo Co. Willow",
+  "location_raw": "Remote",
+  "text": "Demo Co. Willow is an agency building logistics apps. We are looking for a mid-level Android Developer to join our mobile team. Work is fully remote within the country.\n\nOur stack: java. You will ship features end to end, build offline-first features and work closely with design and product.\n\nA small, senior team.",
+  "source_type": "url",
+  "urls": [
+    "https://jobs.example.com/postings/002"
+  ],
+  "added_at": "2026-03-07T05:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-03-07T05:00:00Z"
+  },
+  "legacy_decision": "kept"
+}

@@ -1,0 +1,16 @@
+{
+  "schema_version": "1",
+  "title": "Senior Android Developer",
+  "company": "Demo Co. Alder",
+  "location_raw": "Oldmoor, on-site",
+  "text": "Demo Co. Alder is a scale-up building media apps. We are looking for a senior-level Android Developer to join our mobile team. Work is on-site in our Oldmoor office.\n\nOur stack: java. You will improve app performance and stability, own the release process and review code with the team.\n\nModern devices for testing. You will mentor less experienced colleagues.\n\nThe role includes a 24/7 on-call rotation.",
+  "source_type": "text",
+  "urls": [],
+  "added_at": "2026-04-16T09:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-04-16T09:00:00Z"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "title": "Backend Developer (Mobile APIs)",
+  "company": "Demo Co. Spruce",
+  "location_raw": "Oldmoor (hybrid)",
+  "text": "Demo Co. Spruce is a scale-up building fitness apps. We are looking for a mid-level Backend Developer (Mobile APIs) to join our mobile team. Work is two office days a week in Oldmoor.\n\nOur stack: kotlin, python, go. You will improve app performance and stability, own the release process and build offline-first features.\n\nRegular hack days.",
+  "source_type": "url",
+  "urls": [
+    "https://careers.example.org/spruce/119"
+  ],
+  "added_at": "2026-05-05T00:00:00Z",
+  "presented_at": "2026-05-11T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-05-05T00:00:00Z"
+  }
+}

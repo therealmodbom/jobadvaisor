@@ -1,0 +1,17 @@
+{
+  "schema_version": "1",
+  "title": "Junior iOS Developer",
+  "company": "Demo Co. Spruce",
+  "location_raw": "Remote",
+  "text": "Demo Co. Spruce is a scale-up building fitness apps. We are looking for a junior-level iOS Developer to join our mobile team. Work is fully remote within the country.\n\nOur stack: swift. You will build offline-first features, work closely with design and product and ship features end to end.\n\nA small, senior team.",
+  "source_type": "text",
+  "urls": [],
+  "added_at": "2026-04-08T17:00:00Z",
+  "presented_at": "2026-04-13T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-04-08T17:00:00Z"
+  }
+}

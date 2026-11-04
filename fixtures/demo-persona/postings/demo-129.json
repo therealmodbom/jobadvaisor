@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "title": "Game Client Developer",
+  "company": "Demo Co. Cypress",
+  "location_raw": "Fennick (hybrid)",
+  "text": "Demo Co. Cypress is a startup building media apps. We are looking for a mid-level Game Client Developer to join our mobile team. Work is two office days a week in Fennick.\n\nOur stack: csharp, swift. You will review code with the team, work closely with design and product and improve app performance and stability.\n\nRegular hack days.",
+  "source_type": "url",
+  "urls": [
+    "https://careers.example.org/cypress/129"
+  ],
+  "added_at": "2026-05-12T00:00:00Z",
+  "presented_at": "2026-05-18T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-05-12T00:00:00Z"
+  }
+}

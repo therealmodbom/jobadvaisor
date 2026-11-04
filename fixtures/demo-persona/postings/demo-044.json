@@ -1,0 +1,17 @@
+{
+  "schema_version": "1",
+  "title": "Backend Developer (Mobile APIs)",
+  "company": "Demo Co. Oak",
+  "location_raw": "Oldmoor, on-site",
+  "text": "Demo Co. Oak is a scale-up building education apps. We are looking for a mid-level Backend Developer (Mobile APIs) to join our mobile team. Work is on-site in our Oldmoor office.\n\nOur stack: kotlin. You will work closely with design and product, build offline-first features and improve app performance and stability.\n\nFlexible hours.",
+  "source_type": "text",
+  "urls": [],
+  "added_at": "2026-03-17T23:00:00Z",
+  "presented_at": "2026-03-23T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-03-17T23:00:00Z"
+  }
+}

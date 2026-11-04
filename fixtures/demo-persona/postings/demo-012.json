@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "title": "Junior Game Client Developer",
+  "company": "Demo Co. Fir",
+  "location_raw": "Remote",
+  "text": "Demo Co. Fir is a startup building travel apps. We are looking for a junior-level Game Client Developer to join our mobile team. Work is fully remote within the country.\n\nOur stack: csharp. You will build offline-first features, ship features end to end and review code with the team.\n\nA small, senior team.",
+  "source_type": "url",
+  "urls": [
+    "https://jobs.example.com/postings/012"
+  ],
+  "added_at": "2026-03-10T02:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-03-10T02:00:00Z"
+  },
+  "legacy_decision": "discarded"
+}

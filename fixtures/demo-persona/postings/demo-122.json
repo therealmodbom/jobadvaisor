@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "title": "React Native Developer",
+  "company": "Demo Co. Cedar",
+  "location_raw": "Brightwater Bay, on-site",
+  "text": "Demo Co. Cedar is a startup building education apps. We are looking for a mid-level React Native Developer to join our mobile team. Work is on-site in our Brightwater Bay office.\n\nOur stack: typescript. You will improve app performance and stability, review code with the team and work closely with design and product.\n\nRegular hack days.",
+  "source_type": "url",
+  "urls": [
+    "https://jobs.example.com/postings/122"
+  ],
+  "added_at": "2026-05-07T10:00:00Z",
+  "presented_at": "2026-05-11T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-05-07T10:00:00Z"
+  }
+}

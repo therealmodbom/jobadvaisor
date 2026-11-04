@@ -1,0 +1,18 @@
+{
+  "schema_version": "1",
+  "title": "Unpaid Senior Mobile Developer (Kotlin Multiplatform) Internship",
+  "company": "Demo Co. Willow",
+  "location_raw": "Remote",
+  "text": "Demo Co. Willow is an agency building logistics apps. We are looking for a senior-level Mobile Developer (Kotlin Multiplatform) to join our mobile team. Work is fully remote within the country.\n\nOur stack: kotlin, swift. You will improve app performance and stability, build offline-first features and work closely with design and product.\n\nModern devices for testing. You will mentor less experienced colleagues.",
+  "source_type": "url",
+  "urls": [
+    "https://careers.example.org/willow/118"
+  ],
+  "added_at": "2026-05-04T16:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-05-04T16:00:00Z"
+  }
+}

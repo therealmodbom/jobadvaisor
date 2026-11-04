@@ -1,0 +1,11 @@
+{
+  "schema_version": "1",
+  "kind": "rating",
+  "verdict": "positive",
+  "strength": "weak",
+  "chips": [
+    "fitting-seniority",
+    "remote-possible"
+  ],
+  "rated_at": "2026-03-19T05:00:00Z"
+}

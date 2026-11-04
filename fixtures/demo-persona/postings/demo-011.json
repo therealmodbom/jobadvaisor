@@ -1,0 +1,20 @@
+{
+  "schema_version": "1",
+  "title": "Senior Backend Developer (Mobile APIs)",
+  "company": "Demo Co. Elm",
+  "location_raw": "Northhaven, on-site",
+  "text": "Demo Co. Elm is a startup building media apps. We are looking for a senior-level Backend Developer (Mobile APIs) to join our mobile team. Work is on-site in our Northhaven office.\n\nOur stack: kotlin, python, go. You will improve app performance and stability, build offline-first features and own the release process.\n\nModern devices for testing. You will mentor less experienced colleagues.",
+  "source_type": "url",
+  "urls": [
+    "https://jobs.example.com/postings/011"
+  ],
+  "added_at": "2026-03-10T01:00:00Z",
+  "presented_at": "2026-03-23T09:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-03-10T01:00:00Z"
+  },
+  "legacy_decision": "discarded"
+}

@@ -1,0 +1,149 @@
+@import "tailwindcss";
+@import "@fontsource/atkinson-hyperlegible-next/400.css";
+@import "@fontsource/atkinson-hyperlegible-next/500.css";
+@import "@fontsource/atkinson-hyperlegible-next/700.css";
+@import "@fontsource/atkinson-hyperlegible-mono/400.css";
+@import "@fontsource/atkinson-hyperlegible-mono/600.css";
+
+/* Theme tokens from the approved prototype (design.md → UI presentation). Light first, dark
+   follows the system setting. contrast.test.ts checks every text and control pair below. */
+:root {
+  --radius: 0.5rem;
+  --background: #F2F4F1;
+  --foreground: #1A1E23;
+  --card: #FFFFFF;
+  --card-alt: #EEF2F8;
+  --muted: #E5E8E3;
+  --muted-foreground: #4F5760;
+  --border: #CDD3CB;
+  --input: #737C76;
+  --primary: #1F49C7;
+  --primary-foreground: #FFFFFF;
+  --positive-soft: #E3EAFB;
+  --negative: #A3410A;
+  --negative-foreground: #FFFFFF;
+  --negative-soft: #FBEADB;
+  --explore: #673B9B;
+  --explore-soft: #F0E8F9;
+  --danger: #B42318;
+  --danger-soft: #FDECEA;
+  --success: #1B6E40;
+  --success-soft: #E2F3E8;
+  --ring: #1F49C7;
+  --shadow: 0 1px 2px rgba(26, 30, 35, 0.06), 0 6px 20px rgba(26, 30, 35, 0.07);
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #15181C;
+    --foreground: #E7E9EC;
+    --card: #1E2227;
+    --card-alt: #262C34;
+    --muted: #2A2F36;
+    --muted-foreground: #A7AFB9;
+    --border: #3A414A;
+    --input: #79828E;
+    --primary: #93B1FF;
+    --primary-foreground: #0E1838;
+    --positive-soft: #1E2A4B;
+    --negative: #F5A874;
+    --negative-foreground: #2B1608;
+    --negative-soft: #3A2619;
+    --explore: #CBB1F2;
+    --explore-soft: #2E2440;
+    --danger: #FF9B90;
+    --danger-soft: #3E201D;
+    --success: #7DD3A2;
+    --success-soft: #173226;
+    --ring: #93B1FF;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  }
+}
+
+@theme inline {
+  --font-sans: "Atkinson Hyperlegible Next", system-ui, sans-serif;
+  --font-mono: "Atkinson Hyperlegible Mono", ui-monospace, monospace;
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.5);
+  --shadow-card: var(--shadow);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--foreground);
+  --color-card-alt: var(--card-alt);
+  --color-popover: var(--card);
+  --color-popover-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--muted);
+  --color-secondary-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--muted);
+  --color-accent-foreground: var(--foreground);
+  --color-destructive: var(--danger);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-positive-soft: var(--positive-soft);
+  --color-negative: var(--negative);
+  --color-negative-foreground: var(--negative-foreground);
+  --color-negative-soft: var(--negative-soft);
+  --color-explore: var(--explore);
+  --color-explore-soft: var(--explore-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+}
+
+@layer components {
+  .kbd {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 5px;
+    border: 1px solid var(--border);
+    border-bottom-width: 2px;
+    border-radius: 5px;
+    background: var(--card);
+    color: var(--foreground);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background font-sans text-foreground antialiased;
+    font-size: 16px;
+    line-height: 1.5;
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  /* Tailwind 4 gives buttons the default arrow; clickable things show the hand again. */
+  button:not(:disabled), [role="button"], summary, select, input[type="file"] {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, ::before, ::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}

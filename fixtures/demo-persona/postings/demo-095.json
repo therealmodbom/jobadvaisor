@@ -1,0 +1,17 @@
+{
+  "schema_version": "1",
+  "title": "Senior Backend Developer (Mobile APIs)",
+  "company": "Demo Co. Hazel",
+  "location_raw": "Oldmoor (hybrid)",
+  "text": "Demo Co. Hazel is an agency building education apps. We are looking for a senior-level Backend Developer (Mobile APIs) to join our mobile team. Work is two office days a week in Oldmoor.\n\nOur stack: python, go. You will ship features end to end, own the release process and work closely with design and product.\n\nRegular hack days. You will mentor less experienced colleagues.",
+  "source_type": "text",
+  "urls": [],
+  "added_at": "2026-04-19T18:00:00Z",
+  "presented_at": "2026-04-20T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-04-19T18:00:00Z"
+  }
+}

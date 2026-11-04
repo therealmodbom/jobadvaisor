@@ -1,0 +1,12 @@
+{
+  "schema_version": "1",
+  "kind": "rating",
+  "verdict": "positive",
+  "strength": "strong",
+  "chips": [
+    "fitting-seniority",
+    "great-stack"
+  ],
+  "note": "Salary range missing.",
+  "rated_at": "2026-03-18T16:00:00Z"
+}

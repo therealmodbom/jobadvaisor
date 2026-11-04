@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "title": "Lead Game Client Developer",
+  "company": "Demo Co. Ash",
+  "location_raw": "Oldmoor, on-site",
+  "text": "Demo Co. Ash is a scale-up building logistics apps. We are looking for a lead-level Game Client Developer to join our mobile team. Work is on-site in our Oldmoor office.\n\nOur stack: csharp. You will review code with the team, ship features end to end and build offline-first features.\n\nA yearly learning budget. You will mentor less experienced colleagues.",
+  "source_type": "url",
+  "urls": [
+    "https://jobs.example.com/postings/038"
+  ],
+  "added_at": "2026-03-14T10:00:00Z",
+  "presented_at": "2026-03-16T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-03-14T10:00:00Z"
+  }
+}

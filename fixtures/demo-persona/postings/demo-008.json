@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "title": "Mobile QA Engineer",
+  "company": "Demo Co. Beech",
+  "location_raw": "Remote",
+  "text": "Demo Co. Beech is a scale-up building education apps. We are looking for a mid-level Mobile QA Engineer to join our mobile team. Work is fully remote within the country.\n\nOur stack: kotlin. You will own the release process, work closely with design and product and review code with the team.\n\nFour-day weeks in summer.",
+  "source_type": "url",
+  "urls": [
+    "https://jobs.example.com/postings/008"
+  ],
+  "added_at": "2026-03-05T03:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-03-05T03:00:00Z"
+  },
+  "legacy_decision": "kept"
+}

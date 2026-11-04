@@ -1,0 +1,17 @@
+{
+  "schema_version": "1",
+  "title": "Senior Backend Developer (Mobile APIs)",
+  "company": "Demo Co. Maple",
+  "location_raw": "Brightwater Bay (hybrid)",
+  "text": "Demo Co. Maple is a startup building banking apps. We are looking for a senior-level Backend Developer (Mobile APIs) to join our mobile team. Work is two office days a week in Brightwater Bay.\n\nOur stack: kotlin, python, go. You will work closely with design and product, improve app performance and stability and own the release process.\n\nA small, senior team. You will mentor less experienced colleagues.",
+  "source_type": "text",
+  "urls": [],
+  "added_at": "2026-04-11T11:00:00Z",
+  "presented_at": "2026-04-13T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-04-11T11:00:00Z"
+  }
+}

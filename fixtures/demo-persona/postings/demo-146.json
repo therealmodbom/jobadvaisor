@@ -1,0 +1,18 @@
+{
+  "schema_version": "1",
+  "title": "Mobile Developer (Kotlin Multiplatform)",
+  "company": "Demo Co. Juniper",
+  "location_raw": "Remote",
+  "text": "Demo Co. Juniper is a startup building banking apps. We are looking for a mid-level Mobile Developer (Kotlin Multiplatform) to join our mobile team. Work is fully remote within the country.\n\nOur stack: swift. You will own the release process, improve app performance and stability and review code with the team.\n\nRegular hack days.",
+  "source_type": "url",
+  "urls": [
+    "https://jobs.example.com/postings/146"
+  ],
+  "added_at": "2026-05-22T11:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-05-22T11:00:00Z"
+  }
+}

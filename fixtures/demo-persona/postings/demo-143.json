@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "title": "Android Developer",
+  "company": "Demo Co. Alder",
+  "location_raw": "Fennick, on-site",
+  "text": "Demo Co. Alder is a scale-up building media apps. We are looking for a mid-level Android Developer to join our mobile team. Work is on-site in our Fennick office.\n\nOur stack: kotlin, java, swift. You will improve app performance and stability, ship features end to end and review code with the team.\n\nModern devices for testing.",
+  "source_type": "url",
+  "urls": [
+    "https://careers.example.org/alder/143"
+  ],
+  "added_at": "2026-05-20T07:00:00Z",
+  "presented_at": "2026-05-25T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-05-20T07:00:00Z"
+  }
+}

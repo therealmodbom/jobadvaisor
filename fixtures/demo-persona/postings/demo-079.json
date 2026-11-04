@@ -1,0 +1,17 @@
+{
+  "schema_version": "1",
+  "title": "Flutter Developer",
+  "company": "Demo Co. Hazel",
+  "location_raw": "Remote",
+  "text": "Demo Co. Hazel is an agency building education apps. We are looking for a mid-level Flutter Developer to join our mobile team. Work is fully remote within the country.\n\nOur stack: dart. You will ship features end to end, work closely with design and product and own the release process.\n\nA small, senior team.",
+  "source_type": "text",
+  "urls": [],
+  "added_at": "2026-04-09T20:00:00Z",
+  "presented_at": "2026-04-13T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-04-09T20:00:00Z"
+  }
+}

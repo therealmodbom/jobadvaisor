@@ -1,0 +1,17 @@
+{
+  "schema_version": "1",
+  "title": "Game Client Developer",
+  "company": "Demo Co. Fir",
+  "location_raw": "Eastmere, on-site",
+  "text": "Demo Co. Fir is a startup building travel apps. We are looking for a mid-level Game Client Developer to join our mobile team. Work is on-site in our Eastmere office.\n\nOur stack: csharp. You will build offline-first features, review code with the team and ship features end to end.\n\nFour-day weeks in summer.",
+  "source_type": "text",
+  "urls": [],
+  "added_at": "2026-04-18T14:00:00Z",
+  "presented_at": "2026-04-20T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-04-18T14:00:00Z"
+  }
+}

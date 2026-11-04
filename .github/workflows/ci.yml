@@ -1,0 +1,132 @@
+name: CI
+
+on:
+  push:
+  # Only the secret scan runs on pull requests (forks included); the jobs below stay push-only
+  # through their `refs/heads/` guard, which a pull request ref does not satisfy.
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # Fails the build on any secret in the commits of a push or pull request. The action needs no
+  # licence key for a repository under a personal account; under an organisation it would need
+  # a GITLEAKS_LICENSE secret. Pinned to a commit. Locally: `gitleaks dir .` (brew install gitleaks).
+  gitleaks:
+    runs-on: ubuntu-latest
+    # The action lists a pull request's commits through the API; read access is enough because
+    # comments are off (the failed job is the report).
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: "false"
+
+  backend:
+    if: startsWith(github.ref, 'refs/heads/')
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: uv sync --locked
+      - run: uv run playwright install --with-deps chromium
+      - run: uv run ruff check
+      - run: uv run pytest
+
+  frontend:
+    if: startsWith(github.ref, 'refs/heads/')
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
+  # The browser walkthrough of the list import: the real app with the built frontend and fake
+  # models, in Chromium (backend/tests/e2e).
+  e2e:
+    if: startsWith(github.ref, 'refs/heads/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: npm ci
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+      - run: uv sync --locked
+        working-directory: backend
+      - run: uv run playwright install --with-deps chromium
+        working-directory: backend
+      - run: uv run pytest -m e2e
+        working-directory: backend
+
+  # Real model calls on the demo persona (design.md → Evals), about $0.06 and 17 minutes a run,
+  # so they run on a pushed tag (for example eval-20261012) or by hand, not on every push
+  # (decision, 2026-10-11). Skipped while the LLM_API_KEY secret is unset; models come
+  # from repository variables, as local.env holds them locally.
+  evals:
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+      MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+      LLM_MODEL: ${{ vars.LLM_MODEL }}
+      LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
+      EMBEDDING_MODEL: ${{ vars.EMBEDDING_MODEL }}
+      DECIDER_MODEL: ${{ vars.DECIDER_MODEL }}
+    steps:
+      - if: env.LLM_API_KEY == ''
+        run: echo "::notice::Evals skipped, the LLM_API_KEY secret is not set"
+      - if: env.LLM_API_KEY != ''
+        uses: actions/checkout@v5
+      - if: env.LLM_API_KEY != ''
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - if: env.LLM_API_KEY != ''
+        run: uv sync --locked
+      - if: env.LLM_API_KEY != ''
+        run: uv run playwright install --with-deps chromium
+      - if: env.LLM_API_KEY != ''
+        run: uv run python -m jobadvaisor.evals --out eval-results > /dev/null
+      - if: env.LLM_API_KEY != ''
+        name: Summary
+        run: >-
+          jq -r '.[] | "- \(.eval): \(.precision_at_k // .success_rate // .overall
+          // .skipped // .error // "see the report")"' eval-results/evals-*.json
+          >> "$GITHUB_STEP_SUMMARY"
+      - if: env.LLM_API_KEY != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report
+          path: backend/eval-results/

@@ -1,0 +1,17 @@
+{
+  "schema_version": "1",
+  "title": "React Native Developer",
+  "company": "Demo Co. Cypress",
+  "location_raw": "Remote",
+  "text": "Demo Co. Cypress is a startup building media apps. We are looking for a mid-level React Native Developer to join our mobile team. Work is fully remote within the country.\n\nOur stack: typescript. You will ship features end to end, improve app performance and stability and build offline-first features.\n\nFlexible hours.",
+  "source_type": "text",
+  "urls": [],
+  "added_at": "2026-04-17T15:00:00Z",
+  "presented_at": "2026-04-20T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-04-17T15:00:00Z"
+  }
+}

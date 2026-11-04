@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "title": "Senior Flutter Developer",
+  "company": "Demo Co. Juniper",
+  "location_raw": "Remote",
+  "text": "Demo Co. Juniper is a startup building banking apps. We are looking for a senior-level Flutter Developer to join our mobile team. Work is fully remote within the country.\n\nOur stack: dart, go. You will ship features end to end, work closely with design and product and own the release process.\n\nFlexible hours. You will mentor less experienced colleagues.",
+  "source_type": "url",
+  "urls": [
+    "https://careers.example.org/juniper/072"
+  ],
+  "added_at": "2026-04-05T09:00:00Z",
+  "presented_at": "2026-04-06T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-04-05T09:00:00Z"
+  }
+}

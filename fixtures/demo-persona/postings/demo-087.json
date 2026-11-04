@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "title": "Mobile Developer (Kotlin Multiplatform)",
+  "company": "Demo Co. Pine",
+  "location_raw": "Eastmere (hybrid)",
+  "text": "Demo Co. Pine is an agency building fitness apps. We are looking for a mid-level Mobile Developer (Kotlin Multiplatform) to join our mobile team. Work is two office days a week in Eastmere.\n\nOur stack: kotlin, swift, csharp. You will work closely with design and product, improve app performance and stability and review code with the team.\n\nFour-day weeks in summer.",
+  "source_type": "url",
+  "urls": [
+    "https://careers.example.org/pine/087"
+  ],
+  "added_at": "2026-04-14T18:00:00Z",
+  "presented_at": "2026-04-20T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-04-14T18:00:00Z"
+  }
+}

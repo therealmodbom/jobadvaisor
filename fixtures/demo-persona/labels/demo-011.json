@@ -1,0 +1,9 @@
+{
+  "schema_version": "1",
+  "kind": "rating",
+  "verdict": "negative",
+  "strength": "strong",
+  "chips": [],
+  "note": "Salary range missing.",
+  "rated_at": "2026-03-25T13:00:00Z"
+}

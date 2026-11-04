@@ -1,0 +1,16 @@
+{
+  "schema_version": "1",
+  "title": "Junior Mobile QA Engineer",
+  "company": "unknown",
+  "location_raw": "Oldmoor, on-site",
+  "text": "Demo Co. Fir is a startup building travel apps. We are looking for a junior-level Mobile QA Engineer to join our mobile team. Work is on-site in our Oldmoor office.\n\nOur stack: python, swift. You will work closely with design and product, ship features end to end and review code with the team.\n\nA small, senior team.",
+  "source_type": "pdf",
+  "urls": [],
+  "added_at": "2026-05-24T00:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-05-24T00:00:00Z"
+  }
+}

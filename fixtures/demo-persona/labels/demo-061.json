@@ -1,0 +1,11 @@
+{
+  "schema_version": "1",
+  "kind": "rating",
+  "verdict": "positive",
+  "strength": "strong",
+  "chips": [
+    "good-domain"
+  ],
+  "note": "Commute would be long.",
+  "rated_at": "2026-03-31T09:00:00Z"
+}

@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "`profile.json`: what the user is looking for. Only `summary` is required.",
+  "properties": {
+    "schema_version": {
+      "const": "1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "summary": {
+      "minLength": 1,
+      "title": "Summary",
+      "type": "string"
+    },
+    "target_roles": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Target Roles",
+      "type": "array"
+    },
+    "locations": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Locations",
+      "type": "array"
+    },
+    "remote": {
+      "default": "any",
+      "enum": [
+        "onsite",
+        "hybrid",
+        "remote",
+        "any"
+      ],
+      "title": "Remote",
+      "type": "string"
+    },
+    "seniority": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Seniority"
+    }
+  },
+  "required": [
+    "schema_version",
+    "summary"
+  ],
+  "title": "Profile",
+  "type": "object"
+}

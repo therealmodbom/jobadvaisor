@@ -1,0 +1,11 @@
+{
+  "schema_version": "1",
+  "kind": "rating",
+  "verdict": "negative",
+  "strength": "strong",
+  "chips": [
+    "too-senior",
+    "wrong-stack"
+  ],
+  "rated_at": "2026-05-27T04:00:00Z"
+}

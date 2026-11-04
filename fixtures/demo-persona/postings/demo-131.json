@@ -1,0 +1,17 @@
+{
+  "schema_version": "1",
+  "title": "Senior React Native Developer",
+  "company": "Demo Co. Fir",
+  "location_raw": "Eastmere (hybrid)",
+  "text": "Demo Co. Fir is a startup building travel apps. We are looking for a senior-level React Native Developer to join our mobile team. Work is two office days a week in Eastmere.\n\nOur stack: typescript. You will ship features end to end, own the release process and work closely with design and product.\n\nRegular hack days. You will mentor less experienced colleagues.",
+  "source_type": "text",
+  "urls": [],
+  "added_at": "2026-05-12T16:00:00Z",
+  "presented_at": "2026-05-18T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-05-12T16:00:00Z"
+  }
+}

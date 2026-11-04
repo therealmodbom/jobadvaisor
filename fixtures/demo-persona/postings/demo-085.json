@@ -1,0 +1,18 @@
+{
+  "schema_version": "1",
+  "title": "Senior Mobile Developer (Kotlin Multiplatform)",
+  "company": "Demo Co. Lucky Spin",
+  "location_raw": "Fennick (hybrid)",
+  "text": "Demo Co. Lucky Spin is a scale-up building education apps. We are looking for a senior-level Mobile Developer (Kotlin Multiplatform) to join our mobile team. Work is two office days a week in Fennick.\n\nOur stack: kotlin, swift, dart. You will improve app performance and stability, build offline-first features and review code with the team.\n\nModern devices for testing. You will mentor less experienced colleagues.",
+  "source_type": "url",
+  "urls": [
+    "https://careers.example.org/beech/085"
+  ],
+  "added_at": "2026-04-13T01:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-04-13T01:00:00Z"
+  }
+}

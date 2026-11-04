@@ -1,0 +1,18 @@
+{
+  "schema_version": "1",
+  "title": "Senior Mobile Developer (Kotlin Multiplatform)",
+  "company": "Demo Co. Ash",
+  "location_raw": "Remote",
+  "text": "Demo Co. Ash is a scale-up building logistics apps. We are looking for a senior-level Mobile Developer (Kotlin Multiplatform) to join our mobile team. Work is fully remote within the country.\n\nOur stack: kotlin. You will ship features end to end, work closely with design and product and review code with the team.\n\nFour-day weeks in summer. You will mentor less experienced colleagues.\n\nThe role includes a 24/7 on-call rotation.",
+  "source_type": "url",
+  "urls": [
+    "https://careers.example.org/ash/105"
+  ],
+  "added_at": "2026-04-26T05:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-04-26T05:00:00Z"
+  }
+}

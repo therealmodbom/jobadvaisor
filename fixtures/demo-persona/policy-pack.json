@@ -1,0 +1,162 @@
+{
+  "schema_version": "1",
+  "exclusion_rules": [
+    {
+      "id": "no-on-call",
+      "field": "text",
+      "operator": "contains_any",
+      "value": [
+        "24/7 on-call",
+        "night shifts"
+      ]
+    },
+    {
+      "id": "no-unpaid",
+      "field": "title",
+      "operator": "matches_regex",
+      "value": "(?i)\\b(unpaid|volunteer)\\b"
+    },
+    {
+      "id": "no-betting",
+      "field": "company",
+      "operator": "equals",
+      "value": "Demo Co. Lucky Spin"
+    }
+  ],
+  "reason_chips": [
+    {
+      "id": "too-junior",
+      "label": "Stelle zu junior",
+      "polarity": "negative"
+    },
+    {
+      "id": "too-senior",
+      "label": "Stelle zu senior",
+      "polarity": "negative"
+    },
+    {
+      "id": "wrong-stack",
+      "label": "falscher Tech-Stack",
+      "polarity": "negative"
+    },
+    {
+      "id": "onsite-only",
+      "label": "nur vor Ort",
+      "polarity": "negative"
+    },
+    {
+      "id": "dull-domain",
+      "label": "Branche uninteressant",
+      "polarity": "negative"
+    },
+    {
+      "id": "fitting-seniority",
+      "label": "passende Seniorität",
+      "polarity": "positive"
+    },
+    {
+      "id": "great-stack",
+      "label": "passender Tech-Stack",
+      "polarity": "positive"
+    },
+    {
+      "id": "remote-possible",
+      "label": "Remote möglich",
+      "polarity": "positive"
+    },
+    {
+      "id": "good-domain",
+      "label": "spannende Branche",
+      "polarity": "positive"
+    }
+  ],
+  "feature_set": [
+    {
+      "id": "role_type",
+      "description": "Kind of role",
+      "type": "categorical",
+      "options": [
+        "android",
+        "ios",
+        "cross-platform",
+        "backend",
+        "qa",
+        "game"
+      ]
+    },
+    {
+      "id": "seniority",
+      "description": "Seniority the posting asks for",
+      "type": "categorical",
+      "options": [
+        "junior",
+        "mid",
+        "senior",
+        "lead"
+      ]
+    },
+    {
+      "id": "domain",
+      "description": "Product domain of the company",
+      "type": "categorical",
+      "options": [
+        "fitness",
+        "education",
+        "health",
+        "travel",
+        "logistics",
+        "media",
+        "banking",
+        "gaming"
+      ]
+    },
+    {
+      "id": "tech_stack",
+      "description": "Languages the posting names",
+      "type": "list",
+      "options": [
+        "kotlin",
+        "java",
+        "swift",
+        "dart",
+        "typescript",
+        "python",
+        "go",
+        "csharp"
+      ]
+    },
+    {
+      "id": "location",
+      "description": "Town of the office",
+      "type": "categorical",
+      "options": [
+        "Northhaven",
+        "Eastmere",
+        "Brightwater Bay",
+        "Fennick",
+        "Oldmoor"
+      ]
+    },
+    {
+      "id": "remote_option",
+      "description": "Where the work happens",
+      "type": "categorical",
+      "options": [
+        "hybrid",
+        "remote",
+        "onsite"
+      ]
+    },
+    {
+      "id": "company_stage",
+      "description": "Stage of the company",
+      "type": "categorical",
+      "options": [
+        "startup",
+        "scale-up",
+        "enterprise",
+        "agency"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "title": "Senior Android Developer",
+  "company": "Demo Co. Oak",
+  "location_raw": "Remote",
+  "text": "Demo Co. Oak is a scale-up building education apps. We are looking for a senior-level Android Developer to join our mobile team. Work is fully remote within the country.\n\nOur stack: kotlin, java. You will improve app performance and stability, own the release process and ship features end to end.\n\nFour-day weeks in summer. You will mentor less experienced colleagues.",
+  "source_type": "url",
+  "urls": [
+    "https://jobs.example.com/postings/070"
+  ],
+  "added_at": "2026-04-03T09:00:00Z",
+  "presented_at": "2026-04-06T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-04-03T09:00:00Z"
+  }
+}

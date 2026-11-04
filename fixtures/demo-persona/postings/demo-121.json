@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "title": "Flutter Developer",
+  "company": "Demo Co. Cedar",
+  "location_raw": "Oldmoor, on-site",
+  "text": "Demo Co. Cedar is a startup building education apps. We are looking for a mid-level Flutter Developer to join our mobile team. Work is on-site in our Oldmoor office.\n\nOur stack: dart. You will review code with the team, improve app performance and stability and own the release process.\n\nA small, senior team.",
+  "source_type": "url",
+  "urls": [
+    "https://careers.example.org/cedar/121"
+  ],
+  "added_at": "2026-05-06T07:00:00Z",
+  "presented_at": "2026-05-11T18:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-05-06T07:00:00Z"
+  }
+}

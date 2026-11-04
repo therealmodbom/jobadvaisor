@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "title": "Senior React Native Developer",
+  "company": "Demo Co. Ash",
+  "location_raw": "Oldmoor (hybrid)",
+  "text": "Demo Co. Ash is a scale-up building logistics apps. We are looking for a senior-level React Native Developer to join our mobile team. Work is two office days a week in Oldmoor.\n\nOur stack: typescript. You will improve app performance and stability, ship features end to end and work closely with design and product.\n\nA small, senior team. You will mentor less experienced colleagues.",
+  "source_type": "url",
+  "urls": [
+    "https://jobs.example.com/postings/030"
+  ],
+  "added_at": "2026-03-03T06:00:00Z",
+  "guard": {
+    "flagged": false,
+    "categories": [],
+    "checked_by": "demo-fixture",
+    "checked_at": "2026-03-03T06:00:00Z"
+  },
+  "legacy_decision": "discarded"
+}
