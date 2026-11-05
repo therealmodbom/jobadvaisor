@@ -31,8 +31,8 @@ Order: the data repository on the server (#62) first, then the container (#61). 
 
 ## 5. Walkthrough with the real client sequence
 
-- [ ] 5.1 Browser on a local computer over the private network: open the pool, add a posting by link, score it, rate it, reload and see the rating. Verify: the rating shows after reload, and a new label file appears in `/srv/jobadvaisor/data` (`git status` on the server).
-- [ ] 5.2 A link whose page builds its text with scripts, added through the UI. Verify: the intake outcome is stored and does not report `browser failed`.
+- [x] 5.1 Browser on a local computer over the private network: open the pool, add a posting by link, score it, rate it, reload and see the rating. Verify: the rating shows after reload, and a new label file appears in `/srv/jobadvaisor/data` (`git status` on the server).
+- [x] 5.2 A link whose page builds its text with scripts, added through the UI. Verify: the intake outcome is stored and does not report `browser failed`.
 - [ ] 5.3 The user opens the address on a second device (a phone) and rates one posting. Verify: the rating appears on the local computer after a reload.
 - [ ] 5.4 `docker compose restart`, then `docker compose pull` and `up -d` (same tag, read from the project `.env`). Verify: `docker inspect` still shows `v0.1.0-rc1` and every rating from 5.1 and 5.3 is still there.
 
