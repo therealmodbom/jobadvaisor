@@ -410,8 +410,8 @@ def main(argv: list[str] | None = None) -> None:
     Without a mode flag, runs the extractor over the postings of `--data` (default: the demo
     persona) and prints the table. The model is `EXTRACTOR_MODEL` (falling back to `LLM_MODEL`)
     unless `--model` names another; its base URL is `--base-url`, else the configured extractor
-    base URL. `--role decider` runs the hosted decision model instead (`DECIDER_MODEL` and
-    `DECIDER_BASE_URL`, falling back to `LLM_BASE_URL`), which answers the categorical features
+    base URL. `--role decider` runs the hosted decision model that `--model` names instead
+    (required; `--base-url` falls back to `LLM_BASE_URL`), which answers the categorical features
     only. `--compare` reports two or more stored runs side by side and writes their
     unlabelled disagreements to a file; `--settle` merges that file, once filled in, into the
     data repository's extraction labels; `--history` lists the stored runs. Every mode stops with
@@ -452,13 +452,12 @@ def main(argv: list[str] | None = None) -> None:
 def _run_command(settings: Settings, args: argparse.Namespace) -> None:
     """The run mode of `main`: build the model for `args`, run, print the table."""
     decision = args.role == "decider"
-    model = args.model or (settings.decider_model if decision
-                           else settings.extractor_model or settings.llm_model)
+    model = args.model or (None if decision else settings.extractor_model or settings.llm_model)
     if not model:
-        raise BenchmarkError("DECIDER_MODEL is not set" if decision
+        raise BenchmarkError("--role decider needs --model" if decision
                              else "EXTRACTOR_MODEL or LLM_MODEL is not set")
-    base_url = args.base_url or (settings.decider_base_url if decision
-                                 else settings.extractor_base_url) or settings.llm_base_url
+    base_url = args.base_url or (None if decision else settings.extractor_base_url) \
+        or settings.llm_base_url
     repository = load(args.data)
     deepeval = load_deepeval(state_path(settings, repository.root))
     chat = (decider_client if decision else model_client)(model, base_url, settings)

@@ -96,8 +96,64 @@ def test_extraction_asks_one_choice_question_per_categorical_feature():
     assert report["cost_per_posting_usd"] == pytest.approx(0.001)
 
 
-def test_cli_skips_the_competitor_without_a_decision_model(monkeypatch, capsys):
-    monkeypatch.setattr(cli, "Settings", lambda: Settings(_env_file=None))
+def test_cli_skips_the_competitor_without_model(monkeypatch, capsys):
+    monkeypatch.setattr(cli, "Settings", lambda: Settings(_env_file=None, guard_model="x/guard"))
     cli.main(["--only", "decider_competitor"])
     [report] = json.loads(capsys.readouterr().out)
-    assert report == {"eval": "decider_competitor", "skipped": "DECIDER_MODEL is not set"}
+    assert report == {"eval": "decider_competitor", "skipped": "--model is not given"}
+
+
+@pytest.fixture
+def candidate_run(monkeypatch):
+    """`cli.main` with the decision-model client, the index, the guard and both evals stubbed;
+    returns the (model, base URL) pairs a client was built for and the candidates the evals got."""
+    built, seen = [], {}
+    monkeypatch.setattr(cli, "Settings", lambda: Settings(
+        _env_file=None, guard_model="x/guard", llm_base_url="https://router.example/v1"))
+    monkeypatch.setattr(cli, "decider_client", lambda model, base_url, settings: built.append(
+        (model, base_url)) or Decider(FakeDecider(lambda request: {}), model))
+    monkeypatch.setattr(cli, "_synced_index", lambda repository, settings: None)
+    monkeypatch.setattr(cli, "configured_guard", lambda settings: GUARD)
+    monkeypatch.setattr(cli.decider_competitor, "run", lambda repository, index, guard, chosen:
+                        seen.update(competitor=chosen.model) or {"eval": "decider_competitor"})
+    monkeypatch.setattr(cli.content_guard, "run", lambda repository, classifier, thresholds:
+                        seen.setdefault("guard", []).append(classifier.name) or {})
+    return built, seen
+
+
+def test_model_names_the_competitor_and_the_guard_row_of_one_run(candidate_run, capsys):
+    built, seen = candidate_run
+    cli.main(["--only", "decider_competitor", "content_guard", "--model", "typesafe/jev-1.14.0"])
+    assert built == [("typesafe/jev-1.14.0", "https://router.example/v1")]
+    assert seen == {"competitor": "typesafe/jev-1.14.0",
+                    "guard": ["decider:typesafe/jev-1.14.0"]}
+
+
+def test_base_url_goes_with_model(candidate_run):
+    built, _ = candidate_run
+    cli.main(["--only", "content_guard", "--model", "m", "--base-url", "https://other.example/v1"])
+    assert built == [("m", "https://other.example/v1")]
+
+
+def test_a_failing_candidate_client_fails_only_the_evals_that_need_it(monkeypatch, capsys):
+    def broken(model, base_url, settings):
+        raise RuntimeError("no API key")
+
+    monkeypatch.setattr(cli, "Settings", lambda: Settings(_env_file=None))
+    monkeypatch.setattr(cli, "decider_client", broken)
+    cli.main(["--only", "baseline", "content_guard", "--model", "m"])
+    baseline, guard = json.loads(capsys.readouterr().out)
+    assert "error" not in baseline
+    assert guard == {"eval": "content_guard", "error": "RuntimeError: no API key"}
+
+
+def test_the_candidate_is_built_once_for_both_evals(candidate_run):
+    built, _ = candidate_run
+    cli.main(["--only", "decider_competitor", "content_guard", "--model", "m"])
+    assert built == [("m", "https://router.example/v1")]
+
+
+def test_the_guard_setting_alone_does_not_make_a_candidate(candidate_run):
+    built, seen = candidate_run
+    cli.main(["--only", "decider_competitor", "content_guard"])
+    assert built == [] and seen == {}

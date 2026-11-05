@@ -59,8 +59,8 @@ def test_guard_thresholds_that_would_never_flag_or_make_no_sense_are_rejected(th
         Settings(_env_file=None, guard_thresholds=thresholds)
 
 
-def test_decision_model_is_preferred_then_mistral_then_screening_is_off():
-    jev = {"decider_model": "typesafe/jev-1.13.0", "llm_api_key": "k"}
+def test_guard_model_is_preferred_then_mistral_then_screening_is_off():
+    jev = {"guard_model": "typesafe/jev-1.13.0", "llm_api_key": "k"}
     assert isinstance(classifier_from_settings(Settings(_env_file=None, **jev,
                                                         mistral_api_key="k")), DeciderClassifier)
     assert isinstance(classifier_from_settings(Settings(_env_file=None, mistral_api_key="k")),
@@ -69,7 +69,7 @@ def test_decision_model_is_preferred_then_mistral_then_screening_is_off():
 
 
 @pytest.mark.parametrize(("values", "thresholds"), [
-    ({"decider_model": "typesafe/jev-1.13.0", "llm_api_key": "k"},
+    ({"guard_model": "typesafe/jev-1.13.0", "llm_api_key": "k"},
      dict.fromkeys(DECIDER_QUESTIONS, 0.5)),
     ({"mistral_api_key": "k"}, MISTRAL_THRESHOLDS),
     ({"mistral_api_key": "k", "guard_thresholds": {"jailbreaking": 0.3}}, {"jailbreaking": 0.3}),

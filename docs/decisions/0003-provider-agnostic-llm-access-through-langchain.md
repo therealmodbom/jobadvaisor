@@ -12,7 +12,7 @@ The app uses language models in several roles: feature extraction, scoring as a 
 
 All model access goes through LangChain. `init_chat_model` builds one chat model per role (`extractor`, `judge`, `intake`, `agent`). Each role reads `<ROLE>_MODEL` and an optional `<ROLE>_BASE_URL`, with `LLM_MODEL` and `LLM_BASE_URL` as the default for every role. Embeddings use `init_embeddings` with `EMBEDDING_MODEL`. Structured results use `with_structured_output` against Pydantic models. Routers work through `base_url`.
 
-Decision models, which return probabilities per option instead of text, are the one exception: LangChain has no binding for their request format, so the `decider` role calls the OpenAI-compatible chat-completions endpoint directly. It stays provider-agnostic in the same way, configured by `DECIDER_MODEL` and an optional `DECIDER_BASE_URL`, and in the first change it is the default content-guard classifier and otherwise an eval competitor.
+Decision models, which return probabilities per option instead of text, are the one exception: LangChain has no binding for their request format, so the `decider` role calls the OpenAI-compatible chat-completions endpoint directly. It stays provider-agnostic in the same way. The app uses one only as the content guard's classifier, configured by `GUARD_MODEL` and an optional `GUARD_BASE_URL` and called in the `questions` format; the guard falls back to Mistral Moderation, then to off. Everywhere else a decision model is an eval competitor that each run names with `--model`, never from a setting.
 
 ## Alternatives considered
 

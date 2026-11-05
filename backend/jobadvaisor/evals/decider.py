@@ -122,9 +122,9 @@ def run_extraction(repository: DataRepository, decider: Decider) -> dict:
 
 def run(repository: DataRepository, index: LabelIndex, guard: ContentGuard,
         decider: Decider | None) -> dict:
-    """Both competitor rows, or the skip reason without a decision model."""
+    """Both competitor rows, or the skip reason when no decision model is named (`--model`)."""
     if decider is None:
-        return {"eval": "decider_competitor", "skipped": "DECIDER_MODEL is not set"}
+        return {"eval": "decider_competitor", "skipped": "--model is not given"}
     return {"eval": "decider_competitor", "model": decider.model, "data": repository.root.name,
             "scoring": run_scoring(repository, index, guard, decider),
             "extraction": run_extraction(repository, decider)}

@@ -67,8 +67,8 @@ class Settings(BaseSettings):
     agent_model: str | None = None
     agent_base_url: str | None = None
     embedding_model: str | None = None
-    decider_model: str | None = None
-    decider_base_url: str | None = None
+    guard_model: str | None = None
+    guard_base_url: str | None = None
 
     mistral_api_key: str | None = None
     guard_thresholds: dict[str, float] | None = None
