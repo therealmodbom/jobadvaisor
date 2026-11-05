@@ -31,7 +31,7 @@ The deployed service SHALL be reachable only from devices on the user's private 
 The port the server publishes the service on SHALL be a setting of the deployment, with a default, and changing it SHALL NOT need a new image.
 
 #### Scenario: Another port
-- **WHEN** the user sets a different port in the deployment settings and restarts the service
+- **WHEN** the user sets a different port in the deployment settings and recreates the service with the documented command
 - **THEN** the UI answers on that port and no longer on the default
 
 ### Requirement: Secrets and settings from the host
