@@ -85,23 +85,27 @@ The deployment documentation SHALL name the commands that commit and push the se
 - **WHEN** another machine pushed a commit to the remote that does not touch what the server changed, and the user runs the documented sync
 - **THEN** the server's data repository contains that commit and the app shows its data
 
-### Requirement: A sync runs with the service stopped
-The documented sync SHALL run with the service stopped, so that the app neither writes during it nor reads a half-merged file, and SHALL start the service again only when the sync has finished or been aborted.
+### Requirement: A sync never races the app
+While a sync changes the working copy of the data repository, the app SHALL NOT write to it and SHALL NOT read a file that is half-merged or in conflict. This holds until the sync has finished or been aborted.
 
-#### Scenario: Service stopped during a sync
-- **WHEN** the user runs the documented sync
-- **THEN** the service is stopped before the first change to the data repository and is started again only after the sync has finished or been aborted
+#### Scenario: Rating during a sync
+- **WHEN** a sync is changing the working copy and the user submits a rating
+- **THEN** the rating is not written into the changing working copy, and the user sees that it was not saved
+
+#### Scenario: Conflict pending
+- **WHEN** a sync has stopped on a conflict
+- **THEN** the app serves no data from the conflicted file until the user has resolved the conflict or aborted the sync
 
 ### Requirement: A conflict is never resolved silently
 When the remote's changes and the server's changes conflict, the sync SHALL stop with nothing overwritten on either side, and the user SHALL resolve the conflict on the server or abort the sync.
 
 #### Scenario: Conflicting change
 - **WHEN** the remote and the server changed the same file differently and the user runs the documented sync
-- **THEN** the sync stops with the conflicting file named, neither side is overwritten, the service stays stopped, and the user resolves the conflict on the server or aborts the sync, which restores the data from before it
+- **THEN** the sync stops with the conflicting file named, neither side is overwritten, and the user resolves the conflict on the server or aborts the sync, which restores the data from before it
 
 #### Scenario: Aborted sync
-- **WHEN** the user aborts a stopped sync and starts the service
-- **THEN** the service shows exactly the data from before the sync, including every rating made since the last push
+- **WHEN** the user aborts a sync that stopped on a conflict
+- **THEN** the app shows exactly the data from before the sync, including every rating made since the last push
 
 ### Requirement: Restore from the data repository's remote
 The deployment documentation SHALL describe how to rebuild the server's data repository and state from the remote alone, and the restore SHALL have been run once against a fresh clone.
