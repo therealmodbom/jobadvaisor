@@ -68,7 +68,7 @@ Pushing a release tag SHALL build the image and publish it to the registry under
 - **THEN** the service runs the newest image and the UI loads
 
 ### Requirement: The server works on a clone of the data repository's remote
-The server SHALL hold the working copy of the data repository, cloned from the data repository's remote, which the server can read and write with the credentials stored on it. The remote MAY also be changed from other machines. The deployment documentation SHALL name the commands that commit and push the server's changes and that bring in the remote's changes, and a conflict between the two SHALL never be resolved silently: the sync stops, nothing is overwritten on either side, and the user resolves it on the server. The data repository SHALL NOT be pushed to a publicly readable remote.
+The server SHALL hold the working copy of the data repository, cloned from the data repository's remote, which the server can read and write with the credentials stored on it. The remote MAY also be changed from other machines. The deployment documentation SHALL name the commands that commit and push the server's changes and that bring in the remote's changes, and a conflict between the two SHALL never be resolved silently: the sync stops, nothing is overwritten on either side, and the user resolves it on the server. The documented sync SHALL run with the service stopped, so that the app neither writes during it nor reads a half-merged file, and SHALL start the service again only when the sync has finished or been aborted. The data repository SHALL NOT be pushed to a publicly readable remote.
 
 #### Scenario: Copy to a local computer
 - **WHEN** the user has pushed the server's data and pulls on a local computer
@@ -84,7 +84,11 @@ The server SHALL hold the working copy of the data repository, cloned from the d
 
 #### Scenario: Conflicting change
 - **WHEN** the remote and the server changed the same file differently and the user runs the documented sync
-- **THEN** the sync stops with the conflicting file named, neither side is overwritten, and the user resolves the conflict on the server
+- **THEN** the sync stops with the conflicting file named, neither side is overwritten, the service stays stopped, and the user resolves the conflict on the server or aborts the sync, which restores the data from before it
+
+#### Scenario: Aborted sync
+- **WHEN** the user aborts a stopped sync and starts the service
+- **THEN** the service shows exactly the data from before the sync, including every rating made since the last push
 
 ### Requirement: Restore from the data repository's remote
 The deployment documentation SHALL describe how to rebuild the server's data repository and state from the remote alone, and the restore SHALL have been run once against a fresh clone.
