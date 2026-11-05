@@ -6,7 +6,7 @@ Defines how the app runs as one always-available instance on a private server: w
 ## Requirements
 
 ### Requirement: One service for UI and API
-A release image SHALL start one service that answers both the API and the built UI on one port, and SHALL contain the browser that pages built by scripts need.
+A release image SHALL start one service in one container that answers both the API and the built UI on one port, and SHALL contain the browser that pages built by scripts need.
 
 #### Scenario: Open the UI from the service
 - **WHEN** the service runs and a browser requests `/`
@@ -17,15 +17,22 @@ A release image SHALL start one service that answers both the API and the built 
 - **THEN** intake reads the page text with the browser in the image and does not fail with `browser failed`
 
 ### Requirement: Reachable on the private network only
-The deployed service SHALL be reachable only from devices on the owner's Tailnet. It SHALL NOT listen on a public network interface.
+The deployed service SHALL be reachable only from devices on the user's private network. It SHALL NOT listen on a public network interface.
 
-#### Scenario: From a Tailnet device
-- **WHEN** a device on the Tailnet opens the service's Tailnet address
-- **THEN** the UI loads over HTTPS without a login
+#### Scenario: From a device on the private network
+- **WHEN** a device on the private network opens the service's address
+- **THEN** the UI loads without a login
 
 #### Scenario: From the public internet
-- **WHEN** a client outside the Tailnet connects to the server's public address on the service's port
+- **WHEN** a client outside the private network connects to the server's public address on the service's port
 - **THEN** the connection is refused
+
+### Requirement: Configurable port
+The port the server publishes the service on SHALL be a setting of the deployment, with a default, and changing it SHALL NOT need a new image.
+
+#### Scenario: Another port
+- **WHEN** the user sets a different port in the deployment settings and restarts the service
+- **THEN** the UI answers on that port and no longer on the default
 
 ### Requirement: Secrets and settings from the host
 The image SHALL contain no secret and no personal data. The service SHALL read its secrets from a file on the host that only its owner can read, and its other settings from the environment, using the same setting names as everywhere else.
@@ -57,23 +64,23 @@ Pushing a release tag SHALL build the image and publish it to the registry under
 - **THEN** the registry holds an image with that tag
 
 #### Scenario: Update the server
-- **WHEN** the owner runs the documented update command on the server
+- **WHEN** the user runs the documented update command on the server
 - **THEN** the service runs the newest image and the UI loads
 
 ### Requirement: The deployed instance is the only writer
-The server SHALL hold the working copy of the data repository, cloned from a backup remote on the owner's NAS, and SHALL be the only place the app writes to. Other machines SHALL only pull from the backup remote. The data repository SHALL NOT get a remote on a public hosting service.
+The server SHALL hold the working copy of the data repository, cloned from a backup remote on a git server the user chooses, and SHALL be the only place the app writes to. Other machines SHALL only pull from the backup remote. The data repository SHALL NOT be pushed to a publicly readable remote.
 
-#### Scenario: Copy to the Mac
-- **WHEN** the owner has pushed the server's data and pulls on the Mac
-- **THEN** the Mac's data repository equals the server's committed data
+#### Scenario: Copy to a local computer
+- **WHEN** the user has pushed the server's data and pulls on a local computer
+- **THEN** that computer's data repository equals the server's committed data
 
 #### Scenario: Unpushed changes
-- **WHEN** the owner rates a posting and has not yet committed and pushed
+- **WHEN** the user rates a posting and has not yet committed and pushed
 - **THEN** the documentation names the command that does both, and the backup remote lacks that rating until it runs
 
 ### Requirement: Restore from the backup remote
 The deployment documentation SHALL describe how to rebuild the server's data repository and state from the backup remote alone, and the restore SHALL have been run once against a fresh clone.
 
 #### Scenario: Restore
-- **WHEN** the server's data repository directory and state directory are empty and the owner follows the documented restore
+- **WHEN** the server's data repository directory and state directory are empty and the user follows the documented restore
 - **THEN** the service starts with the postings, scores and ratings of the last push, and the state rebuilds from them

@@ -3,7 +3,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Local single-user access
-The UI SHALL be served for a single user, without accounts or login: on localhost, or when deployed, on the owner's private network only. Access control is the network, never the app.
+The UI SHALL be served for a single user, without accounts or login: on localhost, or when deployed, on the user's private network only. Access control is the network, never the app.
 
 #### Scenario: Open the app
 - **WHEN** the user opens the local address in a browser
