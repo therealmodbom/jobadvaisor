@@ -1,0 +1,27 @@
+# Keep secrets, personal settings and data out of the build context (and so out of the image)
+.env*
+local.env
+TASK.md
+fixtures/
+*.sqlite
+*.sqlite3
+chroma/
+
+# Rebuilt inside the image
+**/.venv/
+**/node_modules/
+**/dist/
+**/__pycache__/
+.pytest_cache/
+.ruff_cache/
+
+# Not needed to run
+.git/
+.github/
+.claude/
+.vscode/
+.superpowers/
+worktrees/
+openspec/
+docs/
+backend/tests/
