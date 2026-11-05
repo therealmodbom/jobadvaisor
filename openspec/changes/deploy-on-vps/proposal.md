@@ -40,5 +40,6 @@ The app runs only on the machine of whoever starts it. A user who wants one alwa
 - Accounts or login. The private network is the only access control.
 - Changing how the server reaches the remote (joining it to the private network, new credentials). The server uses the access it already has.
 - Automatic, scheduled sync with the remote and notifying the user of a conflict: #63.
+- AI-assisted conflict resolution. Changes git can combine without overlap go through on their own; a real conflict is resolved by the user on the server. Agent support would need much more in the app and is a later change.
 - Postgres or any change to the stores (ADR 0004).
 - Anything else running on the server.
