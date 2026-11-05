@@ -4,9 +4,9 @@ Order: the data repository on the server (#62) first, then the container (#61). 
 
 ## 1. Data repository on the server (#62)
 
-- [ ] 1.1 Parallel work check (`git worktree list`, `gh pr list`, `git diff --name-only origin/main...HEAD` against `README.md`, `.env.example`, `AGENTS.md`, `.github/workflows/`) and confirm the existing local data repository is clean and equal to its `origin/main`. Verify: `git status --short` prints nothing and `git rev-parse HEAD origin/main` prints one hash twice after `git fetch`.
-- [ ] 1.2 Create `/srv/jobadvaisor/{data,state}` on the server, clone the data repository's remote (`<remote-url>`) into `data/`, set `safe.directory` for it and a git identity for commits made there. Verify: `git -C /srv/jobadvaisor/data log -1 --format=%H` equals the local computer's hash and `git status` is clean.
-- [ ] 1.3 Check that a push from the server works without changing the remote's history: create an empty commit on a scratch branch `write-test`, push it, delete that branch on the remote. Verify: `git ls-remote` on the remote lists `main` unchanged and no `write-test` afterwards.
+- [x] 1.1 Parallel work check (`git worktree list`, `gh pr list`, `git diff --name-only origin/main...HEAD` against `README.md`, `.env.example`, `AGENTS.md`, `.github/workflows/`) and confirm the existing local data repository is clean and equal to its `origin/main`. Verify: `git status --short` prints nothing and `git rev-parse HEAD origin/main` prints one hash twice after `git fetch`.
+- [x] 1.2 Create `/srv/jobadvaisor/{data,state}` on the server, clone the data repository's remote (`<remote-url>`) into `data/`, set `safe.directory` for it and a git identity for commits made there. Verify: `git -C /srv/jobadvaisor/data log -1 --format=%H` equals the local computer's hash and `git status` is clean.
+- [x] 1.3 Check that a push from the server works without changing the remote's history: create an empty commit on a scratch branch `write-test`, push it, delete that branch on the remote. Verify: `git ls-remote` on the remote lists `main` unchanged and no `write-test` afterwards.
 
 ## 2. Image (#61)
 
