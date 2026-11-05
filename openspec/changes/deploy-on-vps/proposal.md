@@ -2,18 +2,18 @@
 
 ## Why
 
-The app runs only on the machine of whoever starts it. A user who wants one always-running instance, reachable from several devices without leaving a private network, has no way to deploy it. The container needs the data repository, so it ships together with moving that repository to the server and giving it a backup remote (#61, #62).
+The app runs only on the machine of whoever starts it. A user who wants one always-running instance, reachable from several devices without leaving a private network, has no way to deploy it. The container needs the data repository, so it ships together with moving that repository's working copy to the server, a clone of the repository's remote (#61, #62).
 
 ## What Changes
 
 - A `Dockerfile` builds one image with the backend, the built frontend and Chromium. One container, one process serves UI and API on one port (the app already mounts `frontend/dist` at `/`).
 - A Compose file runs it on a server: the container is published on the server's loopback address only, on a configurable port (default 8710). Secrets come from a mode-600 file on the server, other settings from a second file, the data repository and the state directory are volumes.
 - A release tag builds the image in GitHub Actions and pushes it to GHCR. One documented command updates the server (`docker compose pull && docker compose up -d`).
-- The server holds a clone of the data repository from a backup remote (any git server the user reaches over SSH) and is the only writer. Other machines only pull. Until #63 exists, the user commits and pushes on the server with a documented command.
+- The server holds a clone of the data repository's remote, which it can read and write. The remote may also change from other machines, so the documentation gives the commands to commit and push the server's changes and to bring in the remote's; a conflict stops the sync and the user resolves it on the server. Until #63 exists, the user runs these by hand.
 - The README documents publishing the loopback port to a private network. It uses `tailscale serve` as the worked example; any private-network setup that forwards to the loopback port works the same.
-- A README section covers deployment, update, backup and the restore from the backup remote, which is tried once.
+- A README section covers deployment, update, sync and the restore from the remote, which is tried once.
 - `web-ui` requirement "served on localhost" widens to "localhost, or on a private network only when deployed".
-- ADR 0009 records the registry and private-network decisions and the server as sole writer.
+- ADR 0009 records the registry and private-network decisions and the server's data clone.
 - The user sets the GHCR package to public once after the first release (GitHub web step), so the server pulls without a login.
 
 ## Capabilities
@@ -38,6 +38,7 @@ The app runs only on the machine of whoever starts it. A user who wants one alwa
 - Automatic commit and push by the app (#63).
 - Reading job alert mails (#56, #57, #58).
 - Accounts or login. The private network is the only access control.
-- Joining the backup remote to the private network. The server reaches it over SSH with a key it already has.
+- Changing how the server reaches the remote (joining it to the private network, new credentials). The server uses the access it already has.
+- Automatic, scheduled sync with the remote and notifying the user of a conflict: #63.
 - Postgres or any change to the stores (ADR 0004).
 - Anything else running on the server.

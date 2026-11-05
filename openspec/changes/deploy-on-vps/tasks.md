@@ -1,12 +1,12 @@
 # Tasks
 
-Order: the data repository on the server (#62) first, then the container (#61). Server steps run over SSH to the server (`<server>`); concrete host names, the private-network name and the backup remote are in the git-excluded `TASK.md`, never in this repository. Secrets are never printed; check names and modes only.
+Order: the data repository on the server (#62) first, then the container (#61). Server steps run over SSH to the server (`<server>`); concrete host names, the private-network name and the remote are in the git-excluded `TASK.md`, never in this repository. Secrets are never printed; check names and modes only.
 
 ## 1. Data repository on the server (#62)
 
 - [ ] 1.1 Parallel work check (`git worktree list`, `gh pr list`, `git diff --name-only origin/main...HEAD` against `README.md`, `.env.example`, `AGENTS.md`, `.github/workflows/`) and confirm the existing local data repository is clean and equal to its `origin/main`. Verify: `git status --short` prints nothing and `git rev-parse HEAD origin/main` prints one hash twice after `git fetch`.
-- [ ] 1.2 Create `/srv/jobadvaisor/{data,state}` on the server, clone the backup remote (`ssh://<backup-remote>/<path>/jobadvaisor-data.git`) into `data/`, set `safe.directory` for it and a git identity for commits made there. Verify: `git -C /srv/jobadvaisor/data log -1 --format=%H` equals the local computer's hash and `git status` is clean.
-- [ ] 1.3 Check that a push from the server works without changing the remote's history: create an empty commit on a scratch branch `write-test`, push it, delete that branch on the remote. Verify: `git ls-remote` on the backup remote lists `main` unchanged and no `write-test` afterwards.
+- [ ] 1.2 Create `/srv/jobadvaisor/{data,state}` on the server, clone the data repository's remote (`<remote-url>`) into `data/`, set `safe.directory` for it and a git identity for commits made there. Verify: `git -C /srv/jobadvaisor/data log -1 --format=%H` equals the local computer's hash and `git status` is clean.
+- [ ] 1.3 Check that a push from the server works without changing the remote's history: create an empty commit on a scratch branch `write-test`, push it, delete that branch on the remote. Verify: `git ls-remote` on the remote lists `main` unchanged and no `write-test` afterwards.
 
 ## 2. Image (#61)
 
@@ -36,15 +36,16 @@ Order: the data repository on the server (#62) first, then the container (#61). 
 - [ ] 5.3 The user opens the address on a second device (a phone) and rates one posting. Verify: the rating appears on the local computer after a reload.
 - [ ] 5.4 `docker compose restart`, then `docker compose pull` and `up -d` (same tag, read from the project `.env`). Verify: `docker inspect` still shows `v0.1.0-rc1` and every rating from 5.1 and 5.3 is still there.
 
-## 6. Backup and restore
+## 6. Sync and restore
 
-- [ ] 6.1 On the server commit and push the data with the three documented commands, pull on a local computer. Verify: the backup remote's `main` hash equals the server's, and the local data repository has the new labels after `git pull --ff-only`.
-- [ ] 6.2 Restore trial: stop the service, move `data/` and `state/` aside, clone from the backup remote, `chown`, `docker compose up -d` (tag from the project `.env`). Verify: the image tag is unchanged and the pool shows the same postings, scores and ratings as before, and `diff -r` of the old and new `data/` (excluding `.git`) is empty.
+- [ ] 6.1 On the server commit and push the data with the documented commands, pull on a local computer. Verify: the remote's `main` hash equals the server's, and the local data repository has the new labels after `git pull --ff-only`.
+- [ ] 6.2 Sync trial against changes from elsewhere, on a scratch branch of the real remote (deleted afterwards): push a non-overlapping change from a local computer and run the documented sync on the server; then make a conflicting change to one file on both sides and run it again. Verify: the first run leaves the server containing both changes with a clean `git status`; the second stops naming the conflicting file, `git log` shows nothing lost on either side, and nothing was force-pushed.
+- [ ] 6.3 Restore trial: stop the service, move `data/` and `state/` aside, clone from the remote, `chown`, `docker compose up -d` (tag from the project `.env`). Verify: the image tag is unchanged and the pool shows the same postings, scores and ratings as before, and `diff -r` of the old and new `data/` (excluding `.git`) is empty.
 
 ## 7. Documentation
 
-- [ ] 7.1 Write ADR 0009 (`docs/decisions/0009-container-from-ghcr-behind-tailscale-serve.md`: GHCR over building on the server, publishing the loopback port with `tailscale serve` over binding the Tailscale IP, the server as sole writer with a backup remote) and add it to the ADR index. Verify: the five ADR sections are present and the design's link resolves.
-- [ ] 7.2 Add a README "Deployment" section: first-time setup of the server (directories, clone, files, publishing the loopback port with `tailscale serve` as the worked example and a note that any private-network forwarder works), the update command with the `JOBADVAISOR_TAG` and `JOBADVAISOR_PORT` lines of the project `.env`, the manual commit-and-push commands with the note that #63 replaces them, and the restore from 6.2. Verify: following the section's commands in order reproduces the state of tasks 1 to 4 (read it once against the shell history).
+- [ ] 7.1 Write ADR 0009 (`docs/decisions/0009-container-from-ghcr-behind-tailscale-serve.md`: GHCR over building on the server, publishing the loopback port with `tailscale serve` over binding the Tailscale IP, the server working on a clone of the data repository's remote with a manual, conflict-stopping sync) and add it to the ADR index. Verify: the five ADR sections are present and the design's link resolves.
+- [ ] 7.2 Add a README "Deployment" section: first-time setup of the server (directories, clone, files, publishing the loopback port with `tailscale serve` as the worked example and a note that any private-network forwarder works), the update command with the `JOBADVAISOR_TAG` and `JOBADVAISOR_PORT` lines of the project `.env`, the manual sync commands (commit, bring in the remote's changes, push) with how to resolve a conflict on the server and the note that #63 replaces them, and the restore from 6.3. Verify: following the section's commands in order reproduces the state of tasks 1 to 4 (read it once against the shell history).
 - [ ] 7.3 Update the AGENTS.md "Current state" pointer (this change in, oldest entry out). Verify: the list holds two entries.
 
 ## 8. Final checks
