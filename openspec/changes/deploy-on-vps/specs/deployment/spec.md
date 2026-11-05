@@ -69,11 +69,14 @@ Pushing a release tag SHALL build the image and publish it to the registry under
 - **THEN** the service runs the newest image and the UI loads
 
 ### Requirement: The server works on a clone of the data repository's remote
-The server SHALL hold the working copy of the data repository, cloned from the data repository's remote, which the server can read and write with the credentials stored on it. The remote MAY also be changed from other machines. The deployment documentation SHALL name the commands that commit and push the server's changes and that bring in the remote's changes, and a conflict between the two SHALL never be resolved silently: the sync stops, nothing is overwritten on either side, and the user resolves it on the server. The documented sync SHALL run with the service stopped, so that the app neither writes during it nor reads a half-merged file, and SHALL start the service again only when the sync has finished or been aborted. The data repository SHALL NOT be pushed to a publicly readable remote.
+The server SHALL hold the working copy of the data repository, cloned from the data repository's remote, which the server can read and write with the credentials stored on it. The remote MAY also be changed from other machines. The data repository SHALL NOT be pushed to a publicly readable remote.
 
 #### Scenario: Copy to a local computer
 - **WHEN** the user has pushed the server's data and pulls on a local computer
 - **THEN** that computer's data repository equals the server's committed data
+
+### Requirement: The documentation names the sync commands
+The deployment documentation SHALL name the commands that commit and push the server's changes and the commands that bring in the remote's changes.
 
 #### Scenario: Unpushed changes
 - **WHEN** the user rates a posting and has not yet committed and pushed
@@ -82,6 +85,16 @@ The server SHALL hold the working copy of the data repository, cloned from the d
 #### Scenario: Remote changed elsewhere
 - **WHEN** another machine pushed a commit to the remote that does not touch what the server changed, and the user runs the documented sync
 - **THEN** the server's data repository contains that commit and the app shows its data
+
+### Requirement: A sync runs with the service stopped
+The documented sync SHALL run with the service stopped, so that the app neither writes during it nor reads a half-merged file, and SHALL start the service again only when the sync has finished or been aborted.
+
+#### Scenario: Service stopped during a sync
+- **WHEN** the user runs the documented sync
+- **THEN** the service is stopped before the first change to the data repository and is started again only after the sync has finished or been aborted
+
+### Requirement: A conflict is never resolved silently
+When the remote's changes and the server's changes conflict, the sync SHALL stop with nothing overwritten on either side, and the user SHALL resolve the conflict on the server or abort the sync.
 
 #### Scenario: Conflicting change
 - **WHEN** the remote and the server changed the same file differently and the user runs the documented sync
