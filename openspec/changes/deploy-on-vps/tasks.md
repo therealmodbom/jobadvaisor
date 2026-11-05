@@ -23,11 +23,11 @@ Order: the data repository on the server (#62) first, then the container (#61). 
 
 ## 4. Release and deploy
 
-- [ ] 4.1 Push the prerelease tag `v0.1.0-rc1` on the branch head (ask the user first: a tag is public). Verify: the release run is green and `docker manifest inspect ghcr.io/therealmodbom/jobadvaisor:v0.1.0-rc1` succeeds.
-- [ ] 4.2 The user sets the GHCR package to public (GitHub web step). Verify: `docker pull` of the tag on the server succeeds without `docker login`.
-- [ ] 4.3 On the server run `docker compose up -d` in `/srv/jobadvaisor` (the tag comes from the project `.env` of 3.2). Verify: `docker inspect` shows the image tag `v0.1.0-rc1`, the container is healthy, `curl -s http://127.0.0.1:8710/pool` on the server returns JSON for the real data, and `docker inspect` shows the container user 10001.
-- [ ] 4.4 Publish the loopback port to the private network (README worked example: `tailscale serve --bg --https=<https-port> http://127.0.0.1:8710`) and confirm any existing entry still answers. Verify: from a local computer on the private network `curl -sI https://<server>.<tailnet>.ts.net:<https-port>/` returns 200; from the same computer against the server's public address `curl --max-time 5` on 8710 and `<https-port>` fails; the serve status shows the earlier entries unchanged.
-- [ ] 4.5 Change the port once: set `JOBADVAISOR_PORT=8720` in the project `.env`, `docker compose up -d`, then set it back. Verify: `curl -s http://127.0.0.1:8720/pool` answers and 8710 does not, then the reverse after the revert.
+- [x] 4.1 Push the prerelease tag `v0.1.0-rc1` on the branch head (ask the user first: a tag is public). Verify: the release run is green and `docker manifest inspect ghcr.io/therealmodbom/jobadvaisor:v0.1.0-rc1` succeeds.
+- [x] 4.2 The user sets the GHCR package to public (GitHub web step). Verify: `docker pull` of the tag on the server succeeds without `docker login`.
+- [x] 4.3 On the server run `docker compose up -d` in `/srv/jobadvaisor` (the tag comes from the project `.env` of 3.2). Verify: `docker inspect` shows the image tag `v0.1.0-rc1`, the container is healthy, `curl -s http://127.0.0.1:8710/pool` on the server returns JSON for the real data, and `docker inspect` shows the container user 10001.
+- [x] 4.4 Publish the loopback port to the private network (README worked example: `tailscale serve --bg --https=<https-port> http://127.0.0.1:8710`) and confirm any existing entry still answers. Verify: from a local computer on the private network `curl -sI https://<server>.<tailnet>.ts.net:<https-port>/` returns 200; from the same computer against the server's public address `curl --max-time 5` on 8710 and `<https-port>` fails; the serve status shows the earlier entries unchanged.
+- [x] 4.5 Change the port once: set `JOBADVAISOR_PORT=8720` in the project `.env`, `docker compose up -d`, then set it back. Verify: `curl -s http://127.0.0.1:8720/pool` answers and 8710 does not, then the reverse after the revert.
 
 ## 5. Walkthrough with the real client sequence
 
