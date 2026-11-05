@@ -49,10 +49,10 @@ Worktrees live under `worktrees/` (gitignored), one per branch: `git worktree ad
 
 The history lives in OpenSpec, not here: `openspec/specs/` is the baseline (one folder per capability) and `openspec/changes/archive/` holds every finished change with its proposal, design and tasks. Open work is in the GitHub issues. Keep this section to a pointer plus the last two archived changes; when archiving a change, drop the oldest entry.
 
-- `name-model-settings-after-their-task`: `GUARD_MODEL` and `GUARD_BASE_URL` select the content guard's classifier (then Mistral Moderation, then off). Evals and `extractor_benchmark --role decider` take a decision model from `--model` and `--base-url`, never from a setting.
 - `company-facts`: intake looks up an employer's size class and founding year once per company and stores them as `companies/<id>.json`; the extractor gets them as a `<company_facts>` block. `python -m jobadvaisor.data.fill_company_facts` backfills older postings.
+- `deploy-on-vps`: a `v*` tag publishes the image `ghcr.io/therealmodbom/jobadvaisor` (`Dockerfile`, `.github/workflows/release.yml`). `deploy/compose.yaml` runs it on a server, bound to loopback, with the data repository as a clone of its remote. `deploy/smoke.sh` checks the image in CI. The README's Deployment section holds the setup, the update, the commit and push of the server's data, the recovery for a rejected push and the restore. ADR 0009 records the decisions.
 
-The README covers setup, the demo persona, the pool workflow and the evals. `docs/company-facts.md` and `docs/extractor-benchmark.md` hold the longer guides.
+The README covers setup, the demo persona, the pool workflow, the deployment and the evals. `docs/company-facts.md` and `docs/extractor-benchmark.md` hold the longer guides.
 
 ## README screenshot
 

@@ -1,0 +1,30 @@
+# JobAdvAIsor on a private server. Copy this file to /srv/jobadvaisor/compose.yaml; see the
+# Deployment section of the README. Next to it live:
+#   .env          project settings for this file: JOBADVAISOR_TAG (the release to run) and,
+#                 optionally, JOBADVAISOR_PORT
+#   settings.env  non-secret settings (models, URLs), same names as .env.example
+#   secrets.env   secrets, mode 600, only its owner can read it
+services:
+  jobadvaisor:
+    image: ghcr.io/therealmodbom/jobadvaisor:${JOBADVAISOR_TAG:-latest}
+    # Loopback only: the service is never on a public interface. Publish it to the private
+    # network with a forwarder on the host (README).
+    ports:
+      - "127.0.0.1:${JOBADVAISOR_PORT:-8710}:8710"
+    env_file:
+      - settings.env
+      - secrets.env
+    environment:
+      DATA_REPOSITORY: /data
+      STATE_DIRECTORY: /state
+    volumes:
+      - /srv/jobadvaisor/data:/data
+      - /srv/jobadvaisor/state:/state
+    # unless-stopped keeps a deliberate `docker compose stop` stopped across a host reboot
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8710/')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s

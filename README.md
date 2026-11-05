@@ -95,6 +95,112 @@ Set `DATA_REPOSITORY` in `local.env` to your data repository. The layout follows
 
 When you add a posting from a URL, intake also looks up the employer's size and founding year once. [docs/company-facts.md](docs/company-facts.md) describes the lookup and how to fill in a record by hand.
 
+## Deployment
+
+The app can run all the time on a Linux server with Docker and Compose. One container serves the UI and the API. It listens on the server's loopback address only, and you publish it to your private network yourself. There is no login, so the private network is the only access control.
+
+A pushed tag `v*` builds the image `ghcr.io/therealmodbom/jobadvaisor` with that tag. GHCR creates a package private on its first push. Set it to public once in the package settings on GitHub, then the server pulls it without a login. The image holds no secret and no personal data. The tag `latest` follows only releases without a suffix such as `-rc1`.
+
+### First-time setup
+
+The server needs read and write access to your data repository's remote with credentials stored on it, for example an SSH key. Never push the data repository to a publicly readable remote.
+
+```bash
+mkdir -p /srv/jobadvaisor/state
+git clone <data-remote-url> /srv/jobadvaisor/data
+git config --global --add safe.directory /srv/jobadvaisor/data
+git -C /srv/jobadvaisor/data config user.name JobAdvAIsor
+git -C /srv/jobadvaisor/data config user.email jobadvaisor@localhost
+chown -R 10001:10001 /srv/jobadvaisor/data /srv/jobadvaisor/state
+```
+
+Copy `deploy/compose.yaml` to `/srv/jobadvaisor/compose.yaml`, then create three files next to it:
+
+| File | Holds |
+|---|---|
+| `settings.env` | Settings that are not secret, with the names from `.env.example`: models, base URLs, `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_BASE_URL`. |
+| `secrets.env` | The keys `LLM_API_KEY`, `MISTRAL_API_KEY`, `SEARCH_API_KEY` and `LANGFUSE_SECRET_KEY` that you use. Mode 600. Create it with an editor or a hidden prompt, never with the values as command arguments. |
+| `.env` | The line `JOBADVAISOR_TAG=<release>`, for example `v0.1.0`. Compose reads it for every command. Optionally `JOBADVAISOR_PORT=<port>` for another host port. The default is 8710. |
+
+Start the service:
+
+```bash
+cd /srv/jobadvaisor
+docker compose up -d
+```
+
+The container answers on `127.0.0.1:8710` of the server. To reach it from your devices, forward that loopback port to your private network. With Tailscale, this serves it as HTTPS on its own port and leaves other entries alone:
+
+```bash
+tailscale serve --bg --https=8443 http://127.0.0.1:8710
+```
+
+Any other forwarder for a private network works the same way. Do not run `docker compose config` on the server. It resolves `secrets.env` and prints the values.
+
+### Update
+
+Set the new release in the `JOBADVAISOR_TAG` line of `.env`, then:
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+A changed `JOBADVAISOR_PORT` needs the same `docker compose up -d`. `docker compose restart` keeps the old port mapping.
+
+### Commit and push the server's data
+
+The app writes ratings, postings and scores into the data repository on the server and never commits. Until the automatic sync of [#63](https://github.com/therealmodbom/jobadvaisor/issues/63) exists, you commit and push by hand, with the service running. Until you do, the remote does not have the latest ratings.
+
+```bash
+git -C /srv/jobadvaisor/data add -A
+git -C /srv/jobadvaisor/data commit -m "Ratings from the server"
+git -C /srv/jobadvaisor/data push
+```
+
+Pull on your other computers as usual. Never force-push.
+
+### When the push is rejected
+
+The remote has changes the server lacks, for example a push from another computer. Stop the service so that no rating lands in the working copy while git changes it. The browser shows a connection error until you start it again.
+
+```bash
+cd /srv/jobadvaisor
+docker compose stop
+git -C data add -A
+git -C data commit -m "Ratings from the server"
+git -C data fetch
+git -C data rebase origin/main
+git -C data push
+docker compose up -d
+```
+
+Skip the commit if `git -C data status` shows nothing to commit. Changes that do not overlap go through. The service does not start by itself afterwards, so the last command is part of the recovery.
+
+If two changes touch the same file, `git rebase` stops and names the file. The service stays stopped. Choose one of these:
+
+- Edit the file to the version you want, then run `git -C data add <file>` and `git -C data rebase --continue`. Push and run `docker compose up -d`.
+- Run `git -C data rebase --abort`. The data is exactly as before the sync, including every rating made since the last push. Run `docker compose up -d`.
+
+### Restore
+
+The remote has everything that was pushed. To rebuild the server from it, move the old directories aside and clone again:
+
+```bash
+cd /srv/jobadvaisor
+docker compose stop
+mv data data.old
+mv state state.old
+git clone <data-remote-url> data
+mkdir state
+git -C data config user.name JobAdvAIsor
+git -C data config user.email jobadvaisor@localhost
+chown -R 10001:10001 data state
+docker compose up -d
+```
+
+The state in `state/` rebuilds from the data. Remove `data.old` and `state.old` once the pool shows what you expect. Ratings that were never pushed are only in `data.old`.
+
 ## Tests
 
 ```bash

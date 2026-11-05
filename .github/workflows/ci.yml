@@ -61,6 +61,24 @@ jobs:
       - run: npm test
       - run: npm run build
 
+  # The release image (Dockerfile), built without pushing and checked by deploy/smoke.sh.
+  # release.yml pushes it on a version tag.
+  image:
+    if: startsWith(github.ref, 'refs/heads/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: jobadvaisor:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - run: deploy/smoke.sh jobadvaisor:ci
+
   # The browser walkthrough of the list import: the real app with the built frontend and fake
   # models, in Chromium (backend/tests/e2e).
   e2e:
