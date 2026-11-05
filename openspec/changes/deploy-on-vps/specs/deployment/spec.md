@@ -83,7 +83,7 @@ The deployment documentation SHALL name the commands that commit and push the se
 - **THEN** the documentation names the command that does both, and the remote lacks that rating until it runs
 
 #### Scenario: Remote changed elsewhere
-- **WHEN** another machine pushed a commit to the remote, the server's push is rejected, and the user follows the documented recovery
+- **WHEN** another machine pushed a commit to the remote that does not touch what the server changed, the server's push is rejected, and the user follows the documented recovery
 - **THEN** the server's data repository contains that commit together with its own changes, the push succeeds, and the app shows the data of both
 
 ### Requirement: A sync never races the app
