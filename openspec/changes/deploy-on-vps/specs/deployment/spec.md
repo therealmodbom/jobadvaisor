@@ -76,15 +76,15 @@ The server SHALL hold the working copy of the data repository, cloned from the d
 - **THEN** that computer's data repository equals the server's committed data
 
 ### Requirement: The documentation names the sync commands
-The deployment documentation SHALL name the commands that commit and push the server's changes and the commands that bring in the remote's changes.
+The deployment documentation SHALL name the commands that commit and push the server's changes, and the recovery path for when a push is rejected because the remote has changes the server lacks.
 
 #### Scenario: Unpushed changes
 - **WHEN** the user rates a posting and has not yet committed and pushed
 - **THEN** the documentation names the command that does both, and the remote lacks that rating until it runs
 
 #### Scenario: Remote changed elsewhere
-- **WHEN** another machine pushed a commit to the remote that does not touch what the server changed, and the user runs the documented sync
-- **THEN** the server's data repository contains that commit and the app shows its data
+- **WHEN** another machine pushed a commit to the remote, the server's push is rejected, and the user follows the documented recovery
+- **THEN** the server's data repository contains that commit together with its own changes, the push succeeds, and the app shows the data of both
 
 ### Requirement: A sync never races the app
 While a sync changes the working copy of the data repository, the app SHALL NOT write to it and SHALL NOT read a file that is half-merged or in conflict. This holds until the sync has finished or been aborted.
@@ -101,7 +101,7 @@ While a sync changes the working copy of the data repository, the app SHALL NOT 
 When the remote's changes and the server's changes conflict, the sync SHALL stop with nothing overwritten on either side, and the user SHALL resolve the conflict on the server or abort the sync.
 
 #### Scenario: Conflicting change
-- **WHEN** the remote and the server changed the same file differently and the user runs the documented sync
+- **WHEN** the remote and the server changed the same file differently and the user follows the documented recovery
 - **THEN** the sync stops with the conflicting file named, neither side is overwritten, and the user resolves the conflict on the server or aborts the sync, which restores the data from before it
 
 #### Scenario: Aborted sync
