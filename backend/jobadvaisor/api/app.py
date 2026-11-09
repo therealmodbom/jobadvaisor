@@ -162,6 +162,9 @@ class AgentMessages(BaseModel):
 Agent = Callable[[list[dict]], Reply]
 ALL_STATUSES = ("open", "applied", "done")
 FRONTEND_BUILD = REPOSITORY_ROOT / "frontend" / "dist"
+# Written into the image at build time (Dockerfile); a file, not an environment variable, so the
+# deployment's settings cannot make the backend disagree with the frontend it serves.
+VERSION_FILE = REPOSITORY_ROOT / "VERSION"
 
 
 def create_app(runs: Runs | None = None, intake: Intake | None = None,
@@ -195,6 +198,12 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
         detail = "; ".join(f"{'.'.join(map(str, item['loc']))}: {item['msg']}"
                            for item in error.errors())
         return problem(422, "invalid request", detail)
+
+    @app.get("/version")
+    def read_version() -> dict:
+        """The release this backend runs: `{"version"}` is the release tag written to the
+        `VERSION` file at image build, or `dev` when the file does not exist (a checkout)."""
+        return {"version": VERSION_FILE.read_text().strip() if VERSION_FILE.is_file() else "dev"}
 
     @app.get("/pool")
     def read_pool_view() -> dict:

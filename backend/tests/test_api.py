@@ -490,3 +490,22 @@ def test_a_pass_without_a_counted_correction_does_not_rescore(api, root):
     assert api.client.get("/pool").json()["counter"]["corrections"] == 0
     api.settled(api.start())
     assert api.started == [False, False]
+
+
+def test_version_is_dev_without_a_version_file(api, monkeypatch, tmp_path):
+    monkeypatch.setattr("jobadvaisor.api.app.VERSION_FILE", tmp_path / "VERSION")
+    assert api.client.get("/version").json() == {"version": "dev"}
+
+
+def test_version_is_the_trimmed_content_of_the_version_file(api, monkeypatch, tmp_path):
+    (tmp_path / "VERSION").write_text("v0.1.0\n")
+    monkeypatch.setattr("jobadvaisor.api.app.VERSION_FILE", tmp_path / "VERSION")
+    assert api.client.get("/version").json() == {"version": "v0.1.0"}
+
+
+def test_version_ignores_environment_variables(api, monkeypatch, tmp_path):
+    (tmp_path / "VERSION").write_text("v0.1.0\n")
+    monkeypatch.setattr("jobadvaisor.api.app.VERSION_FILE", tmp_path / "VERSION")
+    for name in ("APP_VERSION", "VERSION", "JOBADVAISOR_TAG"):
+        monkeypatch.setenv(name, "other")
+    assert api.client.get("/version").json() == {"version": "v0.1.0"}

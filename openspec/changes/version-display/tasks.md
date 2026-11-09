@@ -2,8 +2,8 @@
 
 ## 1. Backend
 
-- [ ] 1.1 Test first, then add `GET /version` to `create_app`, answering `{"version"}` from the file `VERSION` at the repository root (`dev` when it does not exist), with a docstring; verify `env -C backend uv run pytest -q tests/test_api.py` covers the missing file and a file with a value, and that an environment variable of any name does not change the answer
-- [ ] 1.2 Add `/version` to `API_ROUTES` in `frontend/vite.config.ts`; verify with the dev server that `curl http://127.0.0.1:5710/version` returns the backend's JSON, not `index.html`
+- [x] 1.1 Test first, then add `GET /version` to `create_app`, answering `{"version"}` from the file `VERSION` at the repository root (`dev` when it does not exist), with a docstring; verify `env -C backend uv run pytest -q tests/test_api.py` covers the missing file and a file with a value, and that an environment variable of any name does not change the answer
+- [x] 1.2 Add `/version` to `API_ROUTES` in `frontend/vite.config.ts`; verify with the dev server that `curl http://127.0.0.1:5710/version` returns the backend's JSON, not `index.html`
 
 ## 2. Frontend
 
