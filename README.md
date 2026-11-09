@@ -148,6 +148,12 @@ docker compose up -d
 
 A changed `JOBADVAISOR_PORT` needs the same `docker compose up -d`. `docker compose restart` keeps the old port mapping.
 
+### Which version runs
+
+The footer of every page shows the version of the page, the version of the server and the address the page talks to, for example `Oberfläche v0.1.0 · Server v0.1.0 · <address you opened>`. Both versions are the release tag of the image. A build without a tag, such as a local one, shows `dev`.
+
+A tab that stays open across an update still holds the old page. When it comes back into view, a banner says so and offers "Neu laden". Nothing reloads by itself, so a chat or a running pass is not lost until you press it.
+
 ### Commit and push the server's data
 
 The app writes ratings, postings and scores into the data repository on the server and never commits. Until the automatic sync of [#63](https://github.com/therealmodbom/jobadvaisor/issues/63) exists, you commit and push by hand, with the service running. Until you do, the remote does not have the latest ratings.

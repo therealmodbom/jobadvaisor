@@ -19,11 +19,11 @@
 
 ## 4. Verification
 
-- [ ] 4.1 Run `env -C backend uv run pytest -q`, `env -C backend uv run pytest -m e2e` (after `npm run build`), and in `frontend/` `npm run lint`, `npm test`, `npm run build`; all pass
-- [ ] 4.2 Click through the built image in Chrome: footer on all three views and on a posting page, banner after replacing the server with an image of another version in a tab left open, reload button ends the banner, and a normal reload fetches the new `index.html`. If it does not, add `Cache-Control: no-cache` for `index.html` with a test; report what the browser check cannot show
+- [x] 4.1 Run `env -C backend uv run pytest -q`, `env -C backend uv run pytest -m e2e` (after `npm run build`), and in `frontend/` `npm run lint`, `npm test`, `npm run build`; all pass
+- [x] 4.2 Click through the built image in Chrome: footer on all three views and on a posting page, banner after replacing the server with an image of another version in a tab left open, reload button ends the banner, and a normal reload fetches the new `index.html`. If it does not, add `Cache-Control: no-cache` for `index.html` with a test; report what the browser check cannot show
 
 ## 5. Documentation
 
-- [ ] 5.1 Add to the README Deployment section where the version shows (footer) and that a banner asks for a reload after an update; verify the text against the running page
-- [ ] 5.2 Note in the README's build/dev text that a local build reports `dev` and the release workflow sets the version; verify the wording matches the Dockerfile argument name
-- [ ] 5.3 Check whether the footer lies inside the README screenshot's 1280 by 800 viewport and whether it shows anything beyond the origin used; regenerate the screenshot only if it changes what the screenshot shows, with the demo persona
+- [x] 5.1 Add to the README Deployment section where the version shows (footer) and that a banner asks for a reload after an update; verify the text against the running page
+- [x] 5.2 Note in the README's build/dev text that a local build reports `dev` and the release workflow sets the version; verify the wording matches the Dockerfile argument name
+- [x] 5.3 Check whether the footer lies inside the README screenshot's 1280 by 800 viewport and whether it shows anything beyond the origin used; regenerate the screenshot only if it changes what the screenshot shows, with the demo persona

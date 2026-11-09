@@ -16,7 +16,7 @@ export function useBackendVersion(): string | null {
     let mounted = true
     const load = () => {
       api<{ version: string }>('/version').then(
-        (answer) => { if (mounted) setVersion(answer.version) },
+        (answer) => { if (mounted && typeof answer.version === 'string') setVersion(answer.version) },
         () => {},
       )
     }

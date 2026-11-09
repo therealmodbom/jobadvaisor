@@ -33,6 +33,10 @@ async function tab(state: 'visible' | 'hidden') {
   await act(async () => { document.dispatchEvent(new Event('visibilitychange')) })
 }
 
+/** Lets a finished request's state update land, so an assertion that nothing changed is not
+ * made before the change could have happened. */
+const settle = () => act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)) })
+
 const footer = () => screen.getByRole('contentinfo')
 const banner = () => screen.queryByText(/Diese Seite ist veraltet/)
 
@@ -58,6 +62,7 @@ test('an unreachable backend on load shows an unknown server version and no bann
   const requests = serve(FAILED)
   render(<App />)
   await vi.waitFor(() => expect(requests()).toBe(1))
+  await settle()
   expect(footer()).toHaveTextContent('Server unbekannt')
   expect(banner()).toBeNull()
 })
@@ -100,6 +105,7 @@ test('a failed refetch keeps the last backend version', async () => {
   await screen.findByText(/Server v0\.1\.0/)
   await tab('visible')
   await vi.waitFor(() => expect(requests()).toBe(2))
+  await settle()
   expect(footer()).toHaveTextContent('Server v0.1.0')
   expect(banner()).toBeNull()
 })
@@ -111,6 +117,7 @@ test('a failed refetch leaves the banner in place', async () => {
   await screen.findByText(/Diese Seite ist veraltet/)
   await tab('visible')
   await vi.waitFor(() => expect(requests()).toBe(2))
+  await settle()
   expect(banner()).toBeVisible()
   expect(footer()).toHaveTextContent('Server v0.2.0')
 })
@@ -143,4 +150,14 @@ test('the shell with the banner and the footer has no accessibility violations',
   const { container } = render(<App />)
   await screen.findByText(/Diese Seite ist veraltet/)
   expect(await axe(container)).toHaveNoViolations()
+})
+
+test('an answer without a version counts as a failed fetch', async () => {
+  vi.stubEnv('VITE_APP_VERSION', 'v0.1.0')
+  const requests = serve({ body: {} } as Answer)
+  render(<App />)
+  await vi.waitFor(() => expect(requests()).toBe(1))
+  await settle()
+  expect(footer()).toHaveTextContent('Server unbekannt')
+  expect(banner()).toBeNull()
 })
