@@ -9,7 +9,9 @@ WORKDIR /app/frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 COPY frontend/ ./
-RUN npm run build
+# The release tag (`dev` without one); Vite bakes it into the built JavaScript
+ARG APP_VERSION=dev
+RUN VITE_APP_VERSION="$APP_VERSION" npm run build
 
 # --- runtime
 FROM python:3.12-slim
@@ -30,6 +32,10 @@ RUN uv sync --locked --no-dev
 # Chromium for pages built by scripts (intake/fetch.py), with its system libraries
 RUN playwright install --with-deps chromium
 COPY --from=frontend /app/frontend/dist /app/frontend/dist
+# The same release tag for the backend, as a file and not as ENV: the deployment's environment
+# can override ENV, and the backend must not disagree with the frontend it serves.
+ARG APP_VERSION=dev
+RUN printf '%s\n' "$APP_VERSION" > /app/VERSION
 
 # Fixed uid, so the host can chown the data and state directories to it
 RUN useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin jobadvaisor

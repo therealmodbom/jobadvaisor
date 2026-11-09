@@ -6,7 +6,7 @@ The page is the only place to see which release the server runs, and there is no
 
 ## What Changes
 
-- The release image carries the release tag as its version; a build outside a release (local, CI) reports `dev`.
+- The release image carries the release tag as its version; a build without a version (local) reports `dev`.
 - The backend answers `GET /version` with its version.
 - The app shell gets a footer that shows the frontend version, the backend version and the origin the page's requests go to.
 - The page fetches the backend version on load and when the tab becomes visible again. When it differs from the version the frontend was built with, a banner says so and offers a reload button.

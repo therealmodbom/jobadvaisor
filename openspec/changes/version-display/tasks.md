@@ -14,8 +14,8 @@
 
 ## 3. Build and release
 
-- [ ] 3.1 Declare `ARG APP_VERSION=dev` in both Dockerfile stages (`VITE_APP_VERSION` for the build, the file `/app/VERSION` written with `RUN` for the runtime, no `ENV`) and pass `build-args: APP_VERSION=${{ github.ref_name }}` in `release.yml`; verify `docker build --build-arg APP_VERSION=v0.0.0-test` yields an image whose `/version` answers `v0.0.0-test`, and that running it with `-e APP_VERSION=other` still answers `v0.0.0-test`
-- [ ] 3.2 Extend `deploy/smoke.sh` to take the expected version, check the backend's answer and the built frontend's `index.html`/assets for it, and have `ci.yml` build with a fake version and pass it; verify the check fails on an image built without the argument and passes on one built with it
+- [x] 3.1 Declare `ARG APP_VERSION=dev` in both Dockerfile stages (`VITE_APP_VERSION` for the build, the file `/app/VERSION` written with `RUN` for the runtime, no `ENV`) and pass `build-args: APP_VERSION=${{ github.ref_name }}` in `release.yml`; verify `docker build --build-arg APP_VERSION=v0.0.0-test` yields an image whose `/version` answers `v0.0.0-test`, and that running it with `-e APP_VERSION=other` still answers `v0.0.0-test`
+- [x] 3.2 Extend `deploy/smoke.sh` to take the expected version, check the backend's answer and the built frontend's `index.html`/assets for it, and have `ci.yml` build with a fake version and pass it; verify the check fails on an image built without the argument and passes on one built with it
 
 ## 4. Verification
 

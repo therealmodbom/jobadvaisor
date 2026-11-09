@@ -75,9 +75,10 @@ jobs:
           platforms: linux/amd64
           load: true
           tags: jobadvaisor:ci
+          build-args: APP_VERSION=v0.0.0-ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      - run: deploy/smoke.sh jobadvaisor:ci
+      - run: deploy/smoke.sh jobadvaisor:ci v0.0.0-ci
 
   # The browser walkthrough of the list import: the real app with the built frontend and fake
   # models, in Chromium (backend/tests/e2e).

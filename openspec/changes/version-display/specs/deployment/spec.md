@@ -14,7 +14,7 @@ The image built for a release tag SHALL report that tag as its version, in the b
 - **THEN** the backend still answers `v0.1.0`
 
 #### Scenario: Image outside a release
-- **WHEN** the image is built locally or by the checks of a branch
+- **WHEN** the image is built without a version, as a local build is
 - **THEN** its backend and its frontend report `dev`
 
 #### Scenario: Check of the built image
