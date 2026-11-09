@@ -26,4 +26,4 @@
 
 - [x] 5.1 Add to the README Deployment section where the version shows (footer) and that a banner asks for a reload after an update; verify the text against the running page
 - [x] 5.2 Note in the README's build/dev text that a local build reports `dev` and the release workflow sets the version; verify the wording matches the Dockerfile argument name
-- [x] 5.3 Check whether the footer lies inside the README screenshot's 1280 by 800 viewport and whether it shows anything beyond the origin used; regenerate the screenshot only if it changes what the screenshot shows, with the demo persona
+- [x] 5.3 Check whether the footer lies inside the README screenshot's 1280 by 800 viewport and whether it shows anything beyond the origin used; regenerate the screenshot only if it changes what the screenshot shows, with the demo persona. Outcome: `docs/images/pool.png` is cut inside the first posting card at 800 px, so the page is taller than the viewport and the footer, which follows `main`, lies below it; the footer names only the page's own origin. The screenshot shows no change and is not retaken.

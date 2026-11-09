@@ -57,6 +57,8 @@ check "the environment does not change the backend version" \
 if [ "$version" != dev ]; then
   check "the built frontend carries version $version" \
     in_image grep -rqF -- "$version" /app/frontend/dist/assets
+else
+  echo "skip the built frontend carries a version (a dev build holds no tag to look for)"
 fi
 
 # No secret and no personal data in the image: no env file, no JSON data file. Dependencies
