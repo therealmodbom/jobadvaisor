@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
+import { StaleBanner, VersionFooter } from '@/components/version'
 import { cn } from '@/lib/utils'
+import { useBackendVersion } from '@/lib/version'
 import { ChatView } from '@/views/ChatView'
 import { IntakeView } from '@/views/IntakeView'
 import { PoolView } from '@/views/PoolView'
@@ -32,7 +34,8 @@ function postingIdOf(hash: string): string | null {
   }
 }
 
-/** The app shell: header with the main navigation, and the open view below it; the three main
+/** The app shell: the stale-page banner (only when the server runs another version), the header
+ * with the main navigation, the open view and the version footer; the three main
  * views stay mounted but hidden (so an import keeps polling), a posting page mounts only while
  * its route is open and keeps "Anzeigen" current in the navigation. The page sets its own
  * document title. */
@@ -50,6 +53,8 @@ function App() {
     document.title = `${postingId ? 'Anzeige' : view.title} – JobAdvAIsor`
   }, [view, postingId])
 
+  const backendVersion = useBackendVersion()
+
   const content = {
     '#/pool': <PoolView active={view === VIEWS[0] && postingId === null} />,
     '#/hinzufuegen': <IntakeView list={importing} />,
@@ -57,6 +62,7 @@ function App() {
   }
   return (
     <>
+      <StaleBanner backend={backendVersion} />
       <header className="border-b bg-card">
         <div className="mx-auto flex min-h-16 max-w-[1200px] flex-wrap items-center gap-x-8 gap-y-2 px-6">
           <a href={VIEWS[0].hash} className="text-[19px] font-bold tracking-tight text-foreground no-underline">
@@ -80,6 +86,7 @@ function App() {
         {VIEWS.map((item) => <div key={item.hash} hidden={postingId !== null || item !== view}>{content[item.hash]}</div>)}
         {postingId !== null && <PostingPage postingId={postingId} />}
       </main>
+      <VersionFooter backend={backendVersion} />
     </>
   )
 }

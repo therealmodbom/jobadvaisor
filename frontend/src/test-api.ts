@@ -6,8 +6,10 @@ export type Call = { method: string; path: string; body: unknown }
 type Answer = { status?: number; body?: unknown } | Promise<never>
 
 /** Replaces `fetch` with a router over `routes` ("METHOD /path" → answer or answer function),
- * and returns the calls it received. An unrouted request fails the test. */
+ * and returns the calls it received. An unrouted request fails the test. The app shell asks
+ * `GET /version` on every render, so it answers `dev` unless a test routes it itself. */
 export function stubApi(routes: Record<string, Answer | ((call: Call) => Answer)>): Call[] {
+  routes = { 'GET /version': { body: { version: 'dev' } }, ...routes }
   const calls: Call[] = []
   vi.stubGlobal('fetch', vi.fn(async (path: string, init: RequestInit = {}) => {
     const method = init.method ?? 'GET'

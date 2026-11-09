@@ -7,10 +7,10 @@
 
 ## 2. Frontend
 
-- [ ] 2.1 Give `stubApi` users a default `GET /version` answer (`dev`) in `frontend/src/test-api.ts`; verify `npm test` still passes for the existing tests
-- [ ] 2.2 Test first, then add the footer with a `useBackendVersion` hook (fetch on mount and on `visibilitychange` to visible): frontend version, backend version, `window.location.origin`, "unbekannt" while no fetch has succeeded, last successful version kept after a failed refetch; verify tests for released page, `dev`, unreachable on load, failed refetch after a success, and refetch on visibility
-- [ ] 2.3 Test first, then add the stale-page banner (`role="status"`, button "Neu laden" calling `window.location.reload()`) derived from the last successfully fetched backend version (shown while it differs, removed when it equals the frontend's); verify tests for mismatch, equal versions, unreachable on load (no banner), a failed refetch after a mismatch (banner stays), a refetch that returns the frontend's version after a mismatch (banner removed) and that mounted views keep their input
-- [ ] 2.4 Verify the existing automated accessibility check covers footer and banner in both themes and reports no violations; extend it with a mismatch state if it does not reach the banner
+- [x] 2.1 Give `stubApi` users a default `GET /version` answer (`dev`) in `frontend/src/test-api.ts`; verify `npm test` still passes for the existing tests
+- [x] 2.2 Test first, then add the footer with a `useBackendVersion` hook (fetch on mount and on `visibilitychange` to visible): frontend version, backend version, `window.location.origin`, "unbekannt" while no fetch has succeeded, last successful version kept after a failed refetch; verify tests for released page, `dev`, unreachable on load, failed refetch after a success, and refetch on visibility
+- [x] 2.3 Test first, then add the stale-page banner (`role="status"`, button "Neu laden" calling `window.location.reload()`) derived from the last successfully fetched backend version (shown while it differs, removed when it equals the frontend's); verify tests for mismatch, equal versions, unreachable on load (no banner), a failed refetch after a mismatch (banner stays), a refetch that returns the frontend's version after a mismatch (banner removed) and that mounted views keep their input
+- [x] 2.4 Verify the existing automated accessibility check covers footer and banner in both themes and reports no violations; extend it with a mismatch state if it does not reach the banner
 
 ## 3. Build and release
 
