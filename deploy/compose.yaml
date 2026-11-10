@@ -23,7 +23,7 @@ services:
     # unless-stopped keeps a deliberate `docker compose stop` stopped across a host reboot
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8710/')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8710/health')"]
       interval: 30s
       timeout: 5s
       retries: 3

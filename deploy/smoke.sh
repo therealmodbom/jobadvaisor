@@ -38,14 +38,18 @@ with sync_playwright() as p:
 
 check "the process user is not root" in_image sh -c '[ "$(id -u)" != 0 ]'
 
-# What `GET /version` of the image's backend answers: the real route over stub dependencies,
-# which the route does not use. Extra arguments of the caller go to `docker run`.
+# The version `GET /health` of the image's backend carries: the real route over stub dependencies.
+# The stub data repository is an empty directory, which does not load, so the answer is a 503
+# and only its `version` is checked: the version does not depend on any data being present.
 backend_version='
-import sys
+import sys, tempfile
+from pathlib import Path
+from types import SimpleNamespace
 from fastapi.testclient import TestClient
 from jobadvaisor.api.app import create_app
-app = create_app(runs=object(), intake=object(), agent=lambda messages: None, imports=object())
-assert TestClient(app).get("/version").json() == {"version": sys.argv[1]}
+intake = SimpleNamespace(root=Path(tempfile.mkdtemp()))
+app = create_app(runs=object(), intake=intake, agent=lambda messages: None, imports=object())
+assert TestClient(app).get("/health").json()["version"] == sys.argv[1]
 '
 check "the backend reports version $version" in_image python -c "$backend_version" "$version"
 # The deployment's environment must not change it: the version is a file in the image.
