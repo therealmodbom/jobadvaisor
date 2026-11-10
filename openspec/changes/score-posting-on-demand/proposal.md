@@ -10,7 +10,7 @@ A score comes only from a pass, and a pass takes only postings without a verdict
 - The score is computed the way a pass scores (content guard ruling, synced label index, the posting's most similar rated postings as examples, the judge) and stored as `scores/<id>.json`, replacing an earlier score, so pool, posting page and agent show it.
 - `POST /postings/{id}/score` answers synchronously with what the posting page shows, plus the counter and next-pass figures.
 - The button is refused while a pass computes, and a pass is refused while a single score computes.
-- A posting the content guard holds, or one it never checked while no classifier is configured, is not scored; the button says why.
+- A posting an exclusion rule matches, the content guard holds, or the guard never checked while no classifier is configured, is not scored. Its button is disabled before any click, with a visible info icon that gives the reason.
 - The posting page keeps the old score visible, marked as being recomputed, until the new one arrives.
 - A rated posting without a score gets its own hint, naming that it was rated before a pass scored it and offering the button.
 - A score computed this way counts toward the correction counter like any other score; it is no pass, so it does not reset the counter.
@@ -23,8 +23,8 @@ None.
 
 ### Modified Capabilities
 
-- `posting-pool`: a new requirement for scoring one posting on request, next to the pass.
-- `web-ui`: a new requirement for the score button on posting page and pool rows; the posting page requirement gains the hint for a rated posting without a score.
+- `posting-pool`: new requirements for scoring one posting on request (its gates, its place in the counter, one scoring at a time); the pass requirement's "Nothing starts by itself" scenario names the single score.
+- `web-ui`: new requirements for the hint on a rated posting without a score and for the score button (disabled cases, progress and result) on posting page and pool rows.
 
 ## Non-goals
 
@@ -36,7 +36,8 @@ None.
 
 ## Impact
 
-- Backend: `triage/graph.py` (a single-posting scoring function reusing `_guard_ruling`), `triage/runs.py` (one slot shared by passes and single scores), `api/app.py` (new endpoint, corrected `start_pass` docstring).
-- Frontend: `api.ts` (answer type), `components/posting` (score button), `views/PostingPage.tsx`, `views/PoolView.tsx`, with their tests.
+- Backend: `triage/graph.py` (a single-posting scoring function reusing `_guard_ruling`), `triage/runs.py` (one slot shared by passes and single scores), `pool.py` (rows gain `unscreened`), `api/app.py` (new endpoint, `screening` on `GET /pool` and `GET /postings/{id}`, corrected `start_pass` docstring).
+- API wire: two added fields and one new route; nothing removed or renamed.
+- Frontend: `api.ts` (answer type, new fields), `test-fixtures.ts`, `components/posting` (score button with info icon), `views/PostingPage.tsx`, `views/PoolView.tsx`, with their tests.
 - Tests: `test_api.py`, `test_triage_graph.py` or a new runs test, component tests, one e2e test.
 - README pool workflow text; `docs/images/pool.png` is retaken, since each row gains a button.
