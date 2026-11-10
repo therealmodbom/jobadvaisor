@@ -12,10 +12,12 @@ from jobadvaisor.data.writer import read_pool, read_score
 from jobadvaisor.index import LabelIndex
 from jobadvaisor.tools.guard import ContentGuard
 from jobadvaisor.triage.graph import (
+    ScoreRefused,
     TriageContext,
     build_graph,
     checkpointer,
     run_config,
+    score_one,
     start_run,
 )
 
@@ -353,3 +355,66 @@ def test_rated_postings_are_rescored_when_rescoring(tmp_path, root):
     write_json(root / "labels/rated.json", LABEL)
     assert set(harness.start("run-2", rescore=True)["results"]) == {"rated", "unrated"}
     assert read_score(root, "rated").scored_at > first.scored_at
+
+
+def test_a_rated_posting_without_a_score_gets_one_without_itself_as_an_example(tmp_path, root):
+    add_posting(root, "rated", "Backend Engineer 7")
+    add_posting(root, "other", "Backend Engineer 3")
+    write_json(root / "labels/rated.json", LABEL)
+    write_json(root / "labels/other.json", LABEL)
+    harness = Harness(tmp_path, root)
+    scored = score_one(harness.context(), "rated")
+    assert scored.score == 7 and scored.reasoning == "fits"
+    assert scored.example_ids == ["other"]
+    assert read_score(root, "rated") == scored
+    assert harness.extractor.calls == [] and len(harness.judge.calls) == 1
+    assert read_pool(root).passes == []
+
+
+def test_an_existing_score_is_replaced(tmp_path, root):
+    add_posting(root, "backend", "Backend Engineer 7")
+    harness = Harness(tmp_path, root)
+    harness.start("run-1")
+    first = read_score(root, "backend")
+    assert score_one(harness.context(), "backend").scored_at > first.scored_at
+    assert read_score(root, "backend").scored_at > first.scored_at
+    assert len(read_pool(root).passes) == 1
+
+
+@pytest.mark.parametrize(("fields", "reason", "detail"), [
+    ({"title": "Sales Manager 5"}, "excluded", ["no-sales"]),
+    ({"guard": FLAGGED}, "held", ["injection"]),
+    ({"guard": FLAGGED, "title": "Sales Manager 5"}, "held", ["injection"]),
+    ({"guard": None}, "unscreened", []),
+])
+def test_a_posting_the_pass_would_not_score_is_refused(tmp_path, root, fields, reason, detail):
+    add_posting(root, "blocked", **{"title": "Backend Engineer 7", **fields})
+    harness = Harness(tmp_path, root)
+    with pytest.raises(ScoreRefused) as refused:
+        score_one(harness.context(), "blocked")
+    assert (refused.value.reason, refused.value.detail) == (reason, detail)
+    assert read_score(root, "blocked") is None and harness.model_prompts() == ""
+
+
+def test_an_unchecked_posting_is_checked_now_and_scored_with_a_classifier(tmp_path, root):
+    add_posting(root, "unchecked", "Backend Engineer 7", guard=None)
+    harness = Harness(tmp_path, root, StubClassifier())
+    assert score_one(harness.context(), "unchecked").score == 7
+    assert load(root).postings["unchecked"].guard.flagged is False
+
+
+def test_an_unchecked_posting_the_check_flags_is_refused_as_held(tmp_path, root):
+    add_posting(root, "injected", "Backend Engineer 7", guard=None, text="INJECT")
+    harness = Harness(tmp_path, root, StubClassifier())
+    with pytest.raises(ScoreRefused) as refused:
+        score_one(harness.context(), "injected")
+    assert (refused.value.reason, refused.value.detail) == ("held", ["injection"])
+    assert load(root).postings["injected"].guard.flagged is True
+    assert read_score(root, "injected") is None and harness.model_prompts() == ""
+
+
+def test_a_checked_posting_is_not_classified_again(tmp_path, root):
+    add_posting(root, "backend", "Backend Engineer 7")
+    classifier = StubClassifier()
+    score_one(Harness(tmp_path, root, classifier).context(), "backend")
+    assert classifier.texts == []
