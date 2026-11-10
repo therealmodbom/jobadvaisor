@@ -174,8 +174,8 @@ A correction SHALL be a rating whose verdict contradicts the posting's latest sc
 - **THEN** the counter and the share start again at zero
 
 #### Scenario: Correction during a pass
-- **WHEN** the user gives a correction while a pass computes
-- **THEN** it counts toward the next pass after this one finishes, since this pass did not learn from it
+- **WHEN** the user rates a posting while a pass computes its score
+- **THEN** the pass stores its new score, and the rating counts after this pass against that score, as a correction only if it contradicts it
 
 #### Scenario: Few ratings
 - **WHEN** fewer than 10 postings were rated since the last pass

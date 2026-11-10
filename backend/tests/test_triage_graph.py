@@ -9,6 +9,7 @@ from langgraph.types import Command
 
 from jobadvaisor.data.loader import load
 from jobadvaisor.data.writer import read_pool, read_score
+from jobadvaisor.pool import counter
 from jobadvaisor.index import LabelIndex
 from jobadvaisor.tools.guard import ContentGuard
 from jobadvaisor.triage.graph import (
@@ -295,6 +296,20 @@ def test_a_label_written_during_the_pass_gets_the_new_score(tmp_path, root):
     assert read_score(root, "backend").score == 3
     assert read_pool(root).passes[-1].scored == 2
     assert results["backend"]["status"] == "scored"
+
+
+def test_a_rating_given_during_the_pass_counts_against_the_score_the_pass_stores(tmp_path, root):
+    add_posting(root, "backend", "Backend Engineer 7")
+    harness = Harness(tmp_path, root)
+    harness.start("run-1")
+    add_posting(root, "backend", "Backend Engineer 3")
+    add_posting(root, "unscreened", "Unscreened Engineer 1", guard=None)
+    harness.start("run-2", rescore=True)  # pauses after load
+    rated = {**LABEL, "rated_at": datetime.now(UTC).isoformat()}  # positive, after the start
+    write_json(root / "labels/backend.json", rated)
+    harness.resume("run-2", True)
+    after = counter(load(root), {"backend": read_score(root, "backend")}, read_pool(root))
+    assert (after["rated"], after["corrections"]) == (1, 1)  # positive against the new 3
 
 
 def test_a_rated_posting_without_a_score_gets_one_in_a_pass(tmp_path, root):

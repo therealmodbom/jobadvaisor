@@ -36,6 +36,33 @@ Each pass SHALL store, with its time, the share of corrections among the ratings
 - **WHEN** a posting with score 8 was rated negative since the previous pass, and the pass rescores it with 2
 - **THEN** the share the pass stores counts that rating as a correction
 
+### Requirement: Correction counter and hints
+A correction SHALL be a rating whose verdict contradicts the posting's latest score: positive on a score below 6, or negative on a score of 6 or more. The pool SHALL show, since the start of the last finished pass, the number of corrections and the share of rated postings that were corrections. It SHALL show a hint "neue Bewertung sinnvoll" when the number reaches the user's threshold (default 10) or the share reaches the user's rate (default 30 %, counted from 10 rated postings on), and "Ranking passt gut" when neither does. A posting corrected several times counts once. Both settings SHALL be changeable in the app and stored in the data repository.
+
+#### Scenario: Correction counted
+- **WHEN** a posting with score 8 is rated negative
+- **THEN** the counter rises by one
+
+#### Scenario: Agreement is no correction
+- **WHEN** a posting with score 8 is rated positive with an added chip
+- **THEN** the counter stays as it was
+
+#### Scenario: Threshold reached
+- **WHEN** the counter reaches the threshold
+- **THEN** the pool shows the hint "neue Bewertung sinnvoll", and the pass button stays usable below the threshold too
+
+#### Scenario: Pass resets the counter
+- **WHEN** a pass finishes and no rating was given while it computed
+- **THEN** the counter and the share start again at zero
+
+#### Scenario: Correction during a pass
+- **WHEN** the user rates a posting while a pass computes its score
+- **THEN** the pass stores its new score, and the rating counts after this pass against that score, as a correction only if it contradicts it
+
+#### Scenario: Few ratings
+- **WHEN** fewer than 10 postings were rated since the last pass
+- **THEN** the share alone triggers no hint
+
 ## ADDED Requirements
 
 ### Requirement: Scoring one posting on request
