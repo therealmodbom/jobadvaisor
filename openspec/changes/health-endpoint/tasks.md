@@ -2,7 +2,7 @@
 
 ## 1. Backend
 
-- [ ] 1.1 Test first, then replace `GET /version` in `create_app` with `GET /health` per design decisions 1 and 2, with a docstring naming the answer shape and the 200/503 contract; verify `env -C backend uv run pytest -q tests/test_api.py` covers: a loading repository (200, `ok`, version), an invalid `pool.json` (503, `fail`, the load error in `checks.data_repo`, version still present), a missing `VERSION` file (`dev`), the trimmed file content, and an environment variable of any name not changing the version; the three `/version` tests are replaced, not kept
+- [x] 1.1 Test first, then replace `GET /version` in `create_app` with `GET /health` per design decisions 1 and 2, with a docstring naming the answer shape and the 200/503 contract; verify `env -C backend uv run pytest -q tests/test_api.py` covers: a loading repository (200, `ok`, version), an invalid `pool.json` (503, `fail`, the load error in `checks.data_repo`, version still present), a missing `VERSION` file (`dev`), the trimmed file content, and an environment variable of any name not changing the version; the three `/version` tests are replaced, not kept
 
 ## 2. Frontend
 
