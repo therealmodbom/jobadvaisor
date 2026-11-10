@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# Smoke check of a built release image: `deploy/smoke.sh IMAGE`.
+# Smoke check of a built release image: `deploy/smoke.sh IMAGE [VERSION]`.
+# VERSION is the value the image was built with (build argument APP_VERSION, default `dev`).
 # Exits 0 when every check passes, otherwise at the first failing check with its name on stderr.
 # The checks run inside the image (`docker run --entrypoint`), so they see what the server runs.
 set -euo pipefail
 
-image="${1:?usage: deploy/smoke.sh IMAGE}"
+image="${1:?usage: deploy/smoke.sh IMAGE [VERSION]}"
+version="${2:-dev}"
 
 # Runs `docker run --rm --entrypoint <cmd> IMAGE <args>`; the entrypoint replaces the service.
 in_image() {
@@ -35,6 +37,33 @@ with sync_playwright() as p:
 '
 
 check "the process user is not root" in_image sh -c '[ "$(id -u)" != 0 ]'
+
+# The version `GET /health` of the image's backend carries: the real route over stub dependencies.
+# The stub data repository is an empty directory, which does not load, so the answer is a 503
+# and only its `version` is checked: the version does not depend on any data being present.
+backend_version='
+import sys, tempfile
+from pathlib import Path
+from types import SimpleNamespace
+from fastapi.testclient import TestClient
+from jobadvaisor.api.app import create_app
+intake = SimpleNamespace(root=Path(tempfile.mkdtemp()))
+app = create_app(runs=object(), intake=intake, agent=lambda messages: None, imports=object())
+assert TestClient(app).get("/health").json()["version"] == sys.argv[1]
+'
+check "the backend reports version $version" in_image python -c "$backend_version" "$version"
+# The deployment's environment must not change it: the version is a file in the image.
+check "the environment does not change the backend version" \
+  docker run --rm -e APP_VERSION=other -e VERSION=other --entrypoint python "$image" \
+  -c "$backend_version" "$version"
+# The frontend carries the version in its built JavaScript. A `dev` build holds no tag to look
+# for (the fallback is a plain word), so this is a real check only for a released version.
+if [ "$version" != dev ]; then
+  check "the built frontend carries version $version" \
+    in_image grep -rqF -- "$version" /app/frontend/dist/assets
+else
+  echo "skip the built frontend carries a version (a dev build holds no tag to look for)"
+fi
 
 # No secret and no personal data in the image: no env file, no JSON data file. Dependencies
 # (.venv) and the built frontend carry JSON of their own and are skipped.

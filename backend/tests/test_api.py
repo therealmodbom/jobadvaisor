@@ -490,3 +490,40 @@ def test_a_pass_without_a_counted_correction_does_not_rescore(api, root):
     assert api.client.get("/pool").json()["counter"]["corrections"] == 0
     api.settled(api.start())
     assert api.started == [False, False]
+
+
+def test_health_is_ok_for_a_loading_repository(api, monkeypatch, tmp_path):
+    monkeypatch.setattr("jobadvaisor.api.app.VERSION_FILE", tmp_path / "VERSION")
+    response = api.client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "checks": {"data_repo": "ok"}, "version": "dev"}
+
+
+def test_health_fails_with_the_load_error_and_still_reports_the_version(
+        api, root, monkeypatch, tmp_path):
+    (tmp_path / "VERSION").write_text("v0.1.0\n")
+    monkeypatch.setattr("jobadvaisor.api.app.VERSION_FILE", tmp_path / "VERSION")
+    (root / "pool.json").write_text("{not json")
+    response = api.client.get("/health")
+    body = response.json()
+    assert response.status_code == 503
+    assert body["status"] == "fail" and body["version"] == "v0.1.0"
+    assert body["checks"]["data_repo"] != "ok" and "pool.json" in body["checks"]["data_repo"]
+
+
+def test_health_version_is_the_trimmed_content_of_the_version_file(api, monkeypatch, tmp_path):
+    (tmp_path / "VERSION").write_text("v0.1.0\n")
+    monkeypatch.setattr("jobadvaisor.api.app.VERSION_FILE", tmp_path / "VERSION")
+    assert api.client.get("/health").json()["version"] == "v0.1.0"
+
+
+def test_health_version_ignores_environment_variables(api, monkeypatch, tmp_path):
+    (tmp_path / "VERSION").write_text("v0.1.0\n")
+    monkeypatch.setattr("jobadvaisor.api.app.VERSION_FILE", tmp_path / "VERSION")
+    for name in ("APP_VERSION", "VERSION", "JOBADVAISOR_TAG"):
+        monkeypatch.setenv(name, "other")
+    assert api.client.get("/health").json()["version"] == "v0.1.0"
+
+
+def test_there_is_no_version_route(api):
+    assert api.client.get("/version").status_code == 404

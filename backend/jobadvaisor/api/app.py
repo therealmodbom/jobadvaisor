@@ -162,6 +162,9 @@ class AgentMessages(BaseModel):
 Agent = Callable[[list[dict]], Reply]
 ALL_STATUSES = ("open", "applied", "done")
 FRONTEND_BUILD = REPOSITORY_ROOT / "frontend" / "dist"
+# Written into the image at build time (Dockerfile); a file, not an environment variable, so the
+# deployment's settings cannot make the backend disagree with the frontend it serves.
+VERSION_FILE = REPOSITORY_ROOT / "VERSION"
 
 
 def create_app(runs: Runs | None = None, intake: Intake | None = None,
@@ -195,6 +198,23 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
         detail = "; ".join(f"{'.'.join(map(str, item['loc']))}: {item['msg']}"
                            for item in error.errors())
         return problem(422, "invalid request", detail)
+
+    @app.get("/health")
+    def read_health() -> JSONResponse:
+        """`{"status", "checks": {"data_repo"}, "version"}`: `status` is `ok` (200) or `fail` (503,
+        same body); `data_repo` is `ok` or the error of loading the data repository and
+        `pool.json`; `version` is the release tag written to the `VERSION` file at image
+        build, or `dev` when the file does not exist (a checkout). The version is in both."""
+        try:
+            load(intake.root)
+            read_pool(intake.root)
+            data_repo = "ok"
+        except DataRepositoryError as error:
+            data_repo = str(error)
+        version = VERSION_FILE.read_text().strip() if VERSION_FILE.is_file() else "dev"
+        ok = data_repo == "ok"
+        return JSONResponse({"status": "ok" if ok else "fail", "checks": {"data_repo": data_repo},
+                             "version": version}, status_code=200 if ok else 503)
 
     @app.get("/pool")
     def read_pool_view() -> dict:

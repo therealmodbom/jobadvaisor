@@ -4,7 +4,7 @@ import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vitest/config'
 
 /** API routes the dev server forwards to the FastAPI backend, so no CORS setup is needed. */
-const API_ROUTES = ['/postings', '/runs', '/agent', '/policy-pack', '/imports', '/pool']
+const API_ROUTES = ['/postings', '/runs', '/agent', '/policy-pack', '/imports', '/pool', '/health']
 /** Dev ports, chosen to stay clear of other local backends on 8000 and Vite's 5173; the
  * .vscode tasks and launch configs start the backend on API_PORT. */
 const API_PORT = 8710

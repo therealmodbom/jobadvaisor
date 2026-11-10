@@ -49,8 +49,8 @@ Worktrees live under `worktrees/` (gitignored), one per branch: `git worktree ad
 
 The history lives in OpenSpec, not here: `openspec/specs/` is the baseline (one folder per capability) and `openspec/changes/archive/` holds every finished change with its proposal, design and tasks. Open work is in the GitHub issues. Keep this section to a pointer plus the last two archived changes; when archiving a change, drop the oldest entry.
 
-- `company-facts`: intake looks up an employer's size class and founding year once per company and stores them as `companies/<id>.json`; the extractor gets them as a `<company_facts>` block. `python -m jobadvaisor.data.fill_company_facts` backfills older postings.
-- `deploy-on-vps`: a `v*` tag publishes the image `ghcr.io/therealmodbom/jobadvaisor` (`Dockerfile`, `.github/workflows/release.yml`). `deploy/compose.yaml` runs it on a server, bound to loopback, with the data repository as a clone of its remote. `deploy/smoke.sh` checks the image in CI. The README's Deployment section holds the setup, the update, the commit and push of the server's data, the recovery for a rejected push and the restore. ADR 0009 records the decisions.
+- `version-display`: the release tag reaches frontend and backend from the build argument `APP_VERSION` (frontend constant, `/app/VERSION` file). Every page shows a footer with both versions and the origin, and a banner with a reload button when the server runs another version.
+- `health-endpoint`: the backend answers `GET /health` with `{"status", "checks": {"data_repo"}, "version"}`, a 503 with the same body when the data repository does not load. The page reads the version from it, also from a 503. The Compose healthcheck requests it. The README's Deployment section holds the server setup and update.
 
 The README covers setup, the demo persona, the pool workflow, the deployment and the evals. `docs/company-facts.md` and `docs/extractor-benchmark.md` hold the longer guides.
 
