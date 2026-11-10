@@ -22,7 +22,7 @@ def test_not_preference_record_is_never_an_example(tmp_path):
     add_posting(root, "new", "Backend Engineer 6")
     harness = Harness(tmp_path, root)
     results = harness.start("run-1")["results"]
-    assert set(results) == {"imported", "new"}  # no verdict = no rating, so it is scored
+    assert set(results) == {"imported", "new", "rated"}  # rated postings are scored too
     assert results["new"]["example_ids"] == ["rated"]
     assert harness.index.posting_ids() == ["rated"]
 
@@ -36,17 +36,14 @@ def test_demo_run_uses_no_not_preference_record_as_an_example(tmp_path, demo_cop
                         for example in used)
 
 
-def test_first_pass_takes_every_unrated_posting_and_the_next_only_the_unscored(tmp_path,
-                                                                              demo_copy):
-    repository = load(demo_copy)
-    unlabeled = {posting_id for posting_id in repository.postings
-                 if not (posting_id in repository.labels and repository.labels[posting_id].verdict)}
+def test_first_pass_takes_every_posting_and_the_next_only_the_unscored(tmp_path, demo_copy):
+    every = set(load(demo_copy).postings)
     harness = Harness(tmp_path, demo_copy)
     results = harness.start("run-1")["results"]
-    assert batch(harness, "run-1") == unlabeled and len(unlabeled) == 24
+    assert batch(harness, "run-1") == every
     scored = {posting_id for posting_id, result in results.items()
               if result["status"] == "scored"}
     harness.start("run-2")
-    assert scored and batch(harness, "run-2") == unlabeled - scored
-    harness.start("run-3", rescore_unrated=True)
-    assert batch(harness, "run-3") == unlabeled
+    assert scored and batch(harness, "run-2") == every - scored
+    harness.start("run-3", rescore=True)
+    assert batch(harness, "run-3") == every

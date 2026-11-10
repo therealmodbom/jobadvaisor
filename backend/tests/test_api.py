@@ -24,10 +24,10 @@ class Api:
         self.gate.set()
         harness.judge = ScriptedModel(self._judge)
         self.runs = Runs(harness.graph, harness.context)
-        self.started: list[bool] = []  # the `rescore_unrated` of every pass started
+        self.started: list[bool] = []  # the `rescore` of every pass started
         start = self.runs.start
-        self.runs.start = lambda rescore_unrated=False: (
-            self.started.append(rescore_unrated), start(rescore_unrated))[1]
+        self.runs.start = lambda rescore=False: (
+            self.started.append(rescore), start(rescore))[1]
         self.client = TestClient(create_app(self.runs,
                                             Intake(harness.root, FakeStructuredModel(),
                                                    harness.guard),
@@ -253,7 +253,7 @@ def test_without_a_build_the_api_runs_alone(tmp_path, root):
 def test_pool_lists_the_rows_in_rank_order_with_counter_settings_and_next_pass(api, root):
     write_json(root / "labels/p1.json", LABEL)
     before = api.client.get("/pool").json()
-    assert before["next_pass"] == {"count": 4, "rescore_unrated": False}
+    assert before["next_pass"] == {"count": 5, "rescore": False}  # rated p1 has no score yet
     assert [row["state"] for row in before["rows"]].count("unscored") == 5
     api.settled(api.start())
     pool = api.client.get("/pool").json()
@@ -261,10 +261,11 @@ def test_pool_lists_the_rows_in_rank_order_with_counter_settings_and_next_pass(a
     assert ids[0] == "p1" and ids[-1] == "sales" and set(ids) == {"p1", "p2", "p3", "p4", "p5",
                                                                   "sales"}
     assert pool["rows"][0]["label"]["verdict"] == "positive"
+    assert pool["rows"][0]["state"] == "scored"
     assert pool["rows"][-1]["state"] == "excluded" and pool["rows"][-1]["rules"] == ["no-sales"]
     assert pool["counter"]["corrections"] == 0 and pool["counter"]["hint"] == "fits"
     assert pool["settings"] == {"correction_threshold": 10, "correction_rate": 0.3}
-    assert pool["next_pass"] == {"count": 0, "rescore_unrated": False}
+    assert pool["next_pass"] == {"count": 0, "rescore": False}
     assert pool["reason_chips"] == [{"id": "too-junior", "label": "too junior",
                                      "polarity": None}]
 

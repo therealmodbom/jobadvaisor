@@ -77,8 +77,8 @@ class Harness:
         return TriageContext(load(self.root), self.guard, self.index, self.extractor,
                              self.judge)
 
-    def start(self, run_id: str, rescore_unrated: bool = False) -> dict:
-        return start_run(self.graph, self.context(), run_id, rescore_unrated)
+    def start(self, run_id: str, rescore: bool = False, batch: list[str] | None = None) -> dict:
+        return start_run(self.graph, self.context(), run_id, rescore, batch)
 
     def resume(self, run_id: str, value) -> dict:
         return self.graph.invoke(Command(resume=value), run_config(run_id),
@@ -112,11 +112,9 @@ def test_excluded_posting_gets_no_model_call_and_every_posting_is_in_the_result(
 
 
 def test_demo_persona_run_covers_every_posting_of_its_batch(tmp_path, demo_copy):
-    repository = load(demo_copy)
-    expected = {posting_id for posting_id in repository.postings
-                if not (posting_id in repository.labels and repository.labels[posting_id].verdict)}
+    expected = set(load(demo_copy).postings)
     results = Harness(tmp_path, demo_copy).start("run-1")["results"]
-    assert set(results) == expected and len(expected) == 24
+    assert set(results) == expected
     assert {result["status"] for result in results.values()} <= {"scored", "excluded"}
 
 
@@ -222,7 +220,7 @@ def test_continue_is_not_remembered(screening_off):
     screening_off.start("run-1")
     screening_off.resume("run-1", True)
     assert load(screening_off.root).postings["unscreened"].guard is None
-    again = screening_off.start("run-2", rescore_unrated=True)
+    again = screening_off.start("run-2", rescore=True)
     assert [i.value["postings"] for i in again["__interrupt__"]] == [["unscreened"]]
 
 
@@ -278,23 +276,50 @@ def test_a_later_pass_replaces_the_score(tmp_path, root):
     harness.start("run-1")
     first = read_score(root, "backend")
     add_posting(root, "backend", "Backend Engineer 3")
-    assert harness.start("run-2", rescore_unrated=True)["results"]["backend"]["score"] == 3
+    assert harness.start("run-2", rescore=True)["results"]["backend"]["score"] == 3
     later = read_score(root, "backend")
     assert later.score == 3 and later.scored_at > first.scored_at
 
 
-def test_a_label_written_during_the_pass_keeps_the_old_score(tmp_path, root):
+def test_a_label_written_during_the_pass_gets_the_new_score(tmp_path, root):
     add_posting(root, "backend", "Backend Engineer 7")
     harness = Harness(tmp_path, root)
     harness.start("run-1")
     add_posting(root, "backend", "Backend Engineer 3")
     add_posting(root, "unscreened", "Unscreened Engineer 1", guard=None)
-    harness.start("run-2", rescore_unrated=True)  # pauses after load
+    harness.start("run-2", rescore=True)  # pauses after load
     write_json(root / "labels/backend.json", LABEL)
     results = harness.resume("run-2", True)["results"]
-    assert read_score(root, "backend").score == 7
-    assert read_pool(root).passes[-1].scored == 1
-    assert results["backend"] == {"status": "rated"}
+    assert read_score(root, "backend").score == 3
+    assert read_pool(root).passes[-1].scored == 2
+    assert results["backend"]["status"] == "scored"
+
+
+def test_a_rated_posting_without_a_score_gets_one_in_a_pass(tmp_path, root):
+    add_posting(root, "rated", "Backend Engineer 7")
+    write_json(root / "labels/rated.json", LABEL)
+    results = Harness(tmp_path, root).start("run-1")["results"]
+    assert results["rated"]["status"] == "scored"
+    assert read_score(root, "rated").score == 7 and "rated" not in results["rated"]["example_ids"]
+
+
+def test_the_measure_uses_the_scores_from_before_the_pass(tmp_path, root):
+    add_posting(root, "backend", "Backend Engineer 8")
+    harness = Harness(tmp_path, root)
+    harness.start("run-1")
+    write_json(root / "labels/backend.json",
+               {**LABEL, "verdict": "negative", "rated_at": datetime.now(UTC).isoformat()})
+    add_posting(root, "backend", "Backend Engineer 2")
+    harness.start("run-2", rescore=True)
+    assert read_score(root, "backend").score == 2
+    assert read_pool(root).passes[-1].corrections == 1  # negative against the old 8
+
+
+def test_an_explicit_batch_scores_exactly_those_postings(tmp_path, root):
+    add_posting(root, "a", "Backend Engineer 7")
+    add_posting(root, "b", "Backend Engineer 5")
+    results = Harness(tmp_path, root).start("run-1", batch=["a"])["results"]
+    assert set(results) == {"a"} and read_score(root, "b") is None
 
 
 def test_a_null_verdict_label_is_no_rating_and_the_posting_gets_a_score(tmp_path, root):
@@ -319,10 +344,12 @@ def test_a_failing_measure_keeps_the_written_scores(tmp_path, root, monkeypatch)
     assert read_pool(root).passes == []
 
 
-def test_rated_postings_are_not_rescored(tmp_path, root):
+def test_rated_postings_are_rescored_when_rescoring(tmp_path, root):
     add_posting(root, "rated", "Backend Engineer 7")
     add_posting(root, "unrated", "Backend Engineer 5")
     harness = Harness(tmp_path, root)
     harness.start("run-1")
+    first = read_score(root, "rated")
     write_json(root / "labels/rated.json", LABEL)
-    assert set(harness.start("run-2", rescore_unrated=True)["results"]) == {"unrated"}
+    assert set(harness.start("run-2", rescore=True)["results"]) == {"rated", "unrated"}
+    assert read_score(root, "rated").scored_at > first.scored_at

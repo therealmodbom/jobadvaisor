@@ -124,7 +124,7 @@ test('the pass button shows the count and is disabled with an explanation at 0',
   const { unmount } = render(<PoolView />)
   expect(await screen.findByRole('button', { name: 'Neue Anzeigen bewerten (12)' })).toBeEnabled()
   unmount()
-  stubApi({ 'GET /pool': { body: poolWith({ next_pass: { count: 0, rescore_unrated: false } }) } })
+  stubApi({ 'GET /pool': { body: poolWith({ next_pass: { count: 0, rescore: false } }) } })
   render(<PoolView />)
   const button = await screen.findByRole('button', { name: 'Neue Anzeigen bewerten (0)' })
   expect(button).toBeDisabled()
@@ -133,7 +133,7 @@ test('the pass button shows the count and is disabled with an explanation at 0',
 
 test('a rescore hint with nothing to score explains the disabled button', async () => {
   stubApi({ 'GET /pool': { body: poolWith({ counter: { ...POOL.counter, hint: 'rescore' },
-                                            next_pass: { count: 0, rescore_unrated: false } }) } })
+                                            next_pass: { count: 0, rescore: false } }) } })
   render(<PoolView />)
   const button = await screen.findByRole('button', { name: 'Neue Anzeigen bewerten (0)' })
   expect(button).toBeDisabled()
@@ -147,7 +147,7 @@ test('a pass shows its progress, then reloads the pool when done', async () => {
   const calls = stubApi({
     'GET /pool': () => {
       reloads += 1
-      return { body: reloads === 1 ? POOL : poolWith({ next_pass: { count: 0, rescore_unrated: false } }) }
+      return { body: reloads === 1 ? POOL : poolWith({ next_pass: { count: 0, rescore: false } }) }
     },
     'POST /pool/passes': { status: 202, body: { pass_id: 'ps1' } },
     'GET /pool/passes/ps1': () => ({ body: pass(++polls === 1 ? { done: 4 } : { status: 'done', done: 12 }) }),

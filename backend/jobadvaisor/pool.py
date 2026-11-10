@@ -35,15 +35,12 @@ def resolve_verdict(verdict: str | None, chips: list[str],
     raise ValueError("verdict is missing: set one or give a chip with a polarity")
 
 
-def pass_batch(repository: DataRepository, scores: dict[str, Score],
-               rescore_unrated: bool) -> list[str]:
-    """Posting IDs, in ID order, a pass would take: every posting without a verdict label (a
-    label with null verdict, e.g. an import, is no rating) and, unless `rescore_unrated`,
-    without a readable score in `scores`."""
+def pass_batch(repository: DataRepository, scores: dict[str, Score], rescore: bool) -> list[str]:
+    """Posting IDs, in ID order, a pass would take: every posting without a readable score in
+    `scores`, rated or not; with `rescore`, every posting. Exclusion and the content guard are
+    the pass's own later steps, so excluded and held postings are still listed here."""
     return sorted(posting_id for posting_id in repository.postings
-                  if not (posting_id in repository.labels
-                          and repository.labels[posting_id].verdict)
-                  and (rescore_unrated or posting_id not in scores))
+                  if rescore or posting_id not in scores)
 
 
 def counter(repository: DataRepository, scores: dict[str, Score], pool: Pool) -> dict:
@@ -76,12 +73,13 @@ def counter(repository: DataRepository, scores: dict[str, Score], pool: Pool) ->
 
 
 def next_pass(repository: DataRepository, scores: dict[str, Score], pool: Pool) -> dict:
-    """What the next pass would do: `{count, rescore_unrated}`. `rescore_unrated` is true when
-    corrections were counted; `count` is the pass batch without excluded and held postings."""
+    """What the next pass would do: `{count, rescore}`. `rescore` is true when corrections
+    were counted (the pass then rescores every posting, rated ones included); `count` is the
+    pass batch without excluded and held postings."""
     rescore = counter(repository, scores, pool)["corrections"] > 0
     batch = pass_batch(repository, scores, rescore)
     count = sum(_blocked(repository, repository.postings[i]) is None for i in batch)
-    return {"count": count, "rescore_unrated": rescore}
+    return {"count": count, "rescore": rescore}
 
 
 def rank(repository: DataRepository, scores: dict[str, Score], score_problems: dict[str, str],

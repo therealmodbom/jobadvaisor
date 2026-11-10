@@ -219,12 +219,19 @@ def test_exploration_with_one_below_marks_one_and_none_below_marks_none():
     assert not any(row["exploration"] for row in rank(repository, scores, {}))
 
 
-def test_pass_batch_skips_rated_and_scored_unless_rescoring():
-    repository = repo({"rated": posting(), "scored": posting(), "bad": posting(), "new": posting()},
+def test_pass_batch_takes_unscored_postings_rated_or_not():
+    repository = repo({"rated": posting(), "rated_new": posting(), "scored": posting(),
+                       "new": posting()},
+                      {"rated": label(), "rated_new": label()})
+    scores = {"scored": score(5), "rated": score(5)}
+    assert pass_batch(repository, scores, False) == ["new", "rated_new"]
+
+
+def test_pass_batch_takes_every_posting_when_rescoring():
+    repository = repo({"rated": posting(), "scored": posting(), "new": posting()},
                       {"rated": label()})
     scores = {"scored": score(5), "rated": score(5)}
-    assert pass_batch(repository, scores, False) == ["bad", "new"]
-    assert pass_batch(repository, scores, True) == ["bad", "new", "scored"]
+    assert pass_batch(repository, scores, True) == ["new", "rated", "scored"]
 
 
 def test_exploration_runs_over_open_rows_only():
@@ -242,8 +249,8 @@ def test_exploration_runs_over_open_rows_only():
 
 
 def test_pass_batch_takes_postings_with_a_null_verdict_label():
-    repository = repo({"imported": posting(), "rated": posting()},
-                      {"imported": label(None, kind="imported_not_preference"), "rated": label()})
+    repository = repo({"imported": posting()},
+                      {"imported": label(None, kind="imported_not_preference")})
     assert pass_batch(repository, {}, False) == ["imported"]
 
 
@@ -259,10 +266,11 @@ def test_corrupt_score_file_counts_as_unscored(tmp_path):
 def test_next_pass_excludes_excluded_and_held_and_follows_corrections():
     held = Guard(flagged=True, checked_by="t", checked_at=T0)
     repository = repo({"ok": posting(), "excl": posting("Sales"), "held": posting(guard=held)})
-    assert next_pass(repository, {}, _pool()) == {"count": 1, "rescore_unrated": False}
+    assert next_pass(repository, {}, _pool()) == {"count": 1, "rescore": False}
     repository, scores = _rated(2, 1)
     repository.postings["ok"] = posting()
-    assert next_pass(repository, scores, _pool()) == {"count": 1, "rescore_unrated": True}
+    repository.postings["excl"] = posting("Sales")
+    assert next_pass(repository, scores, _pool()) == {"count": 3, "rescore": True}
 
 
 def test_read_scores_round_trip(tmp_path):

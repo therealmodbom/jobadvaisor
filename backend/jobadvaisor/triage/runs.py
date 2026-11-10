@@ -36,12 +36,12 @@ class Runs:
         self._computing: set[str] = set()
         self._errors: dict[str, str] = {}
 
-    def start(self, rescore_unrated: bool = False) -> str:
-        """Start a pass in the background and return its ID at once; `rescore_unrated` as in
+    def start(self, rescore: bool = False) -> str:
+        """Start a pass in the background and return its ID at once; `rescore` as in
         `start_run`. Raises `RunBusyError` while another pass computes."""
         run_id = uuid.uuid4().hex
         self._compute(run_id, lambda: start_run(self._graph, self._context(), run_id,
-                                                rescore_unrated))
+                                                rescore))
         return run_id
 
     def read(self, run_id: str) -> dict | None:

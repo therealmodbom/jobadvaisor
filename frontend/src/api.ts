@@ -113,7 +113,7 @@ export type Pool = {
   rows: PoolRow[]
   counter: Counter
   settings: PoolSettings
-  next_pass: { count: number; rescore_unrated: boolean }
+  next_pass: { count: number; rescore: boolean }
   reason_chips: ReasonChip[]
 }
 

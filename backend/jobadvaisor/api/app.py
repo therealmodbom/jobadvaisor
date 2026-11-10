@@ -286,8 +286,9 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
     @app.post("/pool/passes", status_code=202)
     def start_pass() -> dict:
         """Start a scoring pass in the background; answers its `pass_id` at once, or 409
-        naming the pass that is still computing. Takes no body. Postings with a rating are
-        rescored when a correction was counted since the last pass. A repository that does not
+        naming the pass that is still computing. Takes no body. The pass scores every posting
+        without a score, rated or not, and rescores every posting when a correction was
+        counted since the last pass. A repository that does not
         load still starts the pass, which then reports `failed` with the reason."""
         try:
             repository, scores, _, pool = pool_state(intake.root)
