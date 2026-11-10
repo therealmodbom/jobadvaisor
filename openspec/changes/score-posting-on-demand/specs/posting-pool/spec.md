@@ -3,14 +3,14 @@
 ## MODIFIED Requirements
 
 ### Requirement: Scoring pass on request
-The pool SHALL offer a pass "Neue Anzeigen bewerten" that the user starts. It scores every posting without a score, rated or not, and rescores every posting, rated or not, when corrections were counted since the last pass. No pass SHALL start without the user's action. A pass SHALL announce how many postings it will score before it starts.
+The pool SHALL offer a pass "Neue Anzeigen bewerten" that the user starts. It scores every posting without a score, rated or not, and rescores every posting, rated or not, when corrections were counted since the last pass. It SHALL NOT score a posting an exclusion rule matches or the content guard holds. No pass SHALL start without the user's action. A pass SHALL announce how many postings it will score before it starts.
 
 #### Scenario: New postings scored
-- **WHEN** 12 postings are stored without a score and the user starts a pass
+- **WHEN** 12 postings, neither excluded nor held, are stored without a score and the user starts a pass
 - **THEN** each receives a score and reasoning, stored with the posting
 
 #### Scenario: Rated posting without a score
-- **WHEN** a posting the user rated before any pass scored it is stored without a score, and the user starts a pass
+- **WHEN** a posting the user rated before any pass scored it, neither excluded nor held, is stored without a score, and the user starts a pass
 - **THEN** it receives a score, and the posting itself is not among the examples its judge was given
 
 #### Scenario: Rescore after corrections
@@ -19,7 +19,7 @@ The pool SHALL offer a pass "Neue Anzeigen bewerten" that the user starts. It sc
 
 #### Scenario: Rating during a pass
 - **WHEN** the user rates a posting while a pass computes its score
-- **THEN** the pass stores the new score, and the rating counts toward the counter after this pass
+- **THEN** the pass stores that score, and the rating counts toward the counter after this pass
 
 #### Scenario: Nothing starts by itself
 - **WHEN** a posting is added by intake or import
