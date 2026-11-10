@@ -9,7 +9,7 @@ A score comes only from a pass, and a pass takes only postings without a verdict
 - A button "Score berechnen" on the posting page and on every row of the pool list scores this one posting now: rated or not, with or without a score. It names its cost per click (one judge call).
 - The score is computed the way a pass scores (content guard ruling, synced label index, the posting's most similar rated postings as examples, the judge) and stored as `scores/<id>.json`, replacing an earlier score, so pool, posting page and agent show it.
 - `POST /postings/{id}/score` answers synchronously with what the posting page shows, plus the counter and next-pass figures.
-- The button is refused while a pass computes, and a pass is refused while a single score computes.
+- One scoring at a time: the button is refused while a pass or another single score computes, and a pass is refused while a single score computes.
 - A posting an exclusion rule matches, the content guard holds, or the guard never checked while no classifier is configured, is not scored. Its button is disabled before any click, with a visible info icon that gives the reason.
 - The posting page keeps the old score visible, marked as being recomputed, until the new one arrives.
 - A rated posting without a score gets its own hint, naming that it was rated before a pass scored it and offering the button.
