@@ -61,7 +61,7 @@ Every posting SHALL carry an application status the user sets: open (the default
 - **THEN** the status is stored and survives a restart
 
 ### Requirement: Scoring pass on request
-The pool SHALL offer a pass "Neue Anzeigen bewerten" that the user starts. It scores every posting without a score, and rescores every unrated posting when corrections were counted since the last pass. No pass SHALL start without the user's action. A pass SHALL announce how many postings it will score before it starts.
+The pool SHALL offer a pass "Neue Anzeigen bewerten" that the user starts. It scores every unrated posting without a score, and rescores every unrated posting when corrections were counted since the last pass. No pass SHALL start without the user's action. A pass SHALL announce how many postings it will score before it starts.
 
 #### Scenario: New postings scored
 - **WHEN** 12 postings are stored without a score and the user starts a pass
@@ -113,7 +113,7 @@ A posting the content guard holds or an exclusion rule matches SHALL NOT be scor
 - **THEN** no score is computed, and the answer says the posting was never checked
 
 ### Requirement: One scoring at a time
-A single score SHALL NOT start while a pass computes, and a pass SHALL NOT start while a single score computes; each refusal SHALL say that another scoring is computing.
+No scoring SHALL start while another computes: neither a pass nor a single score while a pass or a single score computes. Each refusal SHALL say that another scoring is computing.
 
 #### Scenario: Pass running
 - **WHEN** the user asks to score a posting while a pass computes
@@ -122,6 +122,10 @@ A single score SHALL NOT start while a pass computes, and a pass SHALL NOT start
 #### Scenario: Single score running
 - **WHEN** the user starts a pass while a single score computes
 - **THEN** the pass does not start, and the answer says another scoring is computing
+
+#### Scenario: Second single score
+- **WHEN** the user asks to score a second posting while the score of a first one computes
+- **THEN** no score is computed for the second, and the answer says another scoring is computing
 
 ### Requirement: Correction counter and hints
 A correction SHALL be a rating whose verdict contradicts the posting's latest score: positive on a score below 6, or negative on a score of 6 or more. The pool SHALL show, since the start of the last finished pass, the number of corrections and the share of rated postings that were corrections. It SHALL show a hint "neue Bewertung sinnvoll" when the number reaches the user's threshold (default 10) or the share reaches the user's rate (default 30 %, counted from 10 rated postings on), and "Ranking passt gut" when neither does. A posting corrected several times counts once. Both settings SHALL be changeable in the app and stored in the data repository.
