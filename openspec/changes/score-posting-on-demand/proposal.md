@@ -28,7 +28,7 @@ None.
 
 ## Non-goals
 
-- Scoring on intake or import (a later change).
+- Scoring on intake or import (a later change, which reuses this change's single-score function).
 - Changing what a pass scores or how the judge scores; the prompt and its inputs stay as they are.
 - A background run model for single scores; it stays synchronous until that proves too slow.
 - Scoring several selected postings at once.
