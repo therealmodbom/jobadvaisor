@@ -3,7 +3,7 @@
 ## ADDED Requirements
 
 ### Requirement: The backend reports its health
-The backend SHALL answer a health request with its status, the result of each check and the version it runs. The one check is that the data repository loads. When it passes, the status SHALL be `ok` and the answer a success; when it fails, the status SHALL be `fail`, the check SHALL carry its error, and the answer SHALL be an error status with the same fields, so that the version is reported in both cases. The request SHALL need no credentials. The deployment's container healthcheck SHALL use it, so that a data repository that does not load shows the container as unhealthy.
+The backend SHALL answer a health request with its status, the result of each check and the version it runs. The one check is that the data repository loads. When it passes, the status SHALL be `ok` and the answer a success; when it fails, the status SHALL be `fail`, the check SHALL carry its error, and the answer SHALL be an error status with the same fields, so that the version is reported in both cases. The request SHALL need no credentials.
 
 #### Scenario: Data repository loads
 - **WHEN** a client requests the health of a backend whose data repository loads
@@ -13,14 +13,24 @@ The backend SHALL answer a health request with its status, the result of each ch
 - **WHEN** a client requests the health of a backend whose data repository does not load
 - **THEN** the answer is an error status with status `fail`, the data repository check carrying the load error, and the backend's version
 
+### Requirement: The container healthcheck uses the health answer
+The deployment's container healthcheck SHALL request the backend's health, so that a data repository that does not load shows the container as unhealthy.
+
 #### Scenario: Container healthcheck
 - **WHEN** the data repository of a running container stops loading
 - **THEN** the container shows as unhealthy, and is not restarted by that alone
 
+### Requirement: The documentation names where the version is shown
+The deployment documentation SHALL say where to see the running version.
+
+#### Scenario: Looking up the running version
+- **WHEN** the user reads the deployment documentation to find out which release runs
+- **THEN** it names the page footer and the backend's health answer as the places that show it
+
 ## MODIFIED Requirements
 
 ### Requirement: The image reports its release
-The image built for a release tag SHALL report that tag as its version, in the backend's health answer and in the frontend it serves, and the image built without a tag SHALL report `dev`. Both SHALL come from the same build, so that they agree for every image. The version SHALL stay the release's whatever the deployment's settings and environment hold, because it is not a setting of the deployment. The deployment documentation SHALL say where to see the running version.
+The image built for a release tag SHALL report that tag as its version, in the backend's health answer and in the frontend it serves, and the image built without a tag SHALL report `dev`. Both come from the same build, and the deployment's settings and environment SHALL NOT change the version.
 
 #### Scenario: Version of a release image
 - **WHEN** the image of release `v0.1.0` runs and a client requests the backend's health
