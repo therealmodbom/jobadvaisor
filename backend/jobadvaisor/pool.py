@@ -87,7 +87,8 @@ def rank(repository: DataRepository, scores: dict[str, Score], score_problems: d
     """Pool rows of the postings whose `status` is in `statuses`, in rank order.
 
     Row keys: `posting_id, title, company, location_raw, added_at` (ISO), `state` (`scored`,
-    `unscored`, `excluded` or `held`), `rules` (exclusion rule IDs), `categories` (guard
+    `unscored`, `excluded` or `held`), `unscreened` (the posting has no guard result), `rules`
+    (exclusion rule IDs), `categories` (guard
     categories), `score` (int or null), `score_problem` (str or null), `label` (`{verdict,
     strength, chips, note, rated_at}` or null), `status`, `origin` (dict or null), `exploration`
     (bool). A label with null verdict is no rating. Group order: positive-rated, unrated scored,
@@ -147,7 +148,7 @@ def _row(repository: DataRepository, posting_id: str, posting: Posting,
     return {
         "posting_id": posting_id, "title": posting.title, "company": posting.company,
         "location_raw": posting.location_raw, "added_at": posting.added_at.isoformat(),
-        "state": state,
+        "state": state, "unscreened": posting.guard is None,
         "rules": blocked[1] if state == "excluded" else [],
         "categories": blocked[1] if state == "held" else [],
         "score": scores[posting_id].score if posting_id in scores else None,

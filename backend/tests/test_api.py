@@ -5,7 +5,14 @@ import time
 import pytest
 from conftest import LABEL, FakeStructuredModel, ScriptedModel, write_json
 from fastapi.testclient import TestClient
-from test_triage_graph import POLICY_PACK, Harness, add_posting, judge_by_title
+from test_triage_graph import (
+    FLAGGED,
+    POLICY_PACK,
+    Harness,
+    StubClassifier,
+    add_posting,
+    judge_by_title,
+)
 
 from jobadvaisor.api.app import configured_intake, configured_runs, create_app
 from jobadvaisor.data.loader import DataRepositoryError
@@ -295,6 +302,115 @@ def test_posting_page_carries_text_score_with_reasoning_and_examples(api, root):
 def test_posting_page_without_a_score_has_none_and_an_unscored_row(api, root):
     page = api.client.get("/postings/p2").json()
     assert page["score"] is None and page["row"]["state"] == "unscored"
+
+
+def test_pool_and_posting_page_say_whether_screening_is_on(tmp_path, root):
+    off = Api(Harness(tmp_path / "off", root))
+    assert off.client.get("/pool").json()["screening"] is False
+    assert off.client.get("/postings/p1").json()["screening"] is False
+    on = Api(Harness(tmp_path / "on", root, StubClassifier()))
+    assert on.client.get("/pool").json()["screening"] is True
+    assert on.client.get("/postings/p1").json()["screening"] is True
+
+
+def test_rows_say_which_postings_have_no_guard_result(unscreened):
+    rows = unscreened.client.get("/pool").json()["rows"]
+    assert {row["posting_id"] for row in rows if row["unscreened"]} == {"unscreened"}
+    page = unscreened.client.get("/postings/unscreened").json()
+    assert page["row"]["unscreened"] is True
+
+
+def post_score(api: Api, posting_id: str):
+    return api.client.post(f"/postings/{posting_id}/score")
+
+
+def test_scoring_a_posting_answers_the_page_with_counter_and_next_pass(api, root):
+    response = post_score(api, "p2")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["score"]["score"] == 2 and body["score"]["reasoning"]
+    assert body["row"]["state"] == "scored" and body["row"]["score"] == 2
+    assert body["row"]["exploration"] is False and body["posting"]["title"] == "Engineer 2"
+    assert body["screening"] is False and body["reason_chips"][0]["id"] == "too-junior"
+    assert body["counter"]["corrections"] == 0
+    assert body["next_pass"] == {"count": 4, "rescore": False}  # p1, p3, p4, p5; sales is out
+    assert read_score(root, "p2").score == 2
+    assert read_pool(root).passes == []
+
+
+def test_a_rated_posting_without_a_score_probes_the_counter(api, root):
+    write_json(root / "labels/p1.json", LABEL)  # rated positive; its title scores 1
+    body = post_score(api, "p1").json()
+    assert body["row"]["label"]["verdict"] == "positive" and body["row"]["score"] == 1
+    assert body["counter"]["corrections"] == 1 and body["counter"]["rated"] == 1
+    assert body["next_pass"]["rescore"] is True
+    assert api.client.get("/pool").json()["counter"]["corrections"] == 1
+
+
+def test_scoring_again_replaces_the_score(api, root):
+    post_score(api, "p2")
+    first = read_score(root, "p2").scored_at
+    assert post_score(api, "p2").status_code == 200
+    assert read_score(root, "p2").scored_at > first
+
+
+def test_scoring_an_unknown_posting_is_404(api):
+    response = post_score(api, "nope")
+    assert response.status_code == 404 and set(response.json()) == {"error", "detail"}
+    assert "nope" in response.json()["detail"]
+
+
+@pytest.mark.parametrize(("posting_id", "error", "detail"), [
+    ("sales", "excluded", "no-sales"),
+    ("flagged", "held", "injection"),
+    ("unscreened", "unscreened", ""),
+])
+def test_scoring_a_posting_no_pass_would_score_is_409_with_its_reason(
+        tmp_path, root, posting_id, error, detail):
+    add_posting(root, "flagged", "Flagged Engineer", guard=FLAGGED)
+    add_posting(root, "unscreened", "Unscreened Engineer 2", guard=None)
+    api = Api(Harness(tmp_path, root))
+    response = post_score(api, posting_id)
+    assert response.status_code == 409
+    assert response.json()["error"] == error and detail in response.json()["detail"]
+    assert read_score(root, posting_id) is None
+
+
+def test_scoring_during_a_pass_is_409_scoring_in_progress_and_a_pass_during_scoring_too(api):
+    api.gate.clear()
+    pass_id = api.start()
+    busy = post_score(api, "p2")
+    assert busy.status_code == 409 and busy.json()["error"] == "scoring in progress"
+    assert pass_id in busy.json()["detail"]
+    api.gate.set()
+    api.settled(pass_id)
+
+    api.gate.clear()
+    calls = len(api.harness.judge.calls)
+    single = threading.Thread(target=post_score, args=(api, "p2"))
+    single.start()
+    deadline = time.monotonic() + 10
+    while len(api.harness.judge.calls) == calls:  # until the single score reaches the judge
+        assert time.monotonic() < deadline, "single score never reached the judge"
+        time.sleep(0.02)
+    response = api.client.post("/pool/passes")
+    assert response.status_code == 409 and response.json()["error"] == "pass in progress"
+    assert "score:p2" in response.json()["detail"]
+    api.gate.set()
+    single.join(10)
+
+
+def test_a_failing_judge_is_502_scoring_failed_and_frees_the_slot(api, root):
+    def broken(schema, prompt):
+        raise RuntimeError("model down")
+
+    api.harness.judge = ScriptedModel(broken)
+    response = post_score(api, "p2")
+    assert response.status_code == 502 and response.json()["error"] == "scoring failed"
+    assert "model down" in response.json()["detail"]
+    assert read_score(root, "p2") is None
+    api.harness.judge = ScriptedModel(judge_by_title)
+    assert post_score(api, "p2").status_code == 200
 
 
 @pytest.mark.parametrize("posting_id", ["nope", "Bad_ID", "..%2Fx"])

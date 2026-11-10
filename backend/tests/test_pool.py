@@ -70,6 +70,13 @@ def test_rank_groups_in_order_and_ties_by_newest():
     assert by_id["unrated-high"] | {"exploration": False} == by_id["unrated-high"]
 
 
+def test_a_row_is_unscreened_when_the_posting_has_no_guard_result():
+    checked = Guard(flagged=False, checked_by="t", checked_at=T0)
+    rows = rank(repo({"bare": posting(), "checked": posting(guard=checked)}), {}, {})
+    assert {row["posting_id"]: row["unscreened"] for row in rows} == {"bare": True,
+                                                                      "checked": False}
+
+
 def test_rank_positive_group_by_score_then_rated_at():
     postings = {"a": posting(), "b": posting(), "c": posting(), "d": posting()}
     scores = {"a": score(3), "b": score(8), "c": score(3)}

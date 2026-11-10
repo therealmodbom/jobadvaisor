@@ -54,7 +54,13 @@ from jobadvaisor.llm import chat_model, embeddings
 from jobadvaisor.pool import counter, next_pass, rank, resolve_verdict
 from jobadvaisor.settings import REPOSITORY_ROOT, Settings
 from jobadvaisor.tools.guard import content_guard
-from jobadvaisor.triage.graph import TriageContext, build_graph, checkpoint_path, checkpointer
+from jobadvaisor.triage.graph import (
+    ScoreRefused,
+    TriageContext,
+    build_graph,
+    checkpoint_path,
+    checkpointer,
+)
 from jobadvaisor.triage.runs import RunBusyError, Runs, RunStateError
 
 HTTP_URL = re.compile(r"https?://[^\s/]+\S*")
@@ -219,14 +225,16 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
     @app.get("/pool")
     def read_pool_view() -> dict:
         """The posting pool: `rows` of every status in rank order, the correction `counter`,
-        `settings`, `next_pass` and the policy pack's `reason_chips`. A corrupt score file shows
+        `settings`, `next_pass`, the policy pack's `reason_chips` and `screening` (a content-guard
+        classifier is configured). A corrupt score file shows
         as `score_problem` on its row; a data repository that does not load answers 500."""
         repository, scores, problems, pool = pool_state(intake.root)
         return {"rows": rank(repository, scores, problems, ALL_STATUSES),
                 "counter": counter(repository, scores, pool),
                 "settings": pool.settings.model_dump(),
                 "next_pass": next_pass(repository, scores, pool),
-                "reason_chips": reason_chips(repository)}
+                "reason_chips": reason_chips(repository),
+                "screening": intake.guard.classifier is not None}
 
     @app.put("/pool/settings")
     def save_pool_settings(body: PoolSettingsBody) -> dict:
@@ -239,22 +247,54 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
     @app.get("/postings/{posting_id}")
     def read_posting_page(posting_id: str) -> dict:
         """Everything the posting page shows: its pool `row` (exploration off), the `posting`,
-        its stored `score` (null without one) and the `examples` the judge compared it with that
-        still exist. 404 for an unknown or unsafe ID."""
+        its stored `score` (null without one), the `examples` the judge compared it with that
+        still exist and `screening` (a content-guard classifier is configured). 404 for an
+        unknown or unsafe ID."""
         repository, scores, problems, _ = pool_state(intake.root)
-        posting = repository.postings.get(posting_id)
-        if posting is None:
+        if posting_id not in repository.postings:
             return problem(404, "not found", f"no posting {posting_id}")
+        return posting_page(repository, scores, problems, posting_id)
+
+    @app.post("/postings/{posting_id}/score")
+    def score_posting_now(posting_id: str) -> dict:
+        """Score one posting now, rated or not, replacing an earlier score; takes no body and
+        answers once the judge has (synchronous). 200 is the `GET /postings/{id}` body plus
+        the `counter` and `next_pass` as `GET /pool` has them. The `{error, detail}` errors:
+        404 unknown posting; 409 `scoring in progress` (a pass or another score computes),
+        `excluded` (detail: the rule IDs), `held` (the guard categories) or `unscreened` (no
+        guard result and screening off) for a posting no pass would score; 502 `scoring
+        failed` when the judge or the index fails."""
+        repository, *_ = pool_state(intake.root)
+        if posting_id not in repository.postings:
+            return problem(404, "not found", f"no posting {posting_id}")
+        try:
+            runs.score(posting_id)
+        except RunBusyError as error:
+            return problem(409, "scoring in progress", str(error))
+        except ScoreRefused as error:
+            return problem(409, error.reason, ", ".join(error.detail) or
+                           "no content-guard result and screening is off")
+        except Exception as error:  # the judge's or the index's failure, not ours to type
+            return problem(502, "scoring failed", f"{type(error).__name__}: {error}")
+        repository, scores, problems, pool = pool_state(intake.root)
+        return posting_page(repository, scores, problems, posting_id) | {
+            "counter": counter(repository, scores, pool),
+            "next_pass": next_pass(repository, scores, pool)}
+
+    def posting_page(repository: DataRepository, scores: dict[str, Score],
+                     problems: dict[str, str], posting_id: str) -> dict:
+        """The posting page body of `GET /postings/{id}` for a posting that exists."""
         row = next(row for row in rank(repository, scores, problems, ALL_STATUSES)
                    if row["posting_id"] == posting_id) | {"exploration": False}
         score = scores.get(posting_id)
         examples = [{"posting_id": example, "title": found.title, "company": found.company}
                     for example in (score.example_ids if score else [])
                     if (found := repository.postings.get(example))]
-        return {"row": row, "posting": posting.model_dump(mode="json"),
+        return {"row": row, "posting": repository.postings[posting_id].model_dump(mode="json"),
                 "score": score.model_dump(mode="json", exclude={"schema_version"})
                 if score else None, "examples": examples,
-                "reason_chips": reason_chips(repository)}
+                "reason_chips": reason_chips(repository),
+                "screening": intake.guard.classifier is not None}
 
     @app.put("/postings/{posting_id}/rating")
     def rate_posting(posting_id: str, body: RatingBody) -> dict:

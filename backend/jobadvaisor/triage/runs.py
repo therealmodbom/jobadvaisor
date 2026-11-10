@@ -81,7 +81,7 @@ class Runs:
         (`triage.graph.score_one`). It holds the same slot as a pass: raises `RunBusyError`
         while a pass or another single score computes, and frees the slot on every outcome;
         `ScoreRefused`, `KeyError` and judge errors reach the caller unchanged."""
-        run_id = f"score-{posting_id}"
+        run_id = f"score:{posting_id}"
         self._claim(run_id)
         try:
             return score_one(self._context(), posting_id)
