@@ -14,18 +14,25 @@ afterEach(() => {
 })
 
 const FAILED = { status: 500, body: { error: 'internal error', detail: '' } }
-type Answer = { body: { version: string } } | typeof FAILED
+type Answer = { status?: number; body: unknown }
 
-/** Serves `/version` with the given answers in order, the last one for every later request;
- * returns the number of `/version` requests so far. */
+/** Serves `/health` with the given answers in order, the last one for every later request;
+ * returns the number of `/health` requests so far. */
 function serve(...answers: Answer[]) {
   let requests = 0
   stubApi({ 'GET /pool': { body: POOL },
-            'GET /version': () => answers[Math.min(requests++, answers.length - 1)] })
+            'GET /health': () => answers[Math.min(requests++, answers.length - 1)] })
   return () => requests
 }
 
-const ok = (version: string): Answer => ({ body: { version } })
+/** A healthy answer of a backend running `version`. */
+const ok = (version: string): Answer =>
+  ({ body: { status: 'ok', checks: { data_repo: 'ok' }, version } })
+
+/** The answer of a backend whose data repository does not load: a 503 that still names its
+ * `version`. */
+const failing = (version: string): Answer =>
+  ({ status: 503, body: { status: 'fail', checks: { data_repo: 'pool.json: invalid' }, version } })
 
 /** The tab becoming visible (or hidden) again, as a browser reports it. */
 async function tab(state: 'visible' | 'hidden') {
@@ -152,9 +159,45 @@ test('the shell with the banner and the footer has no accessibility violations',
   expect(await axe(container)).toHaveNoViolations()
 })
 
+test('a failing check still shows the backend version, and no status', async () => {
+  vi.stubEnv('VITE_APP_VERSION', 'v0.1.0')
+  serve(failing('v0.1.0'))
+  render(<App />)
+  await screen.findByText(/Server v0\.1\.0/)
+  expect(footer()).not.toHaveTextContent(/fail|pool\.json/)
+  expect(banner()).toBeNull()
+})
+
+test('a failing check with a different version shows the banner', async () => {
+  vi.stubEnv('VITE_APP_VERSION', 'v0.1.0')
+  serve(failing('v0.2.0'))
+  render(<App />)
+  expect(await screen.findByText(/Diese Seite ist veraltet/)).toHaveTextContent('v0.2.0')
+})
+
+test('a failing check removes the banner when its version equals the frontend version', async () => {
+  vi.stubEnv('VITE_APP_VERSION', 'v0.1.0')
+  serve(ok('v0.2.0'), failing('v0.1.0'))
+  render(<App />)
+  await screen.findByText(/Diese Seite ist veraltet/)
+  await tab('visible')
+  await vi.waitFor(() => expect(banner()).toBeNull())
+  expect(footer()).toHaveTextContent('Server v0.1.0')
+})
+
+test('a 503 without a version counts as a failed fetch', async () => {
+  vi.stubEnv('VITE_APP_VERSION', 'v0.1.0')
+  const requests = serve({ status: 503, body: { error: 'unavailable', detail: '' } })
+  render(<App />)
+  await vi.waitFor(() => expect(requests()).toBe(1))
+  await settle()
+  expect(footer()).toHaveTextContent('Server unbekannt')
+  expect(banner()).toBeNull()
+})
+
 test('an answer without a version counts as a failed fetch', async () => {
   vi.stubEnv('VITE_APP_VERSION', 'v0.1.0')
-  const requests = serve({ body: {} } as Answer)
+  const requests = serve({ body: {} })
   render(<App />)
   await vi.waitFor(() => expect(requests()).toBe(1))
   await settle()

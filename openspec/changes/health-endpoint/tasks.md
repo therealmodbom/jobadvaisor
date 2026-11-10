@@ -6,8 +6,8 @@
 
 ## 2. Frontend
 
-- [ ] 2.1 Test first, then point `useBackendVersion` in `frontend/src/lib/version.ts` at `/health` per design decision 4, taking `version` from a 503 `ApiError` body too, and update its doc comment; verify `frontend/src/version.test.tsx` covers a 200 answer, a 503 answer with a version (footer shows it, no banner for equal versions, banner for a different one) and a 503 without a version (unknown, no mismatch)
-- [ ] 2.2 Replace `/version` by `/health` in `API_ROUTES` of `frontend/vite.config.ts` and the default route in `frontend/src/test-api.ts` (`GET /health` answering `{status: 'ok', checks: {data_repo: 'ok'}, version: 'dev'}`); verify no `/version` reference remains in `frontend/` (`grep -rn "/version" frontend/src frontend/vite.config.ts`) and `npm test` passes
+- [x] 2.1 Test first, then point `useBackendVersion` in `frontend/src/lib/version.ts` at `/health` per design decision 4, taking `version` from a 503 `ApiError` body too, and update its doc comment; verify `frontend/src/version.test.tsx` covers a 200 answer, a 503 answer with a version (footer shows it, no banner for equal versions, banner for a different one) and a 503 without a version (unknown, no mismatch)
+- [x] 2.2 Replace `/version` by `/health` in `API_ROUTES` of `frontend/vite.config.ts` and the default route in `frontend/src/test-api.ts` (`GET /health` answering `{status: 'ok', checks: {data_repo: 'ok'}, version: 'dev'}`); verify no `/version` reference remains in `frontend/` (`grep -rn "/version" frontend/src frontend/vite.config.ts`) and `npm test` passes
 
 ## 3. Deployment
 
