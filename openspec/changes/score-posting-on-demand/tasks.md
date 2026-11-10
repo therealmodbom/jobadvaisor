@@ -7,14 +7,15 @@
 ## 2. Backend: API
 
 - [ ] 2.1 `POST /postings/{id}/score` in `api/app.py`: 200 with the `GET /postings/{id}` body plus `counter` and `next_pass`; 404 unknown; 409 `scoring in progress`, `excluded`, `held`, `unscreened`; 502 `scoring failed`. Tests in `test_api.py` with a fake judge, including the counter rising for a rated posting whose new score contradicts its rating (spec: "Probing a rated posting").
-- [ ] 2.2 Correct the `start_pass` docstring: unrated postings, not rated ones, are rescored after a correction.
+- [ ] 2.2 Pool rows gain `unscreened` (posting has no guard result; `pool._row`, `test_pool.py`), and `GET /pool` and `GET /postings/{id}` gain `screening` (classifier configured). Tests in `test_api.py` for both values.
+- [ ] 2.3 Correct the `start_pass` docstring: unrated postings, not rated ones, are rescored after a correction.
 
 ## 3. Frontend
 
-- [ ] 3.1 `api.ts`: the answer type and a `postScore(postingId)` helper.
-- [ ] 3.2 `components/posting.tsx`: the call-state hook and the score button (label "Score berechnen" / "Neu berechnen", cost line, computing state, German message per error code with retry, disabled with the reason for `excluded` and `held` rows). Component tests for each state and error code, and for the disabled reason being reachable via `aria-describedby`.
+- [ ] 3.1 `api.ts`: the answer type, `unscreened` on `PoolRow`, `screening` on `Pool` and `PostingPageData`, and a `postScore(postingId)` helper.
+- [ ] 3.2 `components/posting.tsx`: the call-state hook and the score button (label "Score berechnen" / "Neu berechnen", cost line, computing state, German message per error code with retry, disabled for `excluded`, `held` and unscreened-without-screening rows, with a visible, focusable info icon whose popover shows the reason on hover and focus). Component tests for each state and error code, each disabled reason, and the reason reachable via `aria-describedby`.
 - [ ] 3.3 `PostingPage.tsx`: button in the score section; old score marked "wird neu berechnet" while computing; new score and reasoning from the answer; the hint for a rated posting without a score. Update `PostingPage.test.tsx:58` and add tests for the rated hint, re-score display and error.
-- [ ] 3.4 `PoolView.tsx`: button on every row, disabled with the reason on `excluded` and `held`; the answer replaces the row (keeping its `exploration` flag) and updates counter and next-pass figures. `PoolView.test.tsx`: row button updates score and counter; a "Stichprobe" row keeps its mark; excluded and held rows show it disabled with the reason; 409 message on the row.
+- [ ] 3.4 `PoolView.tsx`: button on every row, disabled with the info icon in the three blocked cases; the answer replaces the row (keeping its `exploration` flag) and updates counter and next-pass figures. `PoolView.test.tsx`: row button updates score and counter; a "Stichprobe" row keeps its mark; excluded and held rows show it disabled with the info icon; 409 message on the row.
 
 ## 4. End to end and docs
 
