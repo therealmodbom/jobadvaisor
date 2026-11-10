@@ -94,33 +94,37 @@ The correction counter SHALL treat a score computed on request like a pass's sco
 - **THEN** the counter rises by one
 
 ### Requirement: Single score refuses held and excluded postings
-A posting the content guard holds or an exclusion rule matches SHALL NOT be scored on request. The refusal SHALL name its reason: the matching rules, or that the content guard holds it.
+A posting the content guard holds or an exclusion rule matches SHALL NOT be scored on request. The refusal SHALL name its reason: the matching rules, or that the content guard holds it; when both apply, it SHALL name the content guard.
 
 #### Scenario: Excluded posting
-- **WHEN** the user asks to score a posting an exclusion rule matches
+- **WHEN** the user asks to score a posting an exclusion rule matches and the content guard does not hold
 - **THEN** no score is computed, and the answer names the matching rules
 
 #### Scenario: Held posting
 - **WHEN** the user asks to score a posting the content guard flagged and nobody released
 - **THEN** no score is computed, and the answer says the content guard holds it
 
+#### Scenario: Held and excluded posting
+- **WHEN** the user asks to score a posting the content guard holds and an exclusion rule matches
+- **THEN** no score is computed, and the answer says the content guard holds it
+
 ### Requirement: Single score checks an unchecked posting first
 A posting the content guard never checked SHALL be checked before it is scored on request, when a classifier is configured, and SHALL NOT be scored when that check flags it. Without a classifier it SHALL NOT be scored on request, and the refusal SHALL say it was never checked. A posting already checked SHALL keep its stored guard result and SHALL NOT be checked again.
 
 #### Scenario: Unchecked posting with a classifier
-- **WHEN** the user asks to score a posting the guard never checked and a classifier is configured
-- **THEN** the posting is checked, the result is stored with it, and it is scored
+- **WHEN** the user asks to score a posting the guard never checked and no exclusion rule matches, a classifier is configured, and the check does not flag it
+- **THEN** the result is stored with it, and the posting is scored
 
 #### Scenario: Unchecked posting flagged by that check
-- **WHEN** the user asks to score a posting the guard never checked, and the check flags it
+- **WHEN** the user asks to score a posting the guard never checked and no exclusion rule matches, and the check flags it
 - **THEN** the result is stored with it, no score is computed, and the answer says the content guard holds it
 
 #### Scenario: Unchecked posting without a classifier
-- **WHEN** the user asks to score a posting the guard never checked and no classifier is configured
+- **WHEN** the user asks to score a posting the guard never checked and no exclusion rule matches, and no classifier is configured
 - **THEN** no score is computed, and the answer says the posting was never checked
 
 #### Scenario: Checked posting
-- **WHEN** the user asks to score a posting the guard already checked and did not flag
+- **WHEN** the user asks to score a posting the guard already checked and did not flag, and no exclusion rule matches
 - **THEN** the guard is not called again, and the posting is scored
 
 ### Requirement: One scoring at a time
