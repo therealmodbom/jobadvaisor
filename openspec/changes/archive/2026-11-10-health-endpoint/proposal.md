@@ -2,12 +2,12 @@
 
 ## Why
 
-The version display (#67) added `GET /version` to the backend. The backend has no health endpoint, and the Compose healthcheck only requests `/`, which proves the static frontend is served and nothing about the data repository. A health endpoint is the usual place for a version, so the version moves there before the first deployment of `/version`, instead of keeping two endpoints and removing one later.
+The version display (#67) needs the backend to report its release. The backend has no health endpoint either: the Compose healthcheck only requests `/`, which proves the static frontend is served and nothing about the data repository. A health endpoint is the usual place for a version, so the backend reports it there and gets no endpoint of its own for it.
 
 ## What Changes
 
 - The backend answers `GET /health` with `{"status", "checks": {"data_repo"}, "version"}`: `status` is `ok` or `fail`, `checks.data_repo` is `ok` or the load error, `version` is the release tag or `dev`. The status is 200 for `ok` and 503 for `fail`, with the same body shape.
-- `GET /version` is removed. Nothing has deployed it.
+- The version display's first implementation in this same PR had a `GET /version`; it is replaced by `/health` before any release, so no version route exists on `main` or in a release.
 - The deployment's Compose healthcheck requests `/health` instead of `/`, so a data repository that does not load makes the container `unhealthy`.
 - The page reads the backend version from the `/health` answer, also from a 503 answer, so the footer and the stale-page banner keep working while the data repository is broken. The footer itself does not change.
 - The smoke check and the README follow.
