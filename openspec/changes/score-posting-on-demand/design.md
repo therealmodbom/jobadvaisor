@@ -12,7 +12,7 @@ See proposal.md for why. Today a score is written only by the pass's `store_scor
 
 **Non-Goals:**
 - A run model, progress polling or checkpoints for single scores.
-- A cost figure computed from the configured judge model.
+- A cost figure per click; the cost of a score belongs on a later statistics or benchmark page (#33).
 
 ## Decisions
 
@@ -34,7 +34,7 @@ See proposal.md for why. Today a score is written only by the pass's `store_scor
 
 **Counter.** It stays as is: a score from the button counts like a pass's score, since the posting's own rating never reaches its judge (`find_similar_labeled` skips its ID). No pass is appended, so the window does not move. The window still starts at each pass, so after a pass that rescored rated postings, ratings from before it no longer count, even where they now contradict their new score; an agreement measure over all rated postings is a later change.
 
-**UI.** One hook for the call's state (idle, computing, failed with a message), used by the posting page and by each pool row, and one button component that shows "Score berechnen" or "Neu berechnen", the cost line "1 KI-Aufruf, etwa 0,0003 $ mit dem Demo-Modell" and the computing state. Disabled cases as above. The pool takes the answer's row but keeps its own `exploration` flag, since the posting page's row always carries `false`. The posting page keeps the old score visible, marked "wird neu berechnet", while computing. The page's hint for a posting without a score keeps pointing at the pass, which now scores rated postings too; an unreadable score file keeps showing "Score unlesbar".
+**UI.** One hook for the call's state (idle, computing, failed with a message), used by the posting page and by each pool row, and one button component that shows "Score berechnen" or "Neu berechnen" and the computing state. Disabled cases as above. The pool takes the answer's row but keeps its own `exploration` flag, since the posting page's row always carries `false`. The posting page keeps the old score visible, marked "wird neu berechnet", while computing. The page's hint for a posting without a score keeps pointing at the pass, which now scores rated postings too; an unreadable score file keeps showing "Score unlesbar".
 
 **Docstrings.** `start_pass` says postings with a rating are rescored after a correction; now every posting is, and it says so. `pass_batch`, `next_pass`, `start_run`, `load` and `store_scores` are rewritten to the new batch and measure.
 
@@ -43,9 +43,7 @@ See proposal.md for why. Today a score is written only by the pass's `store_scor
 ## Risks / Trade-offs
 
 - [A slow judge holds the request open] → the button shows progress; a proxy timeout shows as a failure with retry. Background runs come only if this proves annoying.
-- [The cost line is fixed text for the demo model] → `ponytail:` comment at the constant; derive it from the configured model when another judge becomes the default.
 - [The first single score after many new ratings embeds them all] → the same happens at a pass's start; embedding costs are small next to a judge call.
-- [The cost line names one judge call, but a click on an unchecked posting, or one whose examples are unchecked, also makes guard classifier calls] → rare once intake screens every posting; the line stays about the judge, the part that recurs.
 - [Two rows pressed quickly] → the second gets `scoring in progress` and its row says so, with retry.
 - [An unchecked posting stays unscorable without a classifier] → the info icon says so; the pass's unscreened question remains the path.
 - [A pass after corrections now rescores rated postings too, so it makes more judge calls] → the pass already announces its count before it starts.

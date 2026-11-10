@@ -8,7 +8,7 @@ A pass scores only postings without a verdict, and rescores only those. A rated 
 
 - A pass "Neue Anzeigen bewerten" scores every posting without a score, rated or not, and after corrections rescores every posting, rated or not. A rating given while a pass computes no longer keeps the old score.
 - A pass's stored quality measure is taken against the scores from before the pass, so rescoring rated postings does not change it.
-- A button "Score berechnen" on the posting page and on every row of the pool list scores this one posting now, rated or not, with or without a score. It names its cost per click (one judge call).
+- A button "Score berechnen" on the posting page and on every row of the pool list scores this one posting now, rated or not, with or without a score.
 - The single score uses the pass's own steps (content guard ruling, synced label index, the posting's most similar rated postings as examples, the judge) and stores `scores/<id>.json`, replacing an earlier score, so pool, posting page and agent show it.
 - `POST /postings/{id}/score` answers synchronously with what the posting page shows, plus the counter and next-pass figures.
 - One scoring at a time: the button is refused while a pass or another single score computes, and a pass is refused while a single score computes.
@@ -36,6 +36,7 @@ None.
 - Changing how the judge scores; the prompt and its inputs stay as they are.
 - A background run model for single scores; it stays synchronous until that proves too slow.
 - Scoring several selected postings at once.
+- A cost figure per click; the cost of a score belongs on a later statistics or benchmark page (#33).
 - A provenance field on the stored score; the data schema does not change.
 
 ## Impact

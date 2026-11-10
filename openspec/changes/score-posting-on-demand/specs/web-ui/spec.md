@@ -3,11 +3,11 @@
 ## ADDED Requirements
 
 ### Requirement: Score button
-The posting page and every row of the pool view SHALL offer a button that scores this one posting now, naming its cost per click (one judge call).
+The posting page and every row of the pool view SHALL offer a button that scores this one posting now.
 
-#### Scenario: Cost named
-- **WHEN** the user sees the button on a posting page or a pool row
-- **THEN** it names one judge call and its approximate cost
+#### Scenario: Button offered
+- **WHEN** the user opens a posting page or the pool view
+- **THEN** the page and every row show the button
 
 ### Requirement: Score button disabled where no score is possible
 For a posting an exclusion rule matches, the content guard holds, or the content guard never checked while no classifier is configured, the button SHALL be disabled, with a visible info icon beside it that shows the reason on hover and on keyboard focus and gives it to screen readers. A posting both held and excluded SHALL show the content guard as its reason.
