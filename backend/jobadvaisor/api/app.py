@@ -56,6 +56,7 @@ from jobadvaisor.settings import REPOSITORY_ROOT, Settings
 from jobadvaisor.tools.guard import content_guard
 from jobadvaisor.triage.graph import (
     ScoreRefused,
+    ScoringFailed,
     TriageContext,
     build_graph,
     checkpoint_path,
@@ -263,19 +264,21 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
         404 unknown posting; 409 `scoring in progress` (a pass or another score computes),
         `excluded` (detail: the rule IDs), `held` (the guard categories) or `unscreened` (no
         guard result and screening off) for a posting no pass would score; 502 `scoring
-        failed` when the judge or the index fails."""
+        failed` when the judge, the label index or the classifier fails (trying again may help);
+        a failure to store the score is a 500."""
         repository, *_ = pool_state(intake.root)
         if posting_id not in repository.postings:
             return problem(404, "not found", f"no posting {posting_id}")
         try:
             runs.score(posting_id)
+        except KeyError:  # deleted since the check above
+            return problem(404, "not found", f"no posting {posting_id}")
         except RunBusyError as error:
             return problem(409, "scoring in progress", str(error))
         except ScoreRefused as error:
-            return problem(409, error.reason, ", ".join(error.detail) or
-                           "no content-guard result and screening is off")
-        except Exception as error:  # the judge's or the index's failure, not ours to type
-            return problem(502, "scoring failed", f"{type(error).__name__}: {error}")
+            return problem(409, error.reason, refusal_detail(error))
+        except ScoringFailed as error:
+            return problem(502, "scoring failed", str(error))
         repository, scores, problems, pool = pool_state(intake.root)
         return posting_page(repository, scores, problems, posting_id) | {
             "counter": counter(repository, scores, pool),
@@ -326,7 +329,8 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
     @app.post("/pool/passes", status_code=202)
     def start_pass() -> dict:
         """Start a scoring pass in the background; answers its `pass_id` at once, or 409
-        naming the pass that is still computing. Takes no body. The pass scores every posting
+        naming the pass (or `score:<posting ID>`, a single score) that is still computing. Takes
+        no body. The pass scores every posting
         without a score, rated or not, and rescores every posting when a correction was
         counted since the last pass. A repository that does not
         load still starts the pass, which then reports `failed` with the reason."""
@@ -365,7 +369,8 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
     @app.post("/pool/passes/{pass_id}/unscreened", status_code=202)
     def answer_unscreened(pass_id: str, body: UnscreenedAnswer) -> dict:
         """Continue with or abort a pass paused over unscreened postings; it goes on in the
-        background. 409 without that question pending or while another pass computes."""
+        background. 409 without that question pending or while another pass or a single score
+        computes."""
         try:
             runs.answer_unscreened(pass_id, body.proceed)
         except KeyError:
@@ -606,6 +611,14 @@ def reason_chips(repository: DataRepository) -> list[dict]:
 def problem(status: int, error: str, detail: str) -> JSONResponse:
     """An error response in the API's `{error, detail}` shape."""
     return JSONResponse({"error": error, "detail": detail}, status_code=status)
+
+
+def refusal_detail(error: ScoreRefused) -> str:
+    """The `detail` of a 409 for a refused single score: the rule IDs or guard categories, else
+    what the refusal means."""
+    if error.reason == "unscreened":
+        return "no content-guard result and screening is off"
+    return ", ".join(error.detail) or "flagged by the content guard"
 
 
 def unknown_pass(pass_id: str) -> JSONResponse:

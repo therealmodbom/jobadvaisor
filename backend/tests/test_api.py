@@ -1,6 +1,7 @@
 import json
 import threading
 import time
+from datetime import UTC, datetime
 
 import pytest
 from conftest import LABEL, FakeStructuredModel, ScriptedModel, write_json
@@ -347,6 +348,16 @@ def test_a_rated_posting_without_a_score_probes_the_counter(api, root):
     assert api.client.get("/pool").json()["counter"]["corrections"] == 1
 
 
+def test_a_rating_counts_for_the_probe_only_after_the_last_pass_started(api, root):
+    write_json(root / "labels/p1.json", LABEL)  # rated in January, before any pass
+    api.settled(api.start())
+    add_posting(root, "late", "Engineer 2")
+    write_json(root / "labels/late.json", {**LABEL, "rated_at": datetime.now(UTC).isoformat()})
+    body = post_score(api, "late").json()
+    assert body["row"]["score"] == 2
+    assert body["counter"]["rated"] == 1 and body["counter"]["corrections"] == 1  # not p1
+
+
 def test_scoring_again_replaces_the_score(api, root):
     post_score(api, "p2")
     first = read_score(root, "p2").scored_at
@@ -363,7 +374,7 @@ def test_scoring_an_unknown_posting_is_404(api):
 @pytest.mark.parametrize(("posting_id", "error", "detail"), [
     ("sales", "excluded", "no-sales"),
     ("flagged", "held", "injection"),
-    ("unscreened", "unscreened", ""),
+    ("unscreened", "unscreened", "screening is off"),
 ])
 def test_scoring_a_posting_no_pass_would_score_is_409_with_its_reason(
         tmp_path, root, posting_id, error, detail):
@@ -374,6 +385,49 @@ def test_scoring_a_posting_no_pass_would_score_is_409_with_its_reason(
     assert response.status_code == 409
     assert response.json()["error"] == error and detail in response.json()["detail"]
     assert read_score(root, posting_id) is None
+
+
+def test_a_held_posting_without_categories_is_409_held_not_the_unscreened_text(tmp_path, root):
+    add_posting(root, "flagged", "Flagged Engineer", guard={**FLAGGED, "categories": []})
+    response = post_score(Api(Harness(tmp_path, root)), "flagged")
+    assert response.status_code == 409 and response.json()["error"] == "held"
+    assert "screening is off" not in response.json()["detail"]
+
+
+def test_a_posting_the_check_on_the_click_flags_is_409_held_and_its_row_says_so(tmp_path, root):
+    add_posting(root, "injected", "Engineer 3", guard=None, text="INJECT")
+    api = Api(Harness(tmp_path, root, StubClassifier()))
+    response = post_score(api, "injected")
+    assert response.status_code == 409 and response.json()["error"] == "held"
+    page = api.client.get("/postings/injected").json()
+    assert page["row"]["state"] == "held" and page["row"]["unscreened"] is False
+    assert page["score"] is None
+
+
+def test_a_failing_classifier_on_the_click_is_502_scoring_failed(tmp_path, root):
+    add_posting(root, "unchecked", "Engineer 3", guard=None)
+    classifier = StubClassifier()
+    classifier.classify = lambda text: (_ for _ in ()).throw(ConnectionError("classifier down"))
+    response = post_score(Api(Harness(tmp_path, root, classifier)), "unchecked")
+    assert response.status_code == 502 and response.json()["error"] == "scoring failed"
+    assert "classifier down" in response.json()["detail"]
+
+
+def test_a_failing_write_after_the_judge_is_500_not_a_retryable_502(api, root, monkeypatch):
+    def refuse(*args):
+        raise PermissionError("scores/ is read-only")
+
+    monkeypatch.setattr("jobadvaisor.triage.graph.write_score", refuse)
+    response = post_score(api, "p2")
+    assert response.status_code == 500 and response.json()["error"] == "internal error"
+
+
+def test_a_posting_deleted_during_the_request_is_404(api, monkeypatch):
+    def gone(posting_id):
+        raise KeyError(posting_id)
+
+    monkeypatch.setattr(api.runs, "score", gone)
+    assert post_score(api, "p2").status_code == 404
 
 
 def test_scoring_during_a_pass_is_409_scoring_in_progress_and_a_pass_during_scoring_too(api):
@@ -387,7 +441,8 @@ def test_scoring_during_a_pass_is_409_scoring_in_progress_and_a_pass_during_scor
 
     api.gate.clear()
     calls = len(api.harness.judge.calls)
-    single = threading.Thread(target=post_score, args=(api, "p2"))
+    answers = []
+    single = threading.Thread(target=lambda: answers.append(post_score(api, "p2").status_code))
     single.start()
     deadline = time.monotonic() + 10
     while len(api.harness.judge.calls) == calls:  # until the single score reaches the judge
@@ -398,6 +453,7 @@ def test_scoring_during_a_pass_is_409_scoring_in_progress_and_a_pass_during_scor
     assert "score:p2" in response.json()["detail"]
     api.gate.set()
     single.join(10)
+    assert answers == [200]
 
 
 def test_a_failing_judge_is_502_scoring_failed_and_frees_the_slot(api, root):

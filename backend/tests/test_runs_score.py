@@ -7,7 +7,7 @@ from conftest import ScriptedModel, write_json
 from test_triage_graph import POLICY_PACK, Harness, add_posting, judge_by_title
 
 from jobadvaisor.data.writer import read_score
-from jobadvaisor.triage.graph import ScoreRefused
+from jobadvaisor.triage.graph import ScoreRefused, ScoringFailed
 from jobadvaisor.triage.runs import RunBusyError, Runs
 
 
@@ -27,7 +27,11 @@ class Gated:
         harness.judge = ScriptedModel(self._judge)
         self.runs = Runs(harness.graph, harness.context)
 
+    judge_fails = False
+
     def _judge(self, schema, prompt):
+        if self.judge_fails:
+            raise ConnectionError("model down")
         self.entered.set()
         assert self.gate.wait(10), "gate never opened"
         return judge_by_title(schema, prompt)
@@ -84,4 +88,14 @@ def test_the_slot_is_free_again_after_a_failing_single_score(gated):
     add_posting(gated.root, "sales", "Sales Lead")
     with pytest.raises(ScoreRefused):
         gated.runs.score("sales")
+    assert gated.runs.score("p1").score == 1
+
+
+def test_the_slot_is_free_again_after_an_unknown_posting_and_after_a_judge_error(gated):
+    with pytest.raises(KeyError):
+        gated.runs.score("nope")
+    gated.judge_fails = True
+    with pytest.raises(ScoringFailed):
+        gated.runs.score("p1")
+    gated.judge_fails = False
     assert gated.runs.score("p1").score == 1

@@ -277,6 +277,7 @@ def test_next_pass_excludes_excluded_and_held_and_follows_corrections():
     repository, scores = _rated(2, 1)
     repository.postings["ok"] = posting()
     repository.postings["excl"] = posting("Sales")
+    repository.postings["held"] = posting(guard=held)  # rescoring leaves it out too
     assert next_pass(repository, scores, _pool()) == {"count": 3, "rescore": True}
 
 

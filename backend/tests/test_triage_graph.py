@@ -9,11 +9,12 @@ from langgraph.types import Command
 
 from jobadvaisor.data.loader import load
 from jobadvaisor.data.writer import read_pool, read_score
-from jobadvaisor.pool import counter
 from jobadvaisor.index import LabelIndex
+from jobadvaisor.pool import counter
 from jobadvaisor.tools.guard import ContentGuard
 from jobadvaisor.triage.graph import (
     ScoreRefused,
+    ScoringFailed,
     TriageContext,
     build_graph,
     checkpointer,
@@ -426,6 +427,52 @@ def test_an_unchecked_posting_the_check_flags_is_refused_as_held(tmp_path, root)
     assert (refused.value.reason, refused.value.detail) == ("held", ["injection"])
     assert load(root).postings["injected"].guard.flagged is True
     assert read_score(root, "injected") is None and harness.model_prompts() == ""
+
+
+def test_an_unchecked_excluded_posting_costs_no_classifier_call(tmp_path, root):
+    add_posting(root, "sales", "Sales Manager 5", guard=None)
+    classifier = StubClassifier()
+    with pytest.raises(ScoreRefused) as refused:
+        score_one(Harness(tmp_path, root, classifier).context(), "sales")
+    assert refused.value.reason == "excluded" and classifier.texts == []
+
+
+def failing(schema, prompt):
+    raise ConnectionError("model down")
+
+
+def test_a_failing_judge_raises_scoring_failed_with_the_cause_and_stores_nothing(tmp_path, root):
+    add_posting(root, "backend", "Backend Engineer 7")
+    harness = Harness(tmp_path, root)
+    harness.judge = ScriptedModel(failing)
+    with pytest.raises(ScoringFailed, match="ConnectionError: model down") as failed:
+        score_one(harness.context(), "backend")
+    assert isinstance(failed.value.__cause__, ConnectionError)
+    assert read_score(root, "backend") is None
+
+
+def test_a_failing_classifier_on_the_check_raises_scoring_failed(tmp_path, root):
+    add_posting(root, "unchecked", "Backend Engineer 7", guard=None)
+    classifier = StubClassifier()
+    classifier.classify = lambda text: failing(None, text)
+    with pytest.raises(ScoringFailed, match="model down"):
+        score_one(Harness(tmp_path, root, classifier).context(), "unchecked")
+
+
+def test_a_failing_write_is_not_a_scoring_failure(tmp_path, root, monkeypatch):
+    add_posting(root, "backend", "Backend Engineer 7")
+
+    def refuse(*args):
+        raise PermissionError("scores/ is read-only")
+
+    monkeypatch.setattr("jobadvaisor.triage.graph.write_score", refuse)
+    with pytest.raises(PermissionError):
+        score_one(Harness(tmp_path, root).context(), "backend")
+
+
+def test_an_unknown_posting_raises_key_error(tmp_path, root):
+    with pytest.raises(KeyError):
+        score_one(Harness(tmp_path, root).context(), "nope")
 
 
 def test_a_checked_posting_is_not_classified_again(tmp_path, root):

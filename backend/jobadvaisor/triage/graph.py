@@ -125,24 +125,38 @@ class ScoreRefused(Exception):
         super().__init__(reason)
 
 
+class ScoringFailed(Exception):
+    """A model or service `score_one` called failed: the judge, the label index or the
+    content-guard classifier. The message names the cause's type and text, `__cause__` is
+    the original error. Trying again may help; a failure to store the score is not this."""
+
+
 def score_one(context: TriageContext, posting_id: str) -> Score:
     """Score one posting now and store `scores/<id>.json`, replacing an earlier score; returns
     the stored `Score`. For any posting, rated or not, that a pass would let through: held and
     excluded postings (held first, as in the pool) and unscreened ones without a classifier
     raise `ScoreRefused`; an unchecked posting is checked now when a classifier is configured.
     No extraction, and nothing is appended to `pool.json`. No locking: the caller keeps it off
-    a running pass (`Runs.score`). Raises `KeyError` for an unknown posting and what the judge
-    or the index raises."""
+    a running pass (`Runs.score`). Raises `KeyError` for an unknown posting, `ScoringFailed`
+    when the classifier, the index or the judge fails; an error storing the score propagates
+    unchanged."""
     repository = context.repository
     posting = repository.postings[posting_id]
     if blocked := _blocked(repository, posting):
         raise ScoreRefused(*blocked)
-    if ruling := _guard_ruling(context, posting_id):
+    try:
+        ruling = _guard_ruling(context, posting_id)
+    except Exception as error:  # the classifier is an outside service
+        raise ScoringFailed(f"{type(error).__name__}: {error}") from error
+    if ruling:
         if ruling["status"] == "unscreened":
             raise ScoreRefused("unscreened", [])
         raise ScoreRefused("held", ruling["categories"])
-    context.index.sync(repository)
-    judged = _judge(context, posting_id)
+    try:
+        context.index.sync(repository)
+        judged = _judge(context, posting_id)
+    except Exception as error:  # the embedder and the judge are outside services
+        raise ScoringFailed(f"{type(error).__name__}: {error}") from error
     stored = Score(schema_version="1", score=judged.score, reasoning=judged.reasoning,
                    example_ids=judged.example_ids, scored_at=datetime.now(UTC))
     write_score(repository.root, posting_id, stored)
