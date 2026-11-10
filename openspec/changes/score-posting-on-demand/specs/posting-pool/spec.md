@@ -3,15 +3,38 @@
 ## MODIFIED Requirements
 
 ### Requirement: Scoring pass on request
-The pool SHALL offer a pass "Neue Anzeigen bewerten" that the user starts. It scores every unrated posting without a score, and rescores every unrated posting when corrections were counted since the last pass. No pass SHALL start without the user's action. A pass SHALL announce how many postings it will score before it starts.
+The pool SHALL offer a pass "Neue Anzeigen bewerten" that the user starts. It scores every posting without a score, rated or not, and rescores every posting, rated or not, when corrections were counted since the last pass. No pass SHALL start without the user's action. A pass SHALL announce how many postings it will score before it starts.
 
 #### Scenario: New postings scored
 - **WHEN** 12 postings are stored without a score and the user starts a pass
 - **THEN** each receives a score and reasoning, stored with the posting
 
+#### Scenario: Rated posting without a score
+- **WHEN** a posting the user rated before any pass scored it is stored without a score, and the user starts a pass
+- **THEN** it receives a score, and the posting itself is not among the examples its judge was given
+
+#### Scenario: Rescore after corrections
+- **WHEN** corrections were counted since the last pass and the user starts a pass
+- **THEN** every posting neither excluded nor held receives a new score, the rated ones included
+
+#### Scenario: Rating during a pass
+- **WHEN** the user rates a posting while a pass computes its score
+- **THEN** the pass stores the new score, and the rating counts toward the counter after this pass
+
 #### Scenario: Nothing starts by itself
 - **WHEN** a posting is added by intake or import
 - **THEN** it stays unscored until the user starts a pass or scores it
+
+### Requirement: Quality measure per pass
+Each pass SHALL store, with its time, the share of corrections among the ratings counted since the previous pass and the number of postings it scored, so the user and the evals can see whether the ranking improves. The share SHALL be measured against the scores from before the pass, not against the scores it writes.
+
+#### Scenario: Two passes compared
+- **WHEN** two passes finished
+- **THEN** both stored shares are available for comparison
+
+#### Scenario: Rescored rated posting
+- **WHEN** a posting with score 8 was rated negative since the previous pass, and the pass rescores it with 2
+- **THEN** the share the pass stores counts that rating as a correction
 
 ## ADDED Requirements
 

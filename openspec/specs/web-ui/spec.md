@@ -128,13 +128,6 @@ The UI SHALL give each posting its own address (hash route `#/anzeigen/<id>`), a
 - **WHEN** the agent names a stored posting in an answer
 - **THEN** the chat shows a link to that posting's page
 
-### Requirement: Hint for a rated posting without a score
-The posting page of a rated posting without a stored score (an unreadable score file is not this case) SHALL say that it has no score because it was rated before a pass scored it, and SHALL NOT point to "Neue Anzeigen bewerten". An unrated posting without a score SHALL keep pointing to that pass.
-
-#### Scenario: Rated posting without a score
-- **WHEN** the user opens the page of a posting rated before any pass scored it
-- **THEN** the score section says it was rated before a pass scored it, and does not mention "Neue Anzeigen bewerten"
-
 ### Requirement: Score button
 The posting page and every row of the pool view SHALL offer a button that scores this one posting now, naming its cost per click (one judge call). For a posting an exclusion rule matches, the content guard holds, or the content guard never checked while no classifier is configured, the button SHALL be disabled, with a visible info icon beside it that shows the reason on hover and on keyboard focus and gives it to screen readers.
 
