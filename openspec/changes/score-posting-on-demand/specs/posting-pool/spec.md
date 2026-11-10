@@ -37,8 +37,8 @@ The correction counter SHALL treat a score computed on request like a pass's sco
 - **WHEN** a posting rated positive since the last pass, without a score, is scored on request with 3
 - **THEN** the counter rises by one
 
-### Requirement: Single score only for postings the pool would score
-A posting the content guard holds or an exclusion rule matches SHALL NOT be scored on request. A posting the content guard never checked SHALL be checked first when a classifier is configured, and refused when the check flags it; without a classifier, it SHALL NOT be scored on request. A posting already checked SHALL keep its stored guard result. Each refusal SHALL name its reason.
+### Requirement: Single score refuses held and excluded postings
+A posting the content guard holds or an exclusion rule matches SHALL NOT be scored on request. The refusal SHALL name its reason: the matching rules, or that the content guard holds it.
 
 #### Scenario: Excluded posting
 - **WHEN** the user asks to score a posting an exclusion rule matches
@@ -48,13 +48,24 @@ A posting the content guard holds or an exclusion rule matches SHALL NOT be scor
 - **WHEN** the user asks to score a posting the content guard flagged and nobody released
 - **THEN** no score is computed, and the answer says the content guard holds it
 
+### Requirement: Single score checks an unchecked posting first
+A posting the content guard never checked SHALL be checked before it is scored on request, when a classifier is configured, and SHALL NOT be scored when that check flags it. Without a classifier it SHALL NOT be scored on request, and the refusal SHALL say it was never checked. A posting already checked SHALL keep its stored guard result and SHALL NOT be checked again.
+
 #### Scenario: Unchecked posting with a classifier
 - **WHEN** the user asks to score a posting the guard never checked and a classifier is configured
-- **THEN** the posting is checked, the result is stored with it, and it is scored unless the check flags it
+- **THEN** the posting is checked, the result is stored with it, and it is scored
+
+#### Scenario: Unchecked posting flagged by that check
+- **WHEN** the user asks to score a posting the guard never checked, and the check flags it
+- **THEN** the result is stored with it, no score is computed, and the answer says the content guard holds it
 
 #### Scenario: Unchecked posting without a classifier
 - **WHEN** the user asks to score a posting the guard never checked and no classifier is configured
 - **THEN** no score is computed, and the answer says the posting was never checked
+
+#### Scenario: Checked posting
+- **WHEN** the user asks to score a posting the guard already checked and did not flag
+- **THEN** the guard is not called again, and the posting is scored
 
 ### Requirement: One scoring at a time
 No scoring SHALL start while another computes: neither a pass nor a single score while a pass or a single score computes. Each refusal SHALL say that another scoring is computing.
