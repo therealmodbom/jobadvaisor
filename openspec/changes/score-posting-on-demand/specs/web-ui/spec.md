@@ -20,11 +20,15 @@ The UI SHALL give each posting its own address (hash route `#/anzeigen/<id>`), a
 ## ADDED Requirements
 
 ### Requirement: Score button
-The posting page and every row of the pool view SHALL offer a button that scores this one posting now, naming its cost per click (one judge call). A posting the content guard holds SHALL show no button.
+The posting page and every row of the pool view SHALL offer a button that scores this one posting now, naming its cost per click (one judge call). For a posting an exclusion rule matches or the content guard holds, the button SHALL be disabled and SHALL say why, on hover and to keyboard and screen reader users.
 
 #### Scenario: Cost named
 - **WHEN** the user sees the button on a posting page or a pool row
 - **THEN** it names one judge call and its approximate cost
+
+#### Scenario: Excluded posting
+- **WHEN** the user points at the button of a posting an exclusion rule matches
+- **THEN** the button is disabled and says that the posting is excluded by its rules
 
 ### Requirement: Score button progress and result
 While a score computes, its button SHALL show progress, and the posting page SHALL keep an earlier score visible, marked as being recomputed. When it ends, the page SHALL show the new score with its reasoning, and the row its new score with its other marks unchanged. A failure or refusal SHALL show its reason with a retry.

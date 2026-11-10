@@ -3,7 +3,7 @@
 ## ADDED Requirements
 
 ### Requirement: Scoring one posting on request
-The user SHALL be able to score one stored posting on request, rated or not, with or without a score, and including one an exclusion rule matches. It SHALL be scored the way a pass scores it, with one judge call, and stored with the posting like a pass's score, replacing an earlier one. It SHALL NOT count as a pass: no pass is recorded, and the correction counter keeps its window.
+The user SHALL be able to score one stored posting on request, rated or not, with or without a score. It SHALL be scored the way a pass scores it, with one judge call, and stored with the posting like a pass's score, replacing an earlier one. It SHALL NOT count as a pass: no pass is recorded, and the correction counter keeps its window.
 
 #### Scenario: Rated posting without a score
 - **WHEN** the user scores a posting rated before any pass scored it
@@ -24,8 +24,12 @@ The correction counter SHALL treat a score computed on request like a pass's sco
 - **WHEN** a posting rated positive since the last pass is scored on request with 3
 - **THEN** the counter rises by one
 
-### Requirement: Single score only for postings a model may see
-A posting the content guard holds SHALL NOT be scored on request. A posting the content guard never checked SHALL be checked first when a classifier is configured; without one, it SHALL NOT be scored on request. Each refusal SHALL name its reason.
+### Requirement: Single score only for postings the pool would score
+A posting an exclusion rule matches or the content guard holds SHALL NOT be scored on request. A posting the content guard never checked SHALL be checked first when a classifier is configured; without one, it SHALL NOT be scored on request. A posting already checked SHALL keep its stored guard result. Each refusal SHALL name its reason.
+
+#### Scenario: Excluded posting
+- **WHEN** the user asks to score a posting an exclusion rule matches
+- **THEN** no score is computed, and the answer names the matching rules
 
 #### Scenario: Held posting
 - **WHEN** the user asks to score a posting the content guard flagged and nobody released
