@@ -3,22 +3,25 @@
 ## ADDED Requirements
 
 ### Requirement: Score button
-The posting page and every row of the pool view SHALL offer a button that scores this one posting now, naming its cost per click (one judge call). For a posting an exclusion rule matches, the content guard holds, or the content guard never checked while no classifier is configured, the button SHALL be disabled, with a visible info icon beside it that shows the reason on hover and on keyboard focus and gives it to screen readers.
+The posting page and every row of the pool view SHALL offer a button that scores this one posting now, naming its cost per click (one judge call).
 
 #### Scenario: Cost named
 - **WHEN** the user sees the button on a posting page or a pool row
 - **THEN** it names one judge call and its approximate cost
 
+### Requirement: Score button disabled where no score is possible
+For a posting an exclusion rule matches, the content guard holds, or the content guard never checked while no classifier is configured, the button SHALL be disabled, with a visible info icon beside it that shows the reason on hover and on keyboard focus and gives it to screen readers. A posting both held and excluded SHALL show the content guard as its reason.
+
 #### Scenario: Excluded posting
-- **WHEN** the user sees the button of a posting an exclusion rule matches
+- **WHEN** the user sees the button of a posting an exclusion rule matches and the content guard does not hold
 - **THEN** the button is disabled, and pointing at or focusing the info icon beside it says that the posting is excluded by its rules
 
 #### Scenario: Held posting
-- **WHEN** the user sees the button of a posting the content guard holds
+- **WHEN** the user sees the button of a posting the content guard holds, whether or not an exclusion rule matches
 - **THEN** the button is disabled, and its info icon says the content guard holds it
 
 #### Scenario: Unchecked posting without a classifier
-- **WHEN** the user sees the button of a posting the content guard never checked and no classifier is configured
+- **WHEN** the user sees the button of a posting the content guard never checked and no exclusion rule matches, and no classifier is configured
 - **THEN** the button is disabled, and its info icon says the posting was never checked
 
 ### Requirement: Score button progress and result
