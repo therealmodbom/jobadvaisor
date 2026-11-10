@@ -163,7 +163,7 @@ The intake view SHALL accept several URLs at once, one per line, and SHALL show 
 - **THEN** the first and third are stored, and the view lists the second with its attempts and the text and PDF options
 
 ### Requirement: Version and backend shown
-The UI SHALL show, on every view, the version of the loaded frontend, the version the backend reports, and the origin the page's requests go to. A page from a release image SHALL show the release tag as both versions; a local or CI build SHALL show `dev`. The display SHALL name no host or address beyond the origin the browser already uses. While no backend version has been fetched successfully, the display SHALL say the backend version is unknown and SHALL NOT report a mismatch. A later failed fetch SHALL leave the last backend version fetched in place.
+The UI SHALL show, on every view, the version of the loaded frontend, the version the backend reports, and the origin the page's requests go to. A page from a release image SHALL show the release tag as both versions; a local or CI build SHALL show `dev`. The display SHALL name no host or address beyond the origin the browser already uses. While no backend version has been fetched successfully, the display SHALL say the backend version is unknown and SHALL NOT report a mismatch. A later failed fetch SHALL leave the last backend version fetched in place. A backend that reports a failing check still reports its version, so that version counts as fetched, and the display SHALL NOT show the status.
 
 #### Scenario: Released page
 - **WHEN** the user opens the app served by the image of release `v0.1.0`
@@ -180,6 +180,10 @@ The UI SHALL show, on every view, the version of the loaded frontend, the versio
 #### Scenario: Refetch fails after a version was shown
 - **WHEN** the footer shows the backend version and a later fetch fails
 - **THEN** the footer keeps showing the last backend version fetched
+
+#### Scenario: Backend reports a failing check
+- **WHEN** the backend's health answer says `fail` and carries its version
+- **THEN** the footer shows that version as the backend version, and shows no status
 
 ### Requirement: Stale page is announced
 The UI SHALL fetch the backend version when the page loads and again whenever the tab becomes visible. When the backend version differs from the frontend's version, the UI SHALL show a banner that says the page is out of date and offers a reload button. The UI SHALL NOT reload the page by itself. The banner SHALL follow the latest backend version fetched successfully: it is shown while that version differs from the frontend's, it is removed when a fetch shows them equal, and a failed fetch leaves it as it is.
