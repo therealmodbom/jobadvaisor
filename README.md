@@ -150,7 +150,7 @@ A changed `JOBADVAISOR_PORT` needs the same `docker compose up -d`. `docker comp
 
 ### Which version runs
 
-The footer of every page shows the version of the page, the version of the server and the address the page talks to, for example `Oberfläche v0.1.0 · Server v0.1.0 · <address you opened>`. Both versions are the release tag of the image. A build without a tag, such as a local one, shows `dev`.
+The footer of every page shows the version of the page, the version of the server and the address the page talks to, for example `Frontend v0.1.0 · Backend v0.1.0 · <address you opened>`. Both versions are the release tag of the image. A build without a tag, such as a local one, shows `dev`.
 
 The server also answers `GET /health` with its status and version, for example `{"status": "ok", "checks": {"data_repo": "ok"}, "version": "v0.1.0"}`. When the data repository does not load, the answer is a 503 with `"status": "fail"`, the load error under `checks`, and the version still in it. The container's healthcheck in `deploy/compose.yaml` requests it, so such a container shows as `unhealthy` in `docker compose ps`. It is not restarted. That healthcheck needs a release that contains `/health`: an older image answers 404 and shows `unhealthy`, so copy the changed `compose.yaml` only together with a newer release in `JOBADVAISOR_TAG`.
 

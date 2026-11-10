@@ -50,8 +50,8 @@ const banner = () => screen.queryByText(/Diese Seite ist veraltet/)
 test('a local build shows dev for both sides and the origin of the page', async () => {
   serve(ok('dev'))
   render(<App />)
-  await screen.findByText(/Server dev/)
-  expect(footer()).toHaveTextContent(`Oberfläche dev · Server dev · ${window.location.origin}`)
+  await screen.findByText(/Backend dev/)
+  expect(footer()).toHaveTextContent(`Frontend dev · Backend dev · ${window.location.origin}`)
   expect(banner()).toBeNull()
 })
 
@@ -59,8 +59,8 @@ test('a release shows its tag for both sides and no banner', async () => {
   vi.stubEnv('VITE_APP_VERSION', 'v0.1.0')
   serve(ok('v0.1.0'))
   render(<App />)
-  expect(await screen.findByText(/Server v0\.1\.0/)).toBeVisible()
-  expect(footer()).toHaveTextContent('Oberfläche v0.1.0')
+  expect(await screen.findByText(/Backend v0\.1\.0/)).toBeVisible()
+  expect(footer()).toHaveTextContent('Frontend v0.1.0')
   expect(banner()).toBeNull()
 })
 
@@ -70,7 +70,7 @@ test('an unreachable backend on load shows an unknown server version and no bann
   render(<App />)
   await vi.waitFor(() => expect(requests()).toBe(1))
   await settle()
-  expect(footer()).toHaveTextContent('Server unbekannt')
+  expect(footer()).toHaveTextContent('Backend unbekannt')
   expect(banner()).toBeNull()
 })
 
@@ -78,8 +78,8 @@ test('a different backend version shows the banner with both versions and a relo
   vi.stubEnv('VITE_APP_VERSION', 'v0.1.0')
   serve(ok('v0.2.0'))
   render(<App />)
-  expect(await screen.findByText(/Diese Seite ist veraltet/)).toHaveTextContent('v0.1.0')
-  expect(banner()).toHaveTextContent('v0.2.0')
+  expect(await screen.findByText(/Diese Seite ist veraltet/)).toHaveTextContent(
+    'Diese Seite ist veraltet: Sie läuft mit v0.1.0, das Backend mit v0.2.0.')
   expect(screen.getByRole('button', { name: 'Neu laden' })).toBeVisible()
 })
 
@@ -97,7 +97,7 @@ test('the version is fetched again when the tab becomes visible, not when it is 
   vi.stubEnv('VITE_APP_VERSION', 'v0.1.0')
   const requests = serve(ok('v0.1.0'), ok('v0.2.0'))
   render(<App />)
-  await screen.findByText(/Server v0\.1\.0/)
+  await screen.findByText(/Backend v0\.1\.0/)
   await tab('hidden')
   expect(requests()).toBe(1)
   await tab('visible')
@@ -109,11 +109,11 @@ test('a failed refetch keeps the last backend version', async () => {
   vi.stubEnv('VITE_APP_VERSION', 'v0.1.0')
   const requests = serve(ok('v0.1.0'), FAILED)
   render(<App />)
-  await screen.findByText(/Server v0\.1\.0/)
+  await screen.findByText(/Backend v0\.1\.0/)
   await tab('visible')
   await vi.waitFor(() => expect(requests()).toBe(2))
   await settle()
-  expect(footer()).toHaveTextContent('Server v0.1.0')
+  expect(footer()).toHaveTextContent('Backend v0.1.0')
   expect(banner()).toBeNull()
 })
 
@@ -126,7 +126,7 @@ test('a failed refetch leaves the banner in place', async () => {
   await vi.waitFor(() => expect(requests()).toBe(2))
   await settle()
   expect(banner()).toBeVisible()
-  expect(footer()).toHaveTextContent('Server v0.2.0')
+  expect(footer()).toHaveTextContent('Backend v0.2.0')
 })
 
 test('the banner goes when a refetch returns the frontend version again', async () => {
@@ -136,7 +136,7 @@ test('the banner goes when a refetch returns the frontend version again', async 
   await screen.findByText(/Diese Seite ist veraltet/)
   await tab('visible')
   await vi.waitFor(() => expect(banner()).toBeNull())
-  expect(footer()).toHaveTextContent('Server v0.1.0')
+  expect(footer()).toHaveTextContent('Backend v0.1.0')
 })
 
 test('the banner does not drop what a view holds', async () => {
@@ -163,7 +163,7 @@ test('a failing check still shows the backend version, and no status', async () 
   vi.stubEnv('VITE_APP_VERSION', 'v0.1.0')
   serve(failing('v0.1.0'))
   render(<App />)
-  await screen.findByText(/Server v0\.1\.0/)
+  await screen.findByText(/Backend v0\.1\.0/)
   expect(footer()).not.toHaveTextContent(/fail|pool\.json/)
   expect(banner()).toBeNull()
 })
@@ -182,7 +182,7 @@ test('a failing check removes the banner when its version equals the frontend ve
   await screen.findByText(/Diese Seite ist veraltet/)
   await tab('visible')
   await vi.waitFor(() => expect(banner()).toBeNull())
-  expect(footer()).toHaveTextContent('Server v0.1.0')
+  expect(footer()).toHaveTextContent('Backend v0.1.0')
 })
 
 test('a 503 without a version counts as a failed fetch', async () => {
@@ -191,7 +191,7 @@ test('a 503 without a version counts as a failed fetch', async () => {
   render(<App />)
   await vi.waitFor(() => expect(requests()).toBe(1))
   await settle()
-  expect(footer()).toHaveTextContent('Server unbekannt')
+  expect(footer()).toHaveTextContent('Backend unbekannt')
   expect(banner()).toBeNull()
 })
 
@@ -201,6 +201,6 @@ test('an answer without a version counts as a failed fetch', async () => {
   render(<App />)
   await vi.waitFor(() => expect(requests()).toBe(1))
   await settle()
-  expect(footer()).toHaveTextContent('Server unbekannt')
+  expect(footer()).toHaveTextContent('Backend unbekannt')
   expect(banner()).toBeNull()
 })
