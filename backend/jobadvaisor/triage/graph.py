@@ -31,7 +31,7 @@ from jobadvaisor.pool import _blocked, counter, pass_batch
 from jobadvaisor.settings import Settings
 from jobadvaisor.tools.exclusions import check_exclusions
 from jobadvaisor.tools.extraction import extract_features, feature_set
-from jobadvaisor.tools.guard import ContentGuard
+from jobadvaisor.tools.guard import ContentGuard, screened_text
 from jobadvaisor.tools.scoring import Score as Judgement
 from jobadvaisor.tools.scoring import score_posting
 from jobadvaisor.tools.similar import find_similar_labeled
@@ -128,7 +128,8 @@ class ScoreRefused(Exception):
 class ScoringFailed(Exception):
     """A model or service `score_one` called failed: the judge, the label index or the
     content-guard classifier. The message names the cause's type and text, `__cause__` is
-    the original error. Trying again may help; a failure to store the score is not this."""
+    the original error. Trying again may help; a failure to store the guard result or the
+    score is not this."""
 
 
 def score_one(context: TriageContext, posting_id: str) -> Score:
@@ -138,17 +139,19 @@ def score_one(context: TriageContext, posting_id: str) -> Score:
     raise `ScoreRefused`; an unchecked posting is checked now when a classifier is configured.
     No extraction, and nothing is appended to `pool.json`. No locking: the caller keeps it off
     a running pass (`Runs.score`). Raises `KeyError` for an unknown posting, `ScoringFailed`
-    when the classifier, the index or the judge fails; an error storing the score propagates
-    unchanged."""
+    when the classifier, the index or the judge fails; an error storing the guard result or
+    the score propagates unchanged."""
     repository = context.repository
     posting = repository.postings[posting_id]
     if blocked := _blocked(repository, posting):
         raise ScoreRefused(*blocked)
-    try:
-        ruling = _guard_ruling(context, posting_id)
-    except Exception as error:  # the classifier is an outside service
-        raise ScoringFailed(f"{type(error).__name__}: {error}") from error
-    if ruling:
+    if posting.guard is None and context.guard.classifier is not None:
+        try:
+            guard = context.guard.screen(screened_text(posting))
+        except Exception as error:  # the classifier is an outside service
+            raise ScoringFailed(f"{type(error).__name__}: {error}") from error
+        context.guard.store(repository, posting_id, guard)  # a storage error is no retry case
+    if ruling := _guard_ruling(context, posting_id):
         if ruling["status"] == "unscreened":
             raise ScoreRefused("unscreened", [])
         raise ScoreRefused("held", ruling["categories"])

@@ -422,6 +422,17 @@ def test_a_failing_write_after_the_judge_is_500_not_a_retryable_502(api, root, m
     assert response.status_code == 500 and response.json()["error"] == "internal error"
 
 
+def test_a_failing_guard_write_on_the_click_is_500_not_a_retryable_502(tmp_path, root, monkeypatch):
+    add_posting(root, "unchecked", "Engineer 3", guard=None)
+
+    def refuse(*args):
+        raise PermissionError("guard/ is read-only")
+
+    monkeypatch.setattr("jobadvaisor.tools.guard.write_guard", refuse)
+    response = post_score(Api(Harness(tmp_path, root, StubClassifier())), "unchecked")
+    assert response.status_code == 500 and response.json()["error"] == "internal error"
+
+
 def test_a_posting_deleted_during_the_request_is_404(api, monkeypatch):
     def gone(posting_id):
         raise KeyError(posting_id)

@@ -265,7 +265,7 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
         `excluded` (detail: the rule IDs), `held` (the guard categories) or `unscreened` (no
         guard result and screening off) for a posting no pass would score; 502 `scoring
         failed` when the judge, the label index or the classifier fails (trying again may help);
-        a failure to store the score is a 500."""
+        a failure to store the guard result or the score is a 500."""
         repository, *_ = pool_state(intake.root)
         if posting_id not in repository.postings:
             return problem(404, "not found", f"no posting {posting_id}")

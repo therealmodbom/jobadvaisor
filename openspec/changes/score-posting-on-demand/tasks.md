@@ -13,7 +13,7 @@
 
 ## 3. Backend: API
 
-- [x] 3.1 `POST /postings/{id}/score` in `api/app.py`: 200 with the `GET /postings/{id}` body plus `counter` and `next_pass`; 404 unknown; 409 `scoring in progress`, `excluded`, `held`, `unscreened`; 502 `scoring failed`. Tests in `test_api.py` with a fake judge, including the counter rising for a rated posting without a score whose new score contradicts its rating (spec: "Probing a rated posting"), and `POST /pool/passes` answering 409 while a single score holds the slot.
+- [x] 3.1 `POST /postings/{id}/score` in `api/app.py`: 200 with the `GET /postings/{id}` body plus `counter` and `next_pass`; 404 unknown; 409 `scoring in progress`, `excluded`, `held`, `unscreened`; 502 `scoring failed` (judge, label index or classifier fails); 500 when storing the guard result or the score fails. Tests in `test_api.py` with a fake judge, including the counter rising for a rated posting without a score whose new score contradicts its rating (spec: "Probing a rated posting"), and `POST /pool/passes` answering 409 while a single score holds the slot.
 - [x] 3.2 Pool rows gain `unscreened` (posting has no guard result; `pool._row`, `test_pool.py`), and `GET /pool` and `GET /postings/{id}` gain `screening` (classifier configured). Tests in `test_api.py` for both values.
 
 ## 4. Frontend

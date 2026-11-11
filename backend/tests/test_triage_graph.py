@@ -470,6 +470,17 @@ def test_a_failing_write_is_not_a_scoring_failure(tmp_path, root, monkeypatch):
         score_one(Harness(tmp_path, root).context(), "backend")
 
 
+def test_a_failing_guard_write_is_not_a_scoring_failure(tmp_path, root, monkeypatch):
+    add_posting(root, "unchecked", "Backend Engineer 7", guard=None)
+
+    def refuse(*args):
+        raise PermissionError("guard/ is read-only")
+
+    monkeypatch.setattr("jobadvaisor.tools.guard.write_guard", refuse)
+    with pytest.raises(PermissionError):
+        score_one(Harness(tmp_path, root, StubClassifier()).context(), "unchecked")
+
+
 def test_an_unknown_posting_raises_key_error(tmp_path, root):
     with pytest.raises(KeyError):
         score_one(Harness(tmp_path, root).context(), "nope")
