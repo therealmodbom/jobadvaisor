@@ -4,8 +4,9 @@ import { ApiError, postScore, type ScoreAnswer } from '@/api'
 /** The state of one posting's score click: `computing` while the request runs, `problem` after a
  * failure, else null. `busy` (another score or a pass holds the slot) and `failed` (the judge, the
  * index or the classifier failed, or the server was unreachable) may pass, so the button offers a
- * retry; `broken` (any other error, such as a 500 when storing) would run the judge again for
- * nothing, so it gets a message and no retry. */
+ * retry label; `broken` (any other error, such as a 500 when storing) gets its own message and the
+ * button keeps its normal label: a click scores again, which is the way to retry the spec asks for,
+ * but nothing promises the second attempt will pass. */
 export type ScoreCall = { computing: boolean; problem: 'busy' | 'failed' | 'broken' | null }
 
 const IDLE: ScoreCall = { computing: false, problem: null }
