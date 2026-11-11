@@ -161,7 +161,8 @@ function blockedReason(row: PoolRow, screening: boolean): string | null {
 
 /** The button that scores one posting now: "Score berechnen" (or "Neu berechnen" with a score),
  * "Wird berechnet …" while `call` computes (aria-disabled, so keyboard focus stays) and "Erneut
- * versuchen" after a problem. `onScore` sends the click. A posting that cannot be scored
+ * versuchen" after a problem worth a retry (`busy`, `failed`; a `broken` store keeps the normal
+ * label). `onScore` sends the click. A posting that cannot be scored
  * (`blockedReason`) gets a disabled button and a visible, focusable info icon beside it that shows
  * the reason on hover and on focus, and gives it to screen readers. Pair it with `ScoreProblem`. */
 export function ScoreButton({ row, screening, call, onScore, size = 'default' }: {
@@ -201,7 +202,7 @@ export function ScoreButton({ row, screening, call, onScore, size = 'default' }:
               onClick={() => { if (!call.computing) onScore() }}>
         {call.computing
           ? <><LoaderCircle className="motion-safe:animate-spin" aria-hidden="true" />Wird berechnet …</>
-          : call.problem ? 'Erneut versuchen' : idle}
+          : call.problem === 'busy' || call.problem === 'failed' ? 'Erneut versuchen' : idle}
       </Button>
       <span role="status" className="sr-only">{call.computing ? 'Der Score wird berechnet.' : ''}</span>
     </>
@@ -213,9 +214,11 @@ export function ScoreProblem({ call }: { call: ScoreCall }) {
   if (!call.problem) return null
   return (
     <p role="alert" className="text-sm text-danger">
-      {call.problem === 'busy'
-        ? 'Es läuft gerade schon ein Scoring. Versuch es gleich noch einmal.'
-        : 'Der Score konnte nicht berechnet werden. Versuch es noch einmal.'}
+      {{
+        busy: 'Es läuft gerade schon ein Scoring. Versuch es gleich noch einmal.',
+        failed: 'Der Score konnte nicht berechnet werden. Versuch es noch einmal.',
+        broken: 'Der Score konnte nicht gespeichert werden. Prüfe, ob das Datenrepository beschreibbar ist.',
+      }[call.problem]}
     </p>
   )
 }

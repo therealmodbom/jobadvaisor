@@ -62,7 +62,6 @@ test('while it computes the button says so, keeps focus and a second click sends
 test.each([
   ['scoring in progress', 409, 'Es läuft gerade schon ein Scoring. Versuch es gleich noch einmal.'],
   ['scoring failed', 502, 'Der Score konnte nicht berechnet werden. Versuch es noch einmal.'],
-  ['internal error', 500, 'Der Score konnte nicht berechnet werden. Versuch es noch einmal.'],
 ])('%s answers an alert and the button offers a retry that clears it', async (error, status, message) => {
   let fail = true
   stubApi({ 'POST /postings/n1/score': () => (fail ? { status, body: { error, detail: 'x' } } : { body: ANSWER }) })
@@ -74,6 +73,18 @@ test.each([
   await userEvent.click(screen.getByRole('button', { name: 'Erneut versuchen' }))
   expect(await screen.findByRole('button', { name: 'Score berechnen' })).toBeEnabled()
   expect(screen.queryByRole('alert')).toBeNull()
+  expect(onRefused).not.toHaveBeenCalled()
+})
+
+test.each([500, 422])('a %i is a broken store: its own message and no retry label', async (status) => {
+  stubApi({ 'POST /postings/n1/score': { status, body: { error: 'internal error', detail: 'x' } } })
+  const onRefused = vi.fn()
+  render(<Harness posting={unscored} onRefused={onRefused} />)
+  await userEvent.click(screen.getByRole('button', { name: 'Score berechnen' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'Der Score konnte nicht gespeichert werden. Prüfe, ob das Datenrepository beschreibbar ist.')
+  expect(screen.queryByRole('button', { name: 'Erneut versuchen' })).toBeNull()
+  expect(screen.getByRole('button', { name: 'Score berechnen' })).toBeEnabled()
   expect(onRefused).not.toHaveBeenCalled()
 })
 

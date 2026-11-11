@@ -2,9 +2,11 @@ import { useRef, useState } from 'react'
 import { ApiError, postScore, type ScoreAnswer } from '@/api'
 
 /** The state of one posting's score click: `computing` while the request runs, `problem` after a
- * failure worth a retry (`busy`: another score or a pass holds the slot; `failed`: anything else
- * that may pass), else null. */
-export type ScoreCall = { computing: boolean; problem: 'busy' | 'failed' | null }
+ * failure, else null. `busy` (another score or a pass holds the slot) and `failed` (the judge, the
+ * index or the classifier failed, or the server was unreachable) may pass, so the button offers a
+ * retry; `broken` (any other error, such as a 500 when storing) would run the judge again for
+ * nothing, so it gets a message and no retry. */
+export type ScoreCall = { computing: boolean; problem: 'busy' | 'failed' | 'broken' | null }
 
 const IDLE: ScoreCall = { computing: false, problem: null }
 
@@ -15,7 +17,8 @@ const REFUSED = ['excluded', 'held', 'unscreened']
  * pool rows. `run(postingId)` sends the click: a second click on a posting still computing sends
  * nothing; `call(postingId)` is that posting's `ScoreCall`. `onAnswer` gets the 200 answer. A
  * refusal no retry can change (409 `excluded`, `held` or `unscreened`, or 404) calls `onRefused`
- * so the view reloads and shows the posting as it is now; every other failure sets a `problem`. */
+ * so the view reloads and shows the posting as it is now; every other failure sets a `problem`
+ * (see `ScoreCall`). */
 export function useScore(onAnswer: (answer: ScoreAnswer) => void, onRefused: () => void) {
   const [calls, setCalls] = useState<Record<string, ScoreCall>>({})
   const sending = useRef(new Set<string>())
@@ -35,7 +38,9 @@ export function useScore(onAnswer: (answer: ScoreAnswer) => void, onRefused: () 
         set(postingId, IDLE)
         onRefused()
       } else {
-        set(postingId, { computing: false, problem: code === 'scoring in progress' ? 'busy' : 'failed' })
+        const unreachable = error instanceof ApiError && error.status === 0
+        set(postingId, { computing: false, problem: code === 'scoring in progress' ? 'busy'
+          : code === 'scoring failed' || unreachable ? 'failed' : 'broken' })
       }
     } finally {
       sending.current.delete(postingId)
