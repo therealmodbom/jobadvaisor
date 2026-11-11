@@ -329,7 +329,6 @@ export function PoolView({ active = true }: { active?: boolean }) {
   useEffect(() => {
     if (active) load()
   }, [active, load])
-  const { pass, busy, notice, start, answer, pollFailed, retryPoll } = usePass(load)
   /** A score from a row button replaces the row (the answer has no "Stichprobe" mark, so the row
    * keeps its own) and brings the counter and the next-pass figures along. */
   const score = useScore((scored: ScoreAnswer) => {
@@ -337,6 +336,14 @@ export function PoolView({ active = true }: { active?: boolean }) {
     setPool((current) => current && { ...current, counter: scored.counter, next_pass: scored.next_pass,
       rows: current.rows.map((row) => (row.posting_id === id ? { ...scored.row, exploration: row.exploration } : row)) })
   }, load)
+  const { clear: clearScoreProblems } = score
+  /** A finished pass reloads the pool and drops the rows' score messages: "scoring in progress"
+   * was about that pass. */
+  const passDone = useCallback(() => {
+    load()
+    clearScoreProblems()
+  }, [load, clearScoreProblems])
+  const { pass, busy, notice, start, answer, pollFailed, retryPoll } = usePass(passDone)
 
   async function setStatus(postingId: string, status: Status) {
     setSaving((current) => ({ ...current, [postingId]: true }))
@@ -442,7 +449,7 @@ export function PoolView({ active = true }: { active?: boolean }) {
   const count = pool?.next_pass.count ?? 0
   const counter = pool?.counter
   const nothingToDo = counter?.hint === 'rescore'
-    ? ' Es gibt nichts zu bewerten: Die übrigen Anzeigen sind von dir bewertet, ausgeschlossen oder zurückgehalten.' : ''
+    ? ' Es gibt nichts zu bewerten: Die übrigen Anzeigen haben schon einen Score, sind ausgeschlossen oder zurückgehalten.' : ''
   const working = busy && !pollFailed && pass?.status !== 'awaiting_answer'
   const why = busy ? 'Eine Bewertung läuft.'
     : count === 0 ? `Es gibt keine neuen Anzeigen zu bewerten.${nothingToDo}` : ''

@@ -76,8 +76,16 @@ test.each([
   expect(onRefused).not.toHaveBeenCalled()
 })
 
-test.each([500, 422])('a %i is a broken store: its own message and no retry label', async (status) => {
-  stubApi({ 'POST /postings/n1/score': { status, body: { error: 'internal error', detail: 'x' } } })
+test('a gateway error without the API body (error "request failed") is a failed score with a retry', async () => {
+  stubApi({ 'POST /postings/n1/score': { status: 504, body: {} } })
+  render(<Harness posting={unscored} />)
+  await userEvent.click(screen.getByRole('button', { name: 'Score berechnen' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('Der Score konnte nicht berechnet werden. Versuch es noch einmal.')
+  expect(screen.getByRole('button', { name: 'Erneut versuchen' })).toBeEnabled()
+})
+
+test('a 500 "internal error" is a broken store: its own message and no retry label', async () => {
+  stubApi({ 'POST /postings/n1/score': { status: 500, body: { error: 'internal error', detail: 'x' } } })
   const onRefused = vi.fn()
   render(<Harness posting={unscored} onRefused={onRefused} />)
   await userEvent.click(screen.getByRole('button', { name: 'Score berechnen' }))

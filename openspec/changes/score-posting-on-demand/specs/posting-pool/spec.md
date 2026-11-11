@@ -87,6 +87,10 @@ The correction counter SHALL treat a score computed on request like a pass's sco
 - **WHEN** a posting rated positive since the last pass, without a score, is scored on request with 3
 - **THEN** the counter rises by one
 
+#### Scenario: Re-scoring a corrected posting
+- **WHEN** a posting rated negative with a score of 8, which counts as a correction, is scored on request with 2
+- **THEN** the counter falls by one, since a correction is measured against the latest score
+
 ### Requirement: Single score refuses held and excluded postings
 A posting the content guard holds or an exclusion rule matches SHALL NOT be scored on request. The refusal SHALL name its reason: the matching rules, or that the content guard holds it; when both apply, it SHALL name the content guard.
 

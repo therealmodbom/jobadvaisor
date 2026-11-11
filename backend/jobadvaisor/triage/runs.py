@@ -80,7 +80,8 @@ class Runs:
         """Score one posting now, in the caller's thread, and return the stored score
         (`triage.graph.score_one`). It holds the same slot as a pass: raises `RunBusyError`
         while a pass or another single score computes, and frees the slot on every outcome;
-        `ScoreRefused`, `KeyError` and judge errors reach the caller unchanged."""
+        `ScoreRefused`, `KeyError`, `ScoringFailed` and storage errors reach the caller
+        unchanged."""
         run_id = f"score:{posting_id}"
         self._claim(run_id)
         try:

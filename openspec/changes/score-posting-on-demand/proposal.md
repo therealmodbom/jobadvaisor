@@ -27,6 +27,7 @@ None.
 - `posting-pool`: the pass scores and rescores rated postings too, its quality measure uses the scores from before it, and new requirements cover scoring one posting on request (its gates, its place in the counter, one scoring at a time).
 - `web-ui`: new requirements for the score button (disabled cases, progress and result) on posting page and pool rows.
 - `job-agent`: a single score is a second way the pool's stored score changes, beside a pass.
+- `job-triage`: the stored score is also replaced by a score the user requests for that posting.
 
 ## Non-goals
 

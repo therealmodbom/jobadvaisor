@@ -120,6 +120,14 @@ def test_a_weak_negative_on_a_high_score_counts_as_one_correction():
     assert counter(repository, {"p": score(8)}, _pool())["corrections"] == 1
 
 
+def test_a_re_score_that_agrees_with_the_rating_takes_the_correction_back():
+    """The counter measures the rating against the latest score, so a later score replaces the
+    earlier one's verdict: a correction at 8 is none at 2 (`design.md`, Counter)."""
+    repository = repo({"p": posting()}, {"p": label("negative")})
+    assert counter(repository, {"p": score(8)}, _pool())["corrections"] == 1
+    assert counter(repository, {"p": score(2)}, _pool())["corrections"] == 0
+
+
 def test_rank_filters_by_status():
     postings = {"o": posting(), "a": posting(status="applied")}
     assert ids(rank(repo(postings), {}, {})) == ["o"]
