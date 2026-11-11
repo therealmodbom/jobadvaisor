@@ -29,4 +29,4 @@
 - [x] 5.2 Full suite (`env -C backend uv run pytest -q`, `ruff check .`, frontend tests and build, `pytest -m e2e`) and a click test in the browser on both views.
 - [x] 5.3 README pool workflow: say that a pass scores rated postings too, name the button. Retake `docs/images/pool.png` per AGENTS.md (fresh demo copy, one paid pass, 1280 by 800, light mode).
 - [x] 5.5 Agent tool texts (issue #78): the `rescore_postings` and `find_postings` descriptions name the score the user requests; the agent eval (`--only agent`, demo persona) ran before and after, 15 of 15 both times; the numbers are in `design.md` (Eval).
-- [ ] 5.4 `openspec validate score-posting-on-demand --strict` (sync the baseline specs again after any delta edit) and update the "Current state" section of AGENTS.md.
+- [x] 5.4 `openspec validate score-posting-on-demand --strict` (sync the baseline specs again after any delta edit) and update the "Current state" section of AGENTS.md.
