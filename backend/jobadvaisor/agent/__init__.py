@@ -160,7 +160,7 @@ def agent_tools(context: AgentContext) -> list:
         """Find stored postings whose ID, title, company or the user's rating (a reason chip or
         the note) contains `query`; lists their IDs with the user's own rating (verdict, reason
         chips, note; null while unrated) and the stored pool score with the judge's reasoning
-        (null before a pass scored it)."""
+        (null while the posting has no score)."""
         wanted = query.casefold()
         found = sorted(posting_id for posting_id, posting in repository.postings.items()
                        if any(wanted in value.casefold()
@@ -274,7 +274,7 @@ def agent_tools(context: AgentContext) -> list:
         """Score the named stored postings (at most 20) again with the labels stored now and
         compare with their stored pool score (`before` null without one); lists the postings
         whose score changed, those unchanged and those that failed. Stores nothing: the pool's
-        scores change only through a pass the user starts."""
+        scores change only through a pass or a single score the user starts."""
         stored = scores()[0]
         # ponytail: one judge call per posting, sequential; batch if the lists grow large
         changed, unchanged, failed = [], [], []
