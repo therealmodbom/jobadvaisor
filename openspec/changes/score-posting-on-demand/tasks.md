@@ -25,7 +25,7 @@
 
 ## 5. End to end and docs
 
-- [ ] 5.1 e2e walkthrough in `backend/tests/e2e/` (real app over a temporary data repository, fake models, as `test_import_walkthrough.py`): a pass scores a rated posting without a score; score a posting from its page, then see the score in the pool; re-score from a pool row.
-- [ ] 5.2 Full suite (`env -C backend uv run pytest -q`, `ruff check .`, frontend tests and build, `pytest -m e2e`) and a click test in the browser on both views.
+- [x] 5.1 e2e walkthrough in `backend/tests/e2e/` (real app over a temporary data repository, fake models, as `test_import_walkthrough.py`): a pass scores a rated posting without a score; score a posting from its page, then see the score in the pool; re-score from a pool row.
+- [x] 5.2 Full suite (`env -C backend uv run pytest -q`, `ruff check .`, frontend tests and build, `pytest -m e2e`) and a click test in the browser on both views.
 - [ ] 5.3 README pool workflow: say that a pass scores rated postings too, name the button. Retake `docs/images/pool.png` per AGENTS.md (fresh demo copy, one paid pass, 1280 by 800, light mode).
 - [ ] 5.4 `openspec validate score-posting-on-demand --strict` (sync the baseline specs again after any delta edit) and update the "Current state" section of AGENTS.md.
