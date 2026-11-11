@@ -86,6 +86,8 @@ export type PoolRow = {
   location_raw: string
   added_at: string
   state: 'scored' | 'unscored' | 'excluded' | 'held'
+  /** The content guard never checked the posting (it carries no guard result). */
+  unscreened: boolean
   rules: string[]
   categories: string[]
   score: number | null
@@ -95,6 +97,10 @@ export type PoolRow = {
   origin: { table: string; fit: string | null; status: string | null } | null
   exploration: boolean
 }
+
+/** The pool's `next_pass` figures: how many postings a pass would score, and whether it
+ * rescores every posting (corrections were counted since the last pass). */
+export type NextPass = { count: number; rescore: boolean }
 
 /** The correction counter of `GET /pool`; `rate` is null below ten ratings. */
 export type Counter = {
@@ -108,13 +114,14 @@ export type Counter = {
 /** The hint thresholds (`correction_rate` in 0..1). */
 export type PoolSettings = { correction_threshold: number; correction_rate: number }
 
-/** `GET /pool`. */
+/** `GET /pool`; `screening` is true when a content-guard classifier is configured. */
 export type Pool = {
   rows: PoolRow[]
   counter: Counter
   settings: PoolSettings
-  next_pass: { count: number; rescore: boolean }
+  next_pass: NextPass
   reason_chips: ReasonChip[]
+  screening: boolean
 }
 
 /** A verdict the user can give. */
@@ -131,7 +138,7 @@ export type RatingBody = { verdict?: Verdict; strength?: Strength; chips: string
 
 /** The answer of a rating: the posting's pool row (with the stored label) and the counter and
  * next-pass figures as `GET /pool` has them. */
-export type RatingAnswer = { row: PoolRow; counter: Counter; next_pass: Pool['next_pass'] }
+export type RatingAnswer = { row: PoolRow; counter: Counter; next_pass: NextPass }
 
 /** Stores the rating of `postingId` at once. Rejects with `ApiError` (404 unknown posting, 422
  * unknown chip or no verdict to derive, 0 unreachable). */
@@ -139,14 +146,26 @@ export const putRating = (postingId: string, body: RatingBody) =>
   api<RatingAnswer>(`/postings/${encodeURIComponent(postingId)}/rating`, { method: 'PUT', json: body })
 
 /** `GET /postings/{id}`: the posting's pool row, the stored posting, its score (null without
- * one), the compared examples that still exist and the reason chips. */
+ * one), the compared examples that still exist, the reason chips and `screening` (a content-guard
+ * classifier is configured). */
 export type PostingPageData = {
   row: PoolRow
   posting: Posting
   score: { score: number; reasoning: string; example_ids: string[]; scored_at: string } | null
   examples: { posting_id: string; title: string; company: string }[]
   reason_chips: ReasonChip[]
+  screening: boolean
 }
+
+/** The answer of a single score: the posting page as `GET /postings/{id}` has it, plus the
+ * counter and next-pass figures as `GET /pool` has them. */
+export type ScoreAnswer = PostingPageData & { counter: Counter; next_pass: NextPass }
+
+/** Scores one posting now (`POST /postings/{id}/score`, synchronous: it answers once the judge
+ * has). Rejects with `ApiError`: 404 unknown posting; 409 with `error` `scoring in progress`,
+ * `excluded`, `held` or `unscreened`; 502 `scoring failed`; 500 or 0 (unreachable) otherwise. */
+export const postScore = (postingId: string) =>
+  api<ScoreAnswer>(`/postings/${encodeURIComponent(postingId)}/score`, { method: 'POST' })
 
 /** `GET /pool/passes/{id}`: progress of a scoring pass and the postings it asks about. */
 export type PassState = {

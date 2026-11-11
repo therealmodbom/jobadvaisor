@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, expect, test, vi } from 'vitest'
 import type { PostingPageData, RatingBody } from '@/api'
@@ -20,7 +20,7 @@ const page = (changes: Partial<PostingPageData> = {}): PostingPageData => ({
   posting,
   score: { score: 8, reasoning: 'Viel SQL, passt zu deinen Beispielen.', example_ids: ['ex1'], scored_at: '2026-10-13T08:00:00+00:00' },
   examples: [{ posting_id: 'ex1', title: 'Analyst Energie', company: 'Nordblatt' }],
-  reason_chips: POOL.reason_chips, ...changes,
+  reason_chips: POOL.reason_chips, screening: true, ...changes,
 })
 
 test('shows heading, text, original link, score with reasoning, examples, rating, status and no origin', async () => {
@@ -58,6 +58,80 @@ test('an unscored posting points to the pass', async () => {
   expect(await screen.findByText('Noch kein Score – starte in der Liste „Neue Anzeigen bewerten“.')).toBeVisible()
   expect(screen.queryByText('noch kein Score')).toBeNull()
   expect(screen.queryByText('Verglichen mit:')).toBeNull()
+})
+
+test('a rated posting without a score keeps the hint and offers the score button', async () => {
+  stubApi({ 'GET /postings/p1': { body: page({ row: row('p1', 'Data Analyst (m/w/d)', { state: 'unscored', score: null,
+    label: label('positive') }), score: null, examples: [] }) } })
+  render(<PostingPage postingId="p1" />)
+  expect(await screen.findByText('Noch kein Score – starte in der Liste „Neue Anzeigen bewerten“.')).toBeVisible()
+  expect(screen.getByRole('button', { name: 'Score berechnen' })).toBeEnabled()
+})
+
+test('a rated posting with an unreadable score keeps "Score unlesbar" beside the button', async () => {
+  stubApi({ 'GET /postings/b': { body: page({ row: row('b', 'X', { state: 'unscored', score: null, label: label('negative'),
+    score_problem: 'scores/b.json ist nicht lesbar' }), score: null, examples: [] }) } })
+  render(<PostingPage postingId="b" />)
+  expect(await screen.findByText(/Score unlesbar/)).toBeVisible()
+  expect(screen.getByRole('button', { name: 'Score berechnen' })).toBeEnabled()
+})
+
+/** The answer of a single score for `p1`: the page with the score `value`. */
+const scored = (value: number) => ({ ...page({ row: row('p1', 'Data Analyst (m/w/d)', { score: value }),
+  score: { score: value, reasoning: `Neu: ${value} von 10.`, example_ids: [], scored_at: '2026-11-11T08:00:00+00:00' },
+  examples: [] }), counter: POOL.counter, next_pass: POOL.next_pass })
+
+test('a re-score keeps the old score marked as recomputing, then shows the new one', async () => {
+  let answer: (value: unknown) => void = () => {}
+  const calls = stubApi({ 'GET /postings/p1': { body: page() },
+    'POST /postings/p1/score': () => new Promise<{ body: unknown }>((resolve) => { answer = (body) => resolve({ body }) }) as Promise<never> })
+  render(<PostingPage postingId="p1" />)
+  await userEvent.click(await screen.findByRole('button', { name: 'Neu berechnen' }))
+  const section = screen.getByRole('region', { name: 'Score' })
+  expect(within(section).getByRole('button', { name: 'Wird berechnet …' })).toBeVisible()
+  expect(within(section).getByText('8')).toBeVisible()
+  expect(within(section).getByText(/wird neu berechnet/)).toBeVisible()
+  expect(within(section).getByText('Viel SQL, passt zu deinen Beispielen.')).toBeVisible()
+  expect(section).toHaveAttribute('aria-busy', 'true')
+  answer(scored(9))
+  expect(await within(section).findByText('Neu: 9 von 10.')).toBeVisible()
+  expect(within(section).getByText('9')).toBeVisible()
+  expect(within(section).queryByText(/wird neu berechnet/)).toBeNull()
+  expect(within(section).queryByText('Verglichen mit:')).toBeNull()
+  expect(within(section).getByRole('button', { name: 'Neu berechnen' })).toBeEnabled()
+  expect(calls.filter((call) => call.method === 'POST').map((call) => call.path)).toEqual(['/postings/p1/score'])
+})
+
+test('a score on an unscored posting replaces the hint with score and reasoning', async () => {
+  stubApi({ 'GET /postings/p1': { body: page({ row: row('p1', 'Data Analyst (m/w/d)', { state: 'unscored', score: null }),
+    score: null, examples: [] }) }, 'POST /postings/p1/score': { body: scored(6) } })
+  render(<PostingPage postingId="p1" />)
+  await userEvent.click(await screen.findByRole('button', { name: 'Score berechnen' }))
+  expect(await screen.findByText('Neu: 6 von 10.')).toBeVisible()
+  expect(screen.queryByText(/starte in der Liste/)).toBeNull()
+})
+
+test('a failed score shows the error and keeps the old score', async () => {
+  stubApi({ 'GET /postings/p1': { body: page() },
+    'POST /postings/p1/score': { status: 502, body: { error: 'scoring failed', detail: 'ConnectionError: down' } } })
+  render(<PostingPage postingId="p1" />)
+  await userEvent.click(await screen.findByRole('button', { name: 'Neu berechnen' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('Der Score konnte nicht berechnet werden. Versuch es noch einmal.')
+  expect(screen.getByText('Viel SQL, passt zu deinen Beispielen.')).toBeVisible()
+  expect(screen.getByRole('button', { name: 'Erneut versuchen' })).toBeEnabled()
+})
+
+test('a held refusal on the click reloads the page and the button turns disabled with its reason', async () => {
+  let loads = 0
+  stubApi({ 'GET /postings/p1': () => ({ body: ++loads === 1 ? page({ row: row('p1', 'Data Analyst (m/w/d)', { state: 'unscored', score: null }), score: null, examples: [] })
+    : page({ row: row('p1', 'Data Analyst (m/w/d)', { state: 'held', score: null, categories: ['instructions_for_ai'] }), score: null, examples: [] }) }),
+  'POST /postings/p1/score': { status: 409, body: { error: 'held', detail: 'instructions_for_ai' } } })
+  render(<PostingPage postingId="p1" />)
+  await userEvent.click(await screen.findByRole('button', { name: 'Score berechnen' }))
+  const button = await screen.findByRole('button', { name: 'Score berechnen' })
+  await waitFor(() => expect(button).toBeDisabled())
+  expect(button).toHaveAccessibleDescription(/Der Inhaltsfilter hält diese Anzeige zurück/)
+  expect(screen.queryByRole('alert')).toBeNull()
 })
 
 test('held and excluded postings say why, an unreadable score says so', async () => {

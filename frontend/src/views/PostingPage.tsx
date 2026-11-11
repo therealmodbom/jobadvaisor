@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api, ApiError, type Posting, type PostingPageData, type Status } from '@/api'
-import { Badge, OriginalLink, PostingFields, ScoreText, StatusControl } from '@/components/posting'
+import { api, ApiError, type Posting, type PostingPageData, type ScoreAnswer, type Status } from '@/api'
+import { Badge, OriginalLink, PostingFields, ScoreButton, ScoreProblem, ScoreText, StatusControl } from '@/components/posting'
 import { Button } from '@/components/ui/button'
 import { ReasonsAndNote, VerdictButtons } from '@/components/rating'
 import { strayPaste, useRating } from '@/lib/rating'
+import { useScore } from '@/lib/score'
+import { cn } from '@/lib/utils'
 import { ErrorWithRetry, Loading } from '@/components/states'
 
 const BackLink = () => <a href="#/pool" className="self-start text-primary underline underline-offset-2">Zurück zur Liste</a>
@@ -40,6 +42,10 @@ function LoadedPage({ postingId }: { postingId: string }) {
     })
   }, [postingId])
   useEffect(load, [load])
+
+  /** A score from the button replaces the page's data (the counter and next-pass figures are the pool's). */
+  const score = useScore(({ row, posting, score, examples, reason_chips, screening }: ScoreAnswer) =>
+    setData({ row, posting, score, examples, reason_chips, screening }), load)
 
   const title = data?.posting.title
   useEffect(() => {
@@ -105,7 +111,8 @@ function LoadedPage({ postingId }: { postingId: string }) {
   }
   if (!data) return <Loading label="Anzeige wird geladen" />
 
-  const { row, posting, score, examples } = data
+  const { row, posting, examples } = data
+  const call = score.call(postingId)
   return (
     <div className="flex flex-col gap-5">
       <BackLink />
@@ -126,14 +133,23 @@ function LoadedPage({ postingId }: { postingId: string }) {
       </div>
       <OriginalLink url={posting.urls[0]} />
 
-      <section aria-labelledby="score-title" className="flex max-w-[80ch] flex-col gap-2 rounded-xl border bg-card p-5">
-        <h2 id="score-title" className="text-lg font-bold">Score</h2>
+      <section aria-labelledby="score-title" aria-busy={call.computing || undefined}
+               className="flex max-w-[80ch] flex-col gap-3 rounded-xl border bg-card p-5">
+        <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+          <h2 id="score-title" className="text-lg font-bold">Score</h2>
+          <ScoreButton row={row} screening={data.screening} call={call} onScore={() => void score.run(postingId)} />
+        </div>
+        <ScoreProblem call={call} />
         {row.state === 'unscored' && !row.score_problem
           ? <p>Noch kein Score – starte in der Liste „Neue Anzeigen bewerten“.</p>
-          : <p><ScoreText row={row} /></p>}
-        {row.state === 'scored' && score && (
+          : (
+            <p className={cn(call.computing && 'text-muted-foreground')}>
+              <ScoreText row={row} />{call.computing && row.state === 'scored' && ' · wird neu berechnet …'}
+            </p>
+          )}
+        {row.state === 'scored' && data.score && (
           <>
-            <p>{score.reasoning}</p>
+            <p className={cn(call.computing && 'text-muted-foreground')}>{data.score.reasoning}</p>
             {examples.length > 0 && (
               <div>
                 <p className="font-bold">Verglichen mit:</p>
