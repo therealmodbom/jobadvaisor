@@ -39,7 +39,10 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync --locked
-      - run: uv run playwright install --with-deps chromium
+      # The browser only: without --with-deps, since the runner image has Chromium's libraries and
+      # --with-deps made apt fetch nine font packages, which failed when the Ubuntu mirrors did not
+      # resolve (2026-11-11). A missing library fails the launch with its name.
+      - run: uv run playwright install chromium
       - run: uv run ruff check
       - run: uv run pytest
 
@@ -101,7 +104,7 @@ jobs:
         working-directory: frontend
       - run: uv sync --locked
         working-directory: backend
-      - run: uv run playwright install --with-deps chromium
+      - run: uv run playwright install chromium
         working-directory: backend
       - run: uv run pytest -m e2e
         working-directory: backend
@@ -136,7 +139,7 @@ jobs:
       - if: env.LLM_API_KEY != ''
         run: uv sync --locked
       - if: env.LLM_API_KEY != ''
-        run: uv run playwright install --with-deps chromium
+        run: uv run playwright install chromium
       - if: env.LLM_API_KEY != ''
         # --model/--base-url make the content guard row test the model the app runs (a regression
         # run); an empty GUARD_BASE_URL falls back to LLM_BASE_URL, as in the app
