@@ -73,10 +73,11 @@ def triage_copy(repository: DataRepository, split: TimeSplit, directory: Path) -
 def graph_variant(root: Path, guard: ContentGuard, index: LabelIndex, extractor: BaseChatModel,
                   judge: BaseChatModel, batch: list[str]) -> dict[str, dict]:
     """The triage graph's result for every posting of `batch`, as the run reports it
-    (`missing` for one the run left out), from one run over the copy at `root`."""
+    (`missing` for one the run left out), from one run over the copy at `root` that takes
+    exactly `batch` (a plain pass would score the labeled training postings too)."""
     state = start_run(build_graph(InMemorySaver()),
                       TriageContext(load(root), guard, index, extractor, judge), "eval",
-                      rescore_unrated=True)
+                      batch=batch)
     return {posting_id: state["results"].get(posting_id, {"status": "missing"})
             for posting_id in batch}
 

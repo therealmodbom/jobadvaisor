@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, expect, test, vi } from 'vitest'
-import type { PassState, RatingAnswer, RatingBody } from '@/api'
+import type { PassState, PoolRow, RatingAnswer, RatingBody } from '@/api'
 import { axe } from '@/test-axe'
 import { type Call, pending, stubApi } from '@/test-api'
 import { label, POOL, poolWith, ratingAnswer, row as makeRow } from '@/test-fixtures'
@@ -124,7 +124,7 @@ test('the pass button shows the count and is disabled with an explanation at 0',
   const { unmount } = render(<PoolView />)
   expect(await screen.findByRole('button', { name: 'Neue Anzeigen bewerten (12)' })).toBeEnabled()
   unmount()
-  stubApi({ 'GET /pool': { body: poolWith({ next_pass: { count: 0, rescore_unrated: false } }) } })
+  stubApi({ 'GET /pool': { body: poolWith({ next_pass: { count: 0, rescore: false } }) } })
   render(<PoolView />)
   const button = await screen.findByRole('button', { name: 'Neue Anzeigen bewerten (0)' })
   expect(button).toBeDisabled()
@@ -133,11 +133,11 @@ test('the pass button shows the count and is disabled with an explanation at 0',
 
 test('a rescore hint with nothing to score explains the disabled button', async () => {
   stubApi({ 'GET /pool': { body: poolWith({ counter: { ...POOL.counter, hint: 'rescore' },
-                                            next_pass: { count: 0, rescore_unrated: false } }) } })
+                                            next_pass: { count: 0, rescore: false } }) } })
   render(<PoolView />)
   const button = await screen.findByRole('button', { name: 'Neue Anzeigen bewerten (0)' })
   expect(button).toBeDisabled()
-  expect(button).toHaveAccessibleDescription(/Es gibt nichts zu bewerten: Die übrigen Anzeigen sind von dir bewertet, ausgeschlossen oder zurückgehalten\./)
+  expect(button).toHaveAccessibleDescription(/Es gibt nichts zu bewerten: Alle Anzeigen sind ausgeschlossen oder zurückgehalten\./)
 })
 
 test('a pass shows its progress, then reloads the pool when done', async () => {
@@ -147,7 +147,7 @@ test('a pass shows its progress, then reloads the pool when done', async () => {
   const calls = stubApi({
     'GET /pool': () => {
       reloads += 1
-      return { body: reloads === 1 ? POOL : poolWith({ next_pass: { count: 0, rescore_unrated: false } }) }
+      return { body: reloads === 1 ? POOL : poolWith({ next_pass: { count: 0, rescore: false } }) }
     },
     'POST /pool/passes': { status: 202, body: { pass_id: 'ps1' } },
     'GET /pool/passes/ps1': () => ({ body: pass(++polls === 1 ? { done: 4 } : { status: 'done', done: 12 }) }),
@@ -919,4 +919,132 @@ test('the settings form follows the stored settings after a reload', async () =>
   await userEvent.click(screen.getByRole('button', { name: 'Speichern' }))
   await vi.waitFor(() => expect(screen.getByLabelText('Korrekturen bis zum Hinweis')).toHaveValue(7))
   expect(screen.getByLabelText('Anteil bis zum Hinweis (in %)')).toHaveValue(50)
+})
+
+/** The answer of `POST /postings/{id}/score` for `base`: the posting page, of which the pool reads
+ * the row, counter, next-pass figures and `screening`. The row carries no `exploration` mark
+ * (`posting_page` has none). */
+const scoreAnswer = (base: PoolRow, changes: Partial<PoolRow> = {}, rest: object = {}) => ({
+  row: { ...base, exploration: false, ...changes }, posting: {}, score: null, examples: [], reason_chips: [],
+  screening: true, counter: POOL.counter, next_pass: POOL.next_pass, ...rest })
+
+const NEW = 'Neue Stelle (m/w/d)'
+const baseRow = (id: string) => POOL.rows.find((entry) => entry.posting_id === id)!
+
+test('every row has a score button: "Score berechnen" without a score, "Neu berechnen" with one', async () => {
+  stubApi({ 'GET /pool': { body: POOL } })
+  render(<PoolView />)
+  await titles()
+  expect(row(NEW).getByRole('button', { name: 'Score berechnen' })).toBeEnabled()
+  expect(row('Data Analyst (m/w/d)').getByRole('button', { name: 'Neu berechnen' })).toBeEnabled()
+  expect(row('Buchhalter (m/w/d)').getByRole('button', { name: 'Score berechnen' })).toBeEnabled()
+})
+
+test('a row score updates the row, the counter and the pass button count', async () => {
+  const quiet = poolWith({ next_pass: { count: 0, rescore: false } })
+  const calls = stubApi({ 'GET /pool': { body: quiet }, 'POST /postings/n1/score': { body: scoreAnswer(
+    baseRow('n1'), { state: 'scored', score: 9 }, { counter: { ...POOL.counter, corrections: 4 },
+      next_pass: { count: 8, rescore: true } }) } })
+  render(<PoolView />)
+  await titles()
+  expect(await screen.findByRole('button', { name: 'Neue Anzeigen bewerten (0)' })).toBeDisabled()
+  await userEvent.click(row(NEW).getByRole('button', { name: 'Score berechnen' }))
+  expect(await row(NEW).findByText('9')).toBeVisible()
+  expect(row(NEW).getByRole('button', { name: 'Neu berechnen' })).toBeEnabled()
+  expect(screen.getByText(/Korrekturen seit der letzten Bewertung/)).toHaveTextContent('Korrekturen seit der letzten Bewertung der Anzeigen: 4')
+  expect(screen.getByRole('button', { name: 'Neue Anzeigen bewerten (8)' })).toBeEnabled()
+  expect(calls.filter((call) => call.method === 'POST').map((call) => call.path)).toEqual(['/postings/n1/score'])
+})
+
+test('a row that was a "Stichprobe" keeps its mark after its score', async () => {
+  stubApi({ 'GET /pool': { body: POOL }, 'POST /postings/p3/score': { body: scoreAnswer(baseRow('p3'), { score: 5 }) } })
+  render(<PoolView />)
+  await titles()
+  await userEvent.click(row('Datenjournalist (m/w/d)').getByRole('button', { name: 'Neu berechnen' }))
+  expect(await row('Datenjournalist (m/w/d)').findByText('5')).toBeVisible()
+  expect(row('Datenjournalist (m/w/d)').getByText('Stichprobe')).toBeVisible()
+})
+
+test('a row computes with its own busy button while the others stay usable', async () => {
+  stubApi({ 'GET /pool': { body: POOL }, 'POST /postings/n1/score': pending })
+  render(<PoolView />)
+  await titles()
+  await userEvent.click(row(NEW).getByRole('button', { name: 'Score berechnen' }))
+  expect(await row(NEW).findByRole('button', { name: 'Wird berechnet …' })).toHaveAttribute('aria-disabled', 'true')
+  expect(row('Data Analyst (m/w/d)').getByRole('button', { name: 'Neu berechnen' })).toBeEnabled()
+})
+
+test('a 409 "scoring in progress" shows its message on the row only and a retry', async () => {
+  stubApi({ 'GET /pool': { body: POOL }, 'POST /postings/n1/score': { status: 409, body: { error: 'scoring in progress', detail: 'ps1' } } })
+  render(<PoolView />)
+  await titles()
+  await userEvent.click(row(NEW).getByRole('button', { name: 'Score berechnen' }))
+  expect(await row(NEW).findByRole('alert')).toHaveTextContent('Es läuft gerade schon ein Scoring. Versuch es gleich noch einmal.')
+  expect(row(NEW).getByRole('button', { name: 'Erneut versuchen' })).toBeEnabled()
+  expect(row('Data Analyst (m/w/d)').queryByRole('alert')).toBeNull()
+})
+
+test('a "scoring in progress" message on a row goes when the pass ends, a failed one on another row stays', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  let polls = 0
+  stubApi({ 'GET /pool': { body: POOL }, 'POST /pool/passes': { status: 202, body: { pass_id: 'ps1' } },
+    'GET /pool/passes/ps1': () => ({ body: pass(++polls === 1 ? { done: 4 } : { status: 'done', done: 12 }) }),
+    'POST /postings/n1/score': { status: 409, body: { error: 'scoring in progress', detail: 'ps1' } },
+    'POST /postings/broken/score': { status: 502, body: { error: 'scoring failed', detail: 'x' } } })
+  render(<PoolView />)
+  const start = await screen.findByRole('button', { name: 'Neue Anzeigen bewerten (12)' })
+  await act(async () => start.click())
+  await act(async () => row(NEW).getByRole('button', { name: 'Score berechnen' }).click())
+  await act(async () => row('Buchhalter (m/w/d)').getByRole('button', { name: 'Score berechnen' }).click())
+  expect(await row(NEW).findByRole('alert')).toBeVisible()
+  expect(await row('Buchhalter (m/w/d)').findByRole('alert')).toBeVisible()
+  await tick()
+  await tick()
+  await vi.waitFor(() => expect(row(NEW).queryByRole('alert')).toBeNull())
+  expect(row(NEW).getByRole('button', { name: 'Score berechnen' })).toBeEnabled()
+  expect(row('Buchhalter (m/w/d)').getByRole('alert')).toHaveTextContent('Der Score konnte nicht berechnet werden.')
+})
+
+test('excluded, held and unscreened-without-screening rows show the button disabled with the reason', async () => {
+  const unchecked = makeRow('u1', 'Ungeprüft (m/w/d)', { state: 'unscored', score: null, unscreened: true })
+  stubApi({ 'GET /pool': { body: poolWith({ rows: [...POOL.rows, unchecked], screening: false }) } })
+  render(<PoolView />)
+  await titles()
+  for (const [title, reason] of [
+    ['Vertrieb Innendienst (m/w/d)', /Eine Ausschlussregel greift: keine-vertriebsjobs/],
+    ['Analyst (m/w/d)', /Der Inhaltsfilter hält diese Anzeige zurück \(Verdacht: Anweisungen an eine KI\)/],
+    ['Ungeprüft (m/w/d)', /kein Filter eingerichtet/],
+  ] as const) {
+    const scope = row(title)
+    expect(scope.getByRole('button', { name: 'Score berechnen' })).toBeDisabled()
+    expect(scope.getByRole('button', { name: 'Score berechnen' })).toHaveAccessibleDescription(reason)
+    expect(scope.getByRole('button', { name: 'Warum nicht verfügbar?' })).toHaveAccessibleDescription(reason)
+  }
+})
+
+test('an unscreened row is scored when a classifier is configured', async () => {
+  const unchecked = makeRow('u1', 'Ungeprüft (m/w/d)', { state: 'unscored', score: null, unscreened: true })
+  stubApi({ 'GET /pool': { body: poolWith({ rows: [...POOL.rows, unchecked], screening: true }) } })
+  render(<PoolView />)
+  await titles()
+  expect(row('Ungeprüft (m/w/d)').getByRole('button', { name: 'Score berechnen' })).toBeEnabled()
+})
+
+test('a held refusal on the click reloads the pool and the row turns disabled', async () => {
+  let loads = 0
+  stubApi({ 'GET /pool': () => ({ body: ++loads === 1 ? POOL : poolWith({ rows: POOL.rows.map((entry) =>
+    entry.posting_id === 'n1' ? { ...entry, state: 'held', categories: ['instructions_for_ai'] } : entry) }) }),
+  'POST /postings/n1/score': { status: 409, body: { error: 'held', detail: 'instructions_for_ai' } } })
+  render(<PoolView />)
+  await titles()
+  await userEvent.click(row(NEW).getByRole('button', { name: 'Score berechnen' }))
+  await vi.waitFor(() => expect(row(NEW).getByRole('button', { name: 'Score berechnen' })).toBeDisabled())
+  expect(row(NEW).queryByRole('alert')).toBeNull()
+})
+
+test('the pool with score buttons has no accessibility violations', async () => {
+  stubApi({ 'GET /pool': { body: POOL } })
+  const { container } = render(<PoolView />)
+  await titles()
+  expect(await axe(container)).toHaveNoViolations()
 })

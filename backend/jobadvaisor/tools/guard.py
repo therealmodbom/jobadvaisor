@@ -38,11 +38,17 @@ class ContentGuard:
         if posting.guard is None:
             if self.classifier is None:
                 return None
-            guard = self.screen(screened_text(posting))
-            posting = write_guard(repository.root, posting_id, guard)
-            repository.postings[posting_id] = posting
+            posting = self.store(repository, posting_id, self.screen(screened_text(posting)))
         guard = posting.guard
         return None if guard.flagged and guard.released_at is None else posting
+
+    @staticmethod
+    def store(repository: DataRepository, posting_id: str, guard: Guard) -> Posting:
+        """Write `guard` to the data repository and to `repository`; returns the updated
+        posting. A storage error propagates: unlike `screen`, it is no classifier failure."""
+        posting = write_guard(repository.root, posting_id, guard)
+        repository.postings[posting_id] = posting
+        return posting
 
 
 def content_guard(settings: Settings) -> ContentGuard:

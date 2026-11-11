@@ -1,6 +1,7 @@
 """The pass lifecycle the API drives (`design.md` → A pass is the triage graph without its
 rating pause): passes compute in a background thread, one at a time; a pass paused over
-unscreened postings does not block a new one."""
+unscreened postings does not block a new one. A single score (`Runs.score`) runs in the
+caller's thread but takes the same one slot."""
 
 import threading
 import uuid
@@ -10,7 +11,8 @@ from concurrent.futures import ThreadPoolExecutor
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 
-from jobadvaisor.triage.graph import TriageContext, run_config, start_run
+from jobadvaisor.data.models import Score
+from jobadvaisor.triage.graph import TriageContext, run_config, score_one, start_run
 
 
 class RunBusyError(Exception):
@@ -36,12 +38,12 @@ class Runs:
         self._computing: set[str] = set()
         self._errors: dict[str, str] = {}
 
-    def start(self, rescore_unrated: bool = False) -> str:
-        """Start a pass in the background and return its ID at once; `rescore_unrated` as in
-        `start_run`. Raises `RunBusyError` while another pass computes."""
+    def start(self, rescore: bool = False) -> str:
+        """Start a pass in the background and return its ID at once; `rescore` as in
+        `start_run`. Raises `RunBusyError` while another pass or a single score computes."""
         run_id = uuid.uuid4().hex
         self._compute(run_id, lambda: start_run(self._graph, self._context(), run_id,
-                                                rescore_unrated))
+                                                rescore))
         return run_id
 
     def read(self, run_id: str) -> dict | None:
@@ -74,11 +76,31 @@ class Runs:
         self._compute(run_id, lambda: self._graph.invoke(
             Command(resume=proceed), run_config(run_id), context=self._context()))
 
-    def _compute(self, run_id: str, step: Callable[[], object]) -> None:
+    def score(self, posting_id: str) -> Score:
+        """Score one posting now, in the caller's thread, and return the stored score
+        (`triage.graph.score_one`). It holds the same slot as a pass: raises `RunBusyError`
+        while a pass or another single score computes, and frees the slot on every outcome;
+        `ScoreRefused`, `KeyError`, `ScoringFailed` and storage errors reach the caller
+        unchanged."""
+        run_id = f"score:{posting_id}"
+        self._claim(run_id)
+        try:
+            return score_one(self._context(), posting_id)
+        finally:
+            self._release(run_id)
+
+    def _claim(self, run_id: str) -> None:
         with self._lock:
             if self._computing:
                 raise RunBusyError(next(iter(self._computing)))
             self._computing.add(run_id)
+
+    def _release(self, run_id: str) -> None:
+        with self._lock:
+            self._computing.discard(run_id)
+
+    def _compute(self, run_id: str, step: Callable[[], object]) -> None:
+        self._claim(run_id)
         self._errors.pop(run_id, None)
         self._executor.submit(self._run, run_id, step)
 
@@ -88,8 +110,7 @@ class Runs:
         except Exception as error:  # reported through read(), the thread must not die silently
             self._errors[run_id] = f"{type(error).__name__}: {error}"
         finally:
-            with self._lock:
-                self._computing.discard(run_id)
+            self._release(run_id)
 
     def _require(self, run_id: str, *allowed: str) -> str:
         run = self.read(run_id)

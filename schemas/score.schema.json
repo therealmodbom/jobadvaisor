@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
-  "description": "`scores/<id>.json`: the stored fit score of `postings/<id>.json`. `score` is 0-10,\n`example_ids` the rated postings the judge was shown, `scored_at` when the pass wrote it.",
+  "description": "`scores/<id>.json`: the stored fit score of `postings/<id>.json`. `score` is 0-10,\n`example_ids` the rated postings the judge was shown, `scored_at` when a pass or a single\nscore wrote it.",
   "properties": {
     "schema_version": {
       "const": "1",

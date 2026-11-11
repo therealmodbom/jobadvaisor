@@ -26,6 +26,12 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+test('the link source is named for one or several links', () => {
+  stubApi(HOSTS)
+  render(<IntakeView />)
+  expect(screen.getByRole('button', { name: 'Link(s)' })).toHaveAttribute('aria-pressed', 'true')
+})
+
 test('a running intake shows progress and takes no second submission', async () => {
   const calls = stubApi({ ...HOSTS, 'POST /postings': pending })
   render(<IntakeView />)

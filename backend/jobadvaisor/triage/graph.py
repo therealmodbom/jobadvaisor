@@ -7,7 +7,6 @@ models, the data repository, the content guard and the index are the runtime con
 the caller for every invocation and never checkpointed.
 """
 
-import json
 import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -28,11 +27,12 @@ from jobadvaisor.data.loader import load as load_repository
 from jobadvaisor.data.models import PoolPass, Score
 from jobadvaisor.data.writer import append_pass, read_pool, read_scores, write_score
 from jobadvaisor.index import LabelIndex, state_path
-from jobadvaisor.pool import counter, pass_batch
+from jobadvaisor.pool import _blocked, counter, pass_batch
 from jobadvaisor.settings import Settings
 from jobadvaisor.tools.exclusions import check_exclusions
 from jobadvaisor.tools.extraction import extract_features, feature_set
-from jobadvaisor.tools.guard import ContentGuard
+from jobadvaisor.tools.guard import ContentGuard, screened_text
+from jobadvaisor.tools.scoring import Score as Judgement
 from jobadvaisor.tools.scoring import score_posting
 from jobadvaisor.tools.similar import find_similar_labeled
 
@@ -40,17 +40,16 @@ from jobadvaisor.tools.similar import find_similar_labeled
 class TriageState(TypedDict, total=False):
     """A pass's checkpointed state.
 
-    Input: `rescore_unrated` (see `load`) and `started_at`, the pass's start as an ISO string
+    Input: `rescore` (see `load`) and `started_at`, the pass's start as an ISO string
     (UTC), set by `start_run`. `results` maps every posting of the batch to its
     outcome: `{"status": "excluded", "rules": [...]}`,
     `{"status": "excluded", "reason": "content guard", "categories": [...]}`,
     `{"status": "unscreened"}` while the user is asked, `{"status": "scored", "features",
-    "score", "reasoning", "example_ids"}`, `{"status": "rated"}` (rated during the pass, score
-    not stored) or `{"status": "failed", "error"}`. `unscreened`
+    "score", "reasoning", "example_ids"}` or `{"status": "failed", "error"}`. `unscreened`
     lists the postings the user is asked about; `aborted` is true when the user aborted.
     """
 
-    rescore_unrated: bool
+    rescore: bool
     started_at: str
     batch: list[str]
     results: dict[str, dict]
@@ -104,21 +103,78 @@ def build_graph(saver: BaseCheckpointSaver) -> CompiledStateGraph:
 
 
 def start_run(graph: CompiledStateGraph, context: TriageContext, run_id: str,
-              rescore_unrated: bool = False) -> dict:
-    """Run a new pass until it pauses or ends and return its state. `rescore_unrated` makes
-    `load` take scored unlabeled postings too; the caller sets it (when corrections were
-    counted since the last pass). The pass's `started_at` is set here, to now."""
-    return graph.invoke({"rescore_unrated": rescore_unrated,
-                         "started_at": datetime.now(UTC).isoformat()},
-                        run_config(run_id), context=context)
+              rescore: bool = False, batch: list[str] | None = None) -> dict:
+    """Run a new pass until it pauses or ends and return its state. `rescore` makes `load`
+    take every posting, scored and rated ones included; the caller sets it (when corrections
+    were counted since the last pass). `batch`, when given, is the exact list of posting IDs
+    to take instead (the eval's held-out postings). The pass's `started_at` is set here."""
+    state: TriageState = {"rescore": rescore, "started_at": datetime.now(UTC).isoformat()}
+    if batch is not None:
+        state["batch"] = batch
+    return graph.invoke(state, run_config(run_id), context=context)
+
+
+class ScoreRefused(Exception):
+    """`score_one` refused a posting no pass would score. `reason` is `held` (flagged by the
+    content guard, not released), `excluded` (an exclusion rule matches) or `unscreened` (no
+    guard result and no classifier to make one); `detail` the categories or rule IDs, empty
+    for `unscreened`."""
+
+    def __init__(self, reason: str, detail: list[str]):
+        self.reason, self.detail = reason, detail
+        super().__init__(reason)
+
+
+class ScoringFailed(Exception):
+    """A model or service `score_one` called failed: the judge, the label index or the
+    content-guard classifier. The message names the cause's type and text, `__cause__` is
+    the original error. Trying again may help; a failure to store the guard result or the
+    score is not this."""
+
+
+def score_one(context: TriageContext, posting_id: str) -> Score:
+    """Score one posting now and store `scores/<id>.json`, replacing an earlier score; returns
+    the stored `Score`. For any posting, rated or not, that a pass would let through: held and
+    excluded postings (held first, as in the pool) and unscreened ones without a classifier
+    raise `ScoreRefused`; an unchecked posting is checked now when a classifier is configured.
+    No extraction, and nothing is appended to `pool.json`. No locking: the caller keeps it off
+    a running pass (`Runs.score`). Raises `KeyError` for an unknown posting, `ScoringFailed`
+    when the classifier, the index or the judge fails; an error storing the guard result or
+    the score propagates unchanged."""
+    repository = context.repository
+    posting = repository.postings[posting_id]
+    if blocked := _blocked(repository, posting):
+        raise ScoreRefused(*blocked)
+    if posting.guard is None and context.guard.classifier is not None:
+        try:
+            guard = context.guard.screen(screened_text(posting))
+        except Exception as error:  # the classifier is an outside service
+            raise ScoringFailed(f"{type(error).__name__}: {error}") from error
+        context.guard.store(repository, posting_id, guard)  # a storage error is no retry case
+    if ruling := _guard_ruling(context, posting_id):
+        if ruling["status"] == "unscreened":
+            raise ScoreRefused("unscreened", [])
+        raise ScoreRefused("held", ruling["categories"])
+    try:
+        context.index.sync(repository)
+        judged = _judge(context, posting_id)
+    except Exception as error:  # the embedder and the judge are outside services
+        raise ScoringFailed(f"{type(error).__name__}: {error}") from error
+    stored = Score(schema_version="1", score=judged.score, reasoning=judged.reasoning,
+                   example_ids=judged.example_ids, scored_at=datetime.now(UTC))
+    write_score(repository.root, posting_id, stored)
+    return stored
 
 
 def load(state: TriageState, runtime: Runtime[TriageContext]) -> dict:
-    """The batch, in posting-ID order: `pool.pass_batch` (the same function the pool preview
-    uses). Rated postings are never rescored; an unreadable score file counts as unscored."""
+    """The batch, in posting-ID order: the caller's explicit `batch`, else `pool.pass_batch`
+    (the same function the pool preview uses): every posting without a score, rated or not, or
+    every posting when rescoring. An unreadable score file counts as unscored."""
+    if "batch" in state:
+        return {"batch": sorted(state["batch"])}
     repository = runtime.context.repository
     scores, _ = read_scores(repository.root)
-    return {"batch": pass_batch(repository, scores, state.get("rescore_unrated", False))}
+    return {"batch": pass_batch(repository, scores, state.get("rescore", False))}
 
 
 def exclude(state: TriageState, runtime: Runtime[TriageContext]) -> dict:
@@ -177,16 +233,11 @@ def score(state: TriageState, runtime: Runtime[TriageContext]) -> dict:
     """Score every extracted posting with its most similar labeled postings as examples,
     after syncing the index with the repository's labels."""
     context = runtime.context
-    repository = context.repository
-    context.index.sync(repository)
+    context.index.sync(context.repository)
     results = dict(state["results"])
     for posting_id in _with_status(results, "extracted"):
-        posting = repository.postings[posting_id]
         try:
-            examples = find_similar_labeled(context.guard, context.index, repository, posting,
-                                            posting_id=posting_id)
-            scored = score_posting(posting, repository.profile, repository.policy_pack,
-                                   examples, context.judge)
+            scored = _judge(context, posting_id)
         except Exception as error:  # one bad answer must not end the run
             results[posting_id] = {"status": "failed", "error": str(error)}
         else:
@@ -198,47 +249,41 @@ def score(state: TriageState, runtime: Runtime[TriageContext]) -> dict:
 
 
 def store_scores(state: TriageState, runtime: Runtime[TriageContext]) -> dict:
-    """Write `scores/<id>.json` for every scored posting (replacing an earlier score), then
-    append this pass to `pool.json` when it scored anything. The scores are written first so a
-    broken file found afterwards cannot discard paid work. The pass's quality measure is the
-    correction counter against the pool before this pass; it only counts rated postings, which
-    a pass never rescores, so the new scores do not change it. A posting rated (label with
-    verdict) on disk by now keeps its old score, is not counted and gets result
-    `{"status": "rated"}`. Score times and `finished_at` are one instant."""
+    """Write `scores/<id>.json` for every scored posting, rated or not (replacing an earlier
+    score), then append this pass to `pool.json` when it scored anything. The scores are written
+    first so a broken file found afterwards cannot discard paid work. The pass's quality
+    measure is the correction counter against the pool and the scores from before this pass,
+    read before writing, since the pass may have rescored rated postings. Score times and
+    `finished_at` are one instant."""
     root = runtime.context.repository.root
     now = datetime.now(UTC)
-    results = dict(state["results"])
-    scored = []
-    for posting_id in _with_status(results, "scored"):
-        if _has_verdict(root / "labels" / f"{posting_id}.json"):
-            results[posting_id] = {"status": "rated"}
-        else:
-            scored.append(posting_id)
+    scored = _with_status(state["results"], "scored")
     if not scored:
-        return {"results": results}
+        return {}
+    before, _ = read_scores(root)
     for posting_id in scored:
         result = state["results"][posting_id]
         write_score(root, posting_id, Score(schema_version="1", score=result["score"],
                                             reasoning=result["reasoning"],
                                             example_ids=result["example_ids"], scored_at=now))
-    scores, _ = read_scores(root)
-    measured = counter(load_repository(root), scores, read_pool(root))
+    measured = counter(load_repository(root), before, read_pool(root))
     started = datetime.fromisoformat(state.get("started_at", now.isoformat()))
     append_pass(root, PoolPass(started_at=started, finished_at=now, scored=len(scored),
                                corrections=measured["corrections"], rated=measured["rated"],
                                rate=measured["rate"]))
-    return {"results": results}
+    return {}
 
 
-def _has_verdict(path: Path) -> bool:
-    """Whether the label file at `path` exists and carries a verdict (null verdict = no rating).
-    An unreadable file counts as rated: better to skip a score than to overwrite on a guess."""
-    if not path.exists():
-        return False
-    try:
-        return json.loads(path.read_text()).get("verdict") is not None
-    except (OSError, ValueError, AttributeError):
-        return True
+def _judge(context: TriageContext, posting_id: str) -> Judgement:
+    """The judge's verdict on one posting, shown its most similar labeled postings (never the
+    posting itself). The index must be synced already. Raises what the example search or the
+    judge raises."""
+    repository = context.repository
+    posting = repository.postings[posting_id]
+    examples = find_similar_labeled(context.guard, context.index, repository, posting,
+                                    posting_id=posting_id)
+    return score_posting(posting, repository.profile, repository.policy_pack, examples,
+                         context.judge)
 
 
 def _guard_ruling(context: TriageContext, posting_id: str) -> dict | None:

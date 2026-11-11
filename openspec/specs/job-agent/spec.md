@@ -27,7 +27,7 @@ The agent SHALL find stored postings similar to one the user names.
 - **THEN** the answer lists stored postings ranked by similarity to it
 
 ### Requirement: Rescoring on request
-The agent SHALL rescore a posting or a set of postings on request, using the labels stored at that moment, and SHALL report how the scores changed. The stored score of the pool changes only through a pass the user starts.
+The agent SHALL rescore a posting or a set of postings on request, using the labels stored at that moment, and SHALL report how the scores changed. The stored score of the pool changes only through a pass or a single score the user starts.
 
 #### Scenario: Rescore after feedback
 - **WHEN** the user asks to rescore some postings after rating new ones
@@ -35,7 +35,7 @@ The agent SHALL rescore a posting or a set of postings on request, using the lab
 
 #### Scenario: Pool unchanged
 - **WHEN** the agent rescored postings on request
-- **THEN** the stored scores of the pool stay as the last pass left them
+- **THEN** the stored scores of the pool stay as the last pass or single score left them
 
 ### Requirement: No silent data changes
 The agent SHALL NOT create, change or delete labels, policy rules, profile data or application statuses on its own. Changes to user data happen only through the rating flow and the pool.

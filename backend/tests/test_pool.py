@@ -70,6 +70,13 @@ def test_rank_groups_in_order_and_ties_by_newest():
     assert by_id["unrated-high"] | {"exploration": False} == by_id["unrated-high"]
 
 
+def test_a_row_is_unscreened_when_the_posting_has_no_guard_result():
+    checked = Guard(flagged=False, checked_by="t", checked_at=T0)
+    rows = rank(repo({"bare": posting(), "checked": posting(guard=checked)}), {}, {})
+    assert {row["posting_id"]: row["unscreened"] for row in rows} == {"bare": True,
+                                                                      "checked": False}
+
+
 def test_rank_positive_group_by_score_then_rated_at():
     postings = {"a": posting(), "b": posting(), "c": posting(), "d": posting()}
     scores = {"a": score(3), "b": score(8), "c": score(3)}
@@ -111,6 +118,14 @@ def test_best_open_leaves_a_weak_negative_out_and_keeps_every_positive_level():
 def test_a_weak_negative_on_a_high_score_counts_as_one_correction():
     repository = repo({"p": posting()}, {"p": label("negative", strength="weak")})
     assert counter(repository, {"p": score(8)}, _pool())["corrections"] == 1
+
+
+def test_a_re_score_that_agrees_with_the_rating_takes_the_correction_back():
+    """The counter measures the rating against the latest score, so a later score replaces the
+    earlier one's verdict: a correction at 8 is none at 2 (`design.md`, Counter)."""
+    repository = repo({"p": posting()}, {"p": label("negative")})
+    assert counter(repository, {"p": score(8)}, _pool())["corrections"] == 1
+    assert counter(repository, {"p": score(2)}, _pool())["corrections"] == 0
 
 
 def test_rank_filters_by_status():
@@ -219,12 +234,19 @@ def test_exploration_with_one_below_marks_one_and_none_below_marks_none():
     assert not any(row["exploration"] for row in rank(repository, scores, {}))
 
 
-def test_pass_batch_skips_rated_and_scored_unless_rescoring():
-    repository = repo({"rated": posting(), "scored": posting(), "bad": posting(), "new": posting()},
+def test_pass_batch_takes_unscored_postings_rated_or_not():
+    repository = repo({"rated": posting(), "rated_new": posting(), "scored": posting(),
+                       "new": posting()},
+                      {"rated": label(), "rated_new": label()})
+    scores = {"scored": score(5), "rated": score(5)}
+    assert pass_batch(repository, scores, False) == ["new", "rated_new"]
+
+
+def test_pass_batch_takes_every_posting_when_rescoring():
+    repository = repo({"rated": posting(), "scored": posting(), "new": posting()},
                       {"rated": label()})
     scores = {"scored": score(5), "rated": score(5)}
-    assert pass_batch(repository, scores, False) == ["bad", "new"]
-    assert pass_batch(repository, scores, True) == ["bad", "new", "scored"]
+    assert pass_batch(repository, scores, True) == ["new", "rated", "scored"]
 
 
 def test_exploration_runs_over_open_rows_only():
@@ -242,8 +264,8 @@ def test_exploration_runs_over_open_rows_only():
 
 
 def test_pass_batch_takes_postings_with_a_null_verdict_label():
-    repository = repo({"imported": posting(), "rated": posting()},
-                      {"imported": label(None, kind="imported_not_preference"), "rated": label()})
+    repository = repo({"imported": posting()},
+                      {"imported": label(None, kind="imported_not_preference")})
     assert pass_batch(repository, {}, False) == ["imported"]
 
 
@@ -259,10 +281,12 @@ def test_corrupt_score_file_counts_as_unscored(tmp_path):
 def test_next_pass_excludes_excluded_and_held_and_follows_corrections():
     held = Guard(flagged=True, checked_by="t", checked_at=T0)
     repository = repo({"ok": posting(), "excl": posting("Sales"), "held": posting(guard=held)})
-    assert next_pass(repository, {}, _pool()) == {"count": 1, "rescore_unrated": False}
+    assert next_pass(repository, {}, _pool()) == {"count": 1, "rescore": False}
     repository, scores = _rated(2, 1)
     repository.postings["ok"] = posting()
-    assert next_pass(repository, scores, _pool()) == {"count": 1, "rescore_unrated": True}
+    repository.postings["excl"] = posting("Sales")
+    repository.postings["held"] = posting(guard=held)  # rescoring leaves it out too
+    assert next_pass(repository, scores, _pool()) == {"count": 3, "rescore": True}
 
 
 def test_read_scores_round_trip(tmp_path):

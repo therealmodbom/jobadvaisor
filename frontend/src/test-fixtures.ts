@@ -3,7 +3,7 @@ import type { Counter, Pool, PoolRow, RatingBody, Strength } from '@/api'
 /** A pool row: an open, scored posting unless `extra` says otherwise. */
 export const row = (posting_id: string, title: string, extra: Partial<PoolRow> = {}): PoolRow => ({
   posting_id, title, company: 'Grünwerk Solar', location_raw: 'Kiel', added_at: '2026-10-10T07:12:00+00:00',
-  state: 'scored', rules: [], categories: [], score: 6, score_problem: null, label: null, status: 'open',
+  state: 'scored', unscreened: false, rules: [], categories: [], score: 6, score_problem: null, label: null, status: 'open',
   origin: null, exploration: false, ...extra,
 })
 
@@ -31,9 +31,10 @@ export const POOL: Pool = {
   ],
   counter: { corrections: 3, rated: 12, rate: 0.25, hint: 'fits', since: '2026-10-14T19:00:00+00:00' },
   settings: { correction_threshold: 10, correction_rate: 0.3 },
-  next_pass: { count: 12, rescore_unrated: false },
+  next_pass: { count: 12, rescore: false },
   reason_chips: [{ id: 'great-stack', label: 'great stack', polarity: 'positive' },
                  { id: 'too-junior', label: 'too junior', polarity: 'negative' }],
+  screening: true,
 }
 
 /** What `PUT /postings/{id}/rating` answers for a body, the way the server resolves it: the given

@@ -81,6 +81,15 @@ def test_report_shows_precision_cost_and_variance_for_both_variants(tmp_path):
         assert "cost_per_posting_usd" in variant and variant["errors"] == []
 
 
+def test_graph_variant_scores_only_the_held_out_postings(tmp_path):
+    root = graph_vs_agent.triage_copy(DEMO, SPLIT, tmp_path / "copy")
+    judge = judge_knowing_verdicts()
+    embedding = DeterministicFakeEmbedding(size=16)
+    graph_vs_agent.graph_variant(root, GUARD, LabelIndex(tmp_path / "chroma", embedding, "fake"),
+                                 ScriptedModel(unknown_features), judge, SPLIT.held_out)
+    assert len(judge.calls) == len(SPLIT.held_out)
+
+
 def test_agent_variant_ranks_excluded_and_missing_postings_last(tmp_path):
     [first, second, *rest] = SPLIT.held_out
     model = ToolScriptModel(plan=[("TriageReport", {"postings": [

@@ -1,9 +1,10 @@
 import { useId, useState, type FormEvent, type ReactNode } from 'react'
-import { Check, ExternalLink } from 'lucide-react'
+import { Check, ExternalLink, Info, LoaderCircle } from 'lucide-react'
 import { api, type PoolRow, type Posting, type ReasonChip, type Status } from '@/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { categoryNames, STATUSES } from '@/lib/german'
+import type { ScoreCall } from '@/lib/score'
 import { cn } from '@/lib/utils'
 
 /** A link to the original posting, for http(s) URLs only; `label` is its text (default
@@ -139,6 +140,87 @@ export function ScoreText({ row }: { row: PoolRow }) {
   if (row.score_problem) return <>Score unlesbar<span className="sr-only">: {row.score_problem}</span></>
   if (row.state === 'unscored' || row.score === null) return <>noch kein Score</>
   return <><span className="text-2xl font-bold tabular-nums">{row.score}</span>/10</>
+}
+
+/** Why a posting cannot be scored now, as the info text, or null when it can. A posting both held
+ * and excluded shows the content guard (the pool's order). `screening` is whether a classifier is
+ * configured: without one, a posting the guard never checked cannot be scored. */
+function blockedReason(row: PoolRow, screening: boolean): string | null {
+  if (row.state === 'held') {
+    const names = categoryNames(row.categories)
+    return `Der Inhaltsfilter hält diese Anzeige zurück${names ? ` (Verdacht: ${names})` : ''}. Erst nach einer Freigabe kann sie einen Score bekommen.`
+  }
+  if (row.state === 'excluded') {
+    return `Eine Ausschlussregel greift: ${row.rules.join(', ')}. Ausgeschlossene Anzeigen bekommen keinen Score.`
+  }
+  if (row.unscreened && !screening) {
+    return 'Der Inhaltsfilter hat diese Anzeige nie geprüft, und es ist kein Filter eingerichtet. Ohne Prüfung bekommt sie keinen Score.'
+  }
+  return null
+}
+
+/** The button that scores one posting now: "Score berechnen" (or "Neu berechnen" with a score),
+ * "Wird berechnet …" while `call` computes (aria-disabled, so keyboard focus stays) and "Erneut
+ * versuchen" after a problem worth a retry (`busy`, `failed`; a `broken` store keeps the normal
+ * label). `onScore` sends the click. A posting that cannot be scored
+ * (`blockedReason`) gets a disabled button and a visible, focusable info icon beside it that shows
+ * the reason on hover and on focus, and gives it to screen readers. Pair it with `ScoreProblem`. */
+export function ScoreButton({ row, screening, call, onScore, size = 'default' }: {
+  row: PoolRow
+  screening: boolean
+  call: ScoreCall
+  onScore: () => void
+  size?: 'default' | 'sm'
+}) {
+  const reasonId = useId()
+  const [open, setOpen] = useState(false)
+  const reason = blockedReason(row, screening)
+  const idle = row.state === 'scored' ? 'Neu berechnen' : 'Score berechnen'
+  if (reason) {
+    return (
+      <div className="relative flex items-center gap-1">
+        <Button type="button" variant="outline" size={size} disabled aria-describedby={reasonId}>{idle}</Button>
+        <button type="button" aria-label="Warum nicht verfügbar?" aria-describedby={reasonId}
+                onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}
+                onFocus={() => setOpen(true)} onBlur={() => setOpen(false)}
+                onKeyDown={(event) => { if (event.key === 'Escape') setOpen(false) }}
+                className="inline-flex size-11 items-center justify-center rounded-lg text-primary">
+          <Info className="size-5" aria-hidden="true" />
+        </button>
+        <div id={reasonId} role="tooltip" hidden={!open}
+             className="absolute top-full right-0 z-10 w-[300px] max-w-[80vw] rounded-lg border bg-card px-3.5 py-3 text-sm shadow-card">
+          {reason}
+        </div>
+      </div>
+    )
+  }
+  return (
+    <>
+      <Button type="button" variant="outline" size={size} aria-disabled={call.computing || undefined}
+              aria-busy={call.computing || undefined}
+              className={cn(call.computing && 'cursor-not-allowed opacity-50')}
+              onClick={() => { if (!call.computing) onScore() }}>
+        {call.computing
+          ? <><LoaderCircle className="motion-safe:animate-spin" aria-hidden="true" />Wird berechnet …</>
+          : call.problem === 'busy' || call.problem === 'failed' ? 'Erneut versuchen' : idle}
+      </Button>
+      <span role="status" className="sr-only">{call.computing ? 'Der Score wird berechnet.' : ''}</span>
+    </>
+  )
+}
+
+/** The message under a score button after a problem (`ScoreCall.problem`); nothing otherwise. */
+export function ScoreProblem({ call }: { call: ScoreCall }) {
+  if (!call.problem) return null
+  return (
+    <p role="alert" className="text-sm text-danger">
+      {{
+        busy: 'Es läuft gerade schon ein Scoring. Versuch es gleich noch einmal.',
+        failed: 'Der Score konnte nicht berechnet werden. Versuch es noch einmal.',
+        broken: 'Der Score konnte nicht gespeichert werden. Prüfe, ob das Datenrepository beschreibbar ist.',
+      }[call.problem]}
+    </p>
+  )
 }
 
 /** A key hint beside a control; hidden from screen readers, a legend names the keys. */

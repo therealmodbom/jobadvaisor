@@ -277,7 +277,8 @@ class Label(Entity):
 
 class Score(Entity):
     """`scores/<id>.json`: the stored fit score of `postings/<id>.json`. `score` is 0-10,
-    `example_ids` the rated postings the judge was shown, `scored_at` when the pass wrote it."""
+    `example_ids` the rated postings the judge was shown, `scored_at` when a pass or a single
+    score wrote it."""
 
     schema_version: SchemaVersion
     score: int = Field(ge=0, le=10)

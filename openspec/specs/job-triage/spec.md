@@ -70,7 +70,7 @@ The system SHALL extract structured features from each posting. The feature set 
 - **THEN** the extraction call carries no facts block and behaves as before
 
 ### Requirement: Scoring with rated examples
-The system SHALL score each non-excluded posting with a numeric score and a written reasoning, using the most similar already-rated postings, including the user's reasons, as examples. Scoring SHALL also work when no rated postings exist yet. The latest score, its reasoning and its time SHALL be stored with the posting, outlive the pass, and be replaced by a later pass.
+The system SHALL score each non-excluded posting with a numeric score and a written reasoning, using the most similar already-rated postings, including the user's reasons, as examples. Scoring SHALL also work when no rated postings exist yet. The latest score, its reasoning and its time SHALL be stored with the posting, outlive the pass, and be replaced by a later pass or by a score the user requests for that posting.
 
 #### Scenario: Examples used
 - **WHEN** rated postings exist
@@ -87,6 +87,10 @@ The system SHALL score each non-excluded posting with a numeric score and a writ
 #### Scenario: Later pass replaces the score
 - **WHEN** a posting is scored again in a later pass
 - **THEN** the stored score, reasoning and time are the later ones
+
+#### Scenario: Requested score replaces the score
+- **WHEN** the user requests a score for a posting that already has one
+- **THEN** the stored score, reasoning and time are the new ones
 
 ### Requirement: Every posting in the result
 A pass SHALL record every posting it processed, with its score or its exclusion, low-scored and excluded ones included. The user MAY rate any posting in the pool.

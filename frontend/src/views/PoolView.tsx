@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { Compass, LoaderCircle, ShieldAlert } from 'lucide-react'
-import { api, ApiError, type PassState, type Pool, type PoolRow, type PoolSettings, type RatingAnswer, type Status, type Strength, type Verdict } from '@/api'
-import { Badge, ChipList, ScoreText, StatusControl } from '@/components/posting'
+import { api, ApiError, type PassState, type Pool, type PoolRow, type PoolSettings, type RatingAnswer, type ScoreAnswer, type Status, type Strength, type Verdict } from '@/api'
+import { Badge, ChipList, ScoreButton, ScoreProblem, ScoreText, StatusControl } from '@/components/posting'
 import { Legend, ReasonsAndNote, VerdictButtons } from '@/components/rating'
 import { EmptyState, ErrorWithRetry, Loading } from '@/components/states'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { STATUSES } from '@/lib/german'
 import { LEVELS, strayPaste, useRating, type Rating } from '@/lib/rating'
+import { useScore, type ScoreCall } from '@/lib/score'
 import { cn, without } from '@/lib/utils'
 
 /** How often a computing scoring pass is polled, in milliseconds. */
@@ -211,13 +212,15 @@ function Settings({ settings, onSaved }: { settings: PoolSettings; onSaved: () =
   )
 }
 
-/** One pool row: title link, company and location, score, the "Stichprobe" and import marks, the rating
- * (verdict buttons; the selected row also shows every reason chip and the note field, the others
- * their chosen reasons) and the status control. `onSelect` makes it the row the shortcuts act on,
- * `onLevel` sends a rating level. `onStatus` sends a new status; `saving` and `failed` show its
- * state, `failed` with a retry. Focus selects the row, except focus from a mouse press: that waits
- * for the click, since selecting on mousedown reflows the rows and the click would miss its target. */
-function Row({ row, chips, rating, selected, onSelect, onLevel, saving, failed, onStatus }: {
+/** One pool row: title link, company and location, score with its button, the "Stichprobe" and
+ * import marks, the rating (verdict buttons; the selected row also shows every reason chip and the
+ * note field, the others their chosen reasons) and the status control. `onSelect` makes it the row
+ * the shortcuts act on, `onLevel` sends a rating level. `onStatus` sends a new status; `saving`
+ * and `failed` show its state, `failed` with a retry. `scoreCall` is the state of the row's score
+ * button (`screening`: a content-guard classifier is configured), `onScore` sends its click. Focus
+ * selects the row, except focus from a mouse press: that waits for the click, since selecting on
+ * mousedown reflows the rows and the click would miss its target. */
+function Row({ row, chips, rating, selected, onSelect, onLevel, saving, failed, onStatus, screening, scoreCall, onScore }: {
   row: PoolRow
   chips: Pool['reason_chips']
   rating: Rating
@@ -227,6 +230,9 @@ function Row({ row, chips, rating, selected, onSelect, onLevel, saving, failed, 
   saving: boolean
   failed: Status | undefined
   onStatus: (status: Status) => void
+  screening: boolean
+  scoreCall: ScoreCall
+  onScore: () => void
 }) {
   const now = rating.view(row)
   const pressed = useRef(false)
@@ -251,10 +257,12 @@ function Row({ row, chips, rating, selected, onSelect, onLevel, saving, failed, 
           </div>
         )}
       </div>
-      <div className="flex min-w-0 flex-[2_1_200px] flex-col gap-1.5">
+      <div className="flex min-w-0 flex-[2_1_200px] flex-col items-start gap-1.5">
         <p className="text-[15px]">
           <ScoreText row={row} />
         </p>
+        <ScoreButton row={row} screening={screening} call={scoreCall} onScore={onScore} size="sm" />
+        <ScoreProblem call={scoreCall} />
         {!selected && <ChipList ids={now.chips} chips={chips} />}
       </div>
       <StatusControl id={`status-${row.posting_id}`} title={row.title} value={row.status} saving={saving}
@@ -321,7 +329,21 @@ export function PoolView({ active = true }: { active?: boolean }) {
   useEffect(() => {
     if (active) load()
   }, [active, load])
-  const { pass, busy, notice, start, answer, pollFailed, retryPoll } = usePass(load)
+  /** A score from a row button replaces the row (the answer has no "Stichprobe" mark, so the row
+   * keeps its own) and brings the counter and the next-pass figures along. */
+  const score = useScore((scored: ScoreAnswer) => {
+    const id = scored.row.posting_id
+    setPool((current) => current && { ...current, counter: scored.counter, next_pass: scored.next_pass,
+      rows: current.rows.map((row) => (row.posting_id === id ? { ...scored.row, exploration: row.exploration } : row)) })
+  }, load)
+  const { clearBusy } = score
+  /** A finished pass reloads the pool and drops the rows' "scoring in progress" messages: they
+   * were about that pass. */
+  const passDone = useCallback(() => {
+    load()
+    clearBusy()
+  }, [load, clearBusy])
+  const { pass, busy, notice, start, answer, pollFailed, retryPoll } = usePass(passDone)
 
   async function setStatus(postingId: string, status: Status) {
     setSaving((current) => ({ ...current, [postingId]: true }))
@@ -427,7 +449,7 @@ export function PoolView({ active = true }: { active?: boolean }) {
   const count = pool?.next_pass.count ?? 0
   const counter = pool?.counter
   const nothingToDo = counter?.hint === 'rescore'
-    ? ' Es gibt nichts zu bewerten: Die übrigen Anzeigen sind von dir bewertet, ausgeschlossen oder zurückgehalten.' : ''
+    ? ' Es gibt nichts zu bewerten: Alle Anzeigen sind ausgeschlossen oder zurückgehalten.' : ''
   const working = busy && !pollFailed && pass?.status !== 'awaiting_answer'
   const why = busy ? 'Eine Bewertung läuft.'
     : count === 0 ? `Es gibt keine neuen Anzeigen zu bewerten.${nothingToDo}` : ''
@@ -532,7 +554,9 @@ export function PoolView({ active = true }: { active?: boolean }) {
                   <Row key={row.posting_id} row={row} chips={pool.reason_chips} rating={rating}
                        selected={row.posting_id === current} onSelect={() => setSelected(row.posting_id)}
                        onLevel={(verdict, strength) => rate(row, verdict, strength)} saving={!!saving[row.posting_id]}
-                       failed={failed[row.posting_id]} onStatus={(status) => setStatus(row.posting_id, status)} />
+                       failed={failed[row.posting_id]} onStatus={(status) => setStatus(row.posting_id, status)}
+                       screening={pool.screening} scoreCall={score.call(row.posting_id)}
+                       onScore={() => void score.run(row.posting_id)} />
                 ))}
               </ul>
             </>
