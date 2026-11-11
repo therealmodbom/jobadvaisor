@@ -88,6 +88,10 @@ The system SHALL score each non-excluded posting with a numeric score and a writ
 - **WHEN** a posting is scored again in a later pass
 - **THEN** the stored score, reasoning and time are the later ones
 
+#### Scenario: Requested score replaces the score
+- **WHEN** the user requests a score for a posting that already has one
+- **THEN** the stored score, reasoning and time are the new ones
+
 ### Requirement: Every posting in the result
 A pass SHALL record every posting it processed, with its score or its exclusion, low-scored and excluded ones included. The user MAY rate any posting in the pool.
 

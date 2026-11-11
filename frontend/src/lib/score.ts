@@ -17,7 +17,7 @@ const REFUSED = ['excluded', 'held', 'unscreened']
 
 /** Scoring single postings on demand (`POST /postings/{id}/score`) for the posting page and the
  * pool rows. `run(postingId)` sends the click: a second click on a posting still computing sends
- * nothing; `call(postingId)` is that posting's `ScoreCall`; `clear()` drops every `problem`. `onAnswer` gets the 200 answer. A
+ * nothing; `call(postingId)` is that posting's `ScoreCall`; `clearBusy()` drops the `busy` problems. `onAnswer` gets the 200 answer. A
  * refusal no retry can change (409 `excluded`, `held` or `unscreened`, or 404) calls `onRefused`
  * so the view reloads and shows the posting as it is now; every other failure sets a `problem`
  * (see `ScoreCall`). */
@@ -47,9 +47,9 @@ export function useScore(onAnswer: (answer: ScoreAnswer) => void, onRefused: () 
       sending.current.delete(postingId)
     }
   }
-  /** Forgets every `problem`, for when the cause may be gone (a pass has ended); calls still
-   * computing stay. Stable across renders. */
-  const clear = useCallback(() => setCalls((current) => Object.fromEntries(
-    Object.entries(current).filter(([, call]) => call.computing))), [])
-  return { call: (postingId: string) => calls[postingId] ?? IDLE, run, clear }
+  /** Forgets the `busy` problems, for when the slot they were about may be free (a pass has
+   * ended); `failed` and `broken` ones and calls still computing stay. Stable across renders. */
+  const clearBusy = useCallback(() => setCalls((current) => Object.fromEntries(
+    Object.entries(current).filter(([, call]) => call.problem !== 'busy'))), [])
+  return { call: (postingId: string) => calls[postingId] ?? IDLE, run, clearBusy }
 }

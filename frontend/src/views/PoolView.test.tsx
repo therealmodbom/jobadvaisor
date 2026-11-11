@@ -137,7 +137,7 @@ test('a rescore hint with nothing to score explains the disabled button', async 
   render(<PoolView />)
   const button = await screen.findByRole('button', { name: 'Neue Anzeigen bewerten (0)' })
   expect(button).toBeDisabled()
-  expect(button).toHaveAccessibleDescription(/Es gibt nichts zu bewerten: Die übrigen Anzeigen haben schon einen Score, sind ausgeschlossen oder zurückgehalten\./)
+  expect(button).toHaveAccessibleDescription(/Es gibt nichts zu bewerten: Alle Anzeigen sind ausgeschlossen oder zurückgehalten\./)
 })
 
 test('a pass shows its progress, then reloads the pool when done', async () => {
@@ -984,21 +984,25 @@ test('a 409 "scoring in progress" shows its message on the row only and a retry'
   expect(row('Data Analyst (m/w/d)').queryByRole('alert')).toBeNull()
 })
 
-test('a "scoring in progress" message on a row goes when the pass that caused it has ended', async () => {
+test('a "scoring in progress" message on a row goes when the pass ends, a failed one on another row stays', async () => {
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
   let polls = 0
   stubApi({ 'GET /pool': { body: POOL }, 'POST /pool/passes': { status: 202, body: { pass_id: 'ps1' } },
     'GET /pool/passes/ps1': () => ({ body: pass(++polls === 1 ? { done: 4 } : { status: 'done', done: 12 }) }),
-    'POST /postings/n1/score': { status: 409, body: { error: 'scoring in progress', detail: 'ps1' } } })
+    'POST /postings/n1/score': { status: 409, body: { error: 'scoring in progress', detail: 'ps1' } },
+    'POST /postings/broken/score': { status: 502, body: { error: 'scoring failed', detail: 'x' } } })
   render(<PoolView />)
   const start = await screen.findByRole('button', { name: 'Neue Anzeigen bewerten (12)' })
   await act(async () => start.click())
   await act(async () => row(NEW).getByRole('button', { name: 'Score berechnen' }).click())
+  await act(async () => row('Buchhalter (m/w/d)').getByRole('button', { name: 'Score berechnen' }).click())
   expect(await row(NEW).findByRole('alert')).toBeVisible()
+  expect(await row('Buchhalter (m/w/d)').findByRole('alert')).toBeVisible()
   await tick()
   await tick()
   await vi.waitFor(() => expect(row(NEW).queryByRole('alert')).toBeNull())
   expect(row(NEW).getByRole('button', { name: 'Score berechnen' })).toBeEnabled()
+  expect(row('Buchhalter (m/w/d)').getByRole('alert')).toHaveTextContent('Der Score konnte nicht berechnet werden.')
 })
 
 test('excluded, held and unscreened-without-screening rows show the button disabled with the reason', async () => {

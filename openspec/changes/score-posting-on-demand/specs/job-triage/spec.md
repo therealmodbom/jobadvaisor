@@ -20,3 +20,7 @@ The system SHALL score each non-excluded posting with a numeric score and a writ
 #### Scenario: Later pass replaces the score
 - **WHEN** a posting is scored again in a later pass
 - **THEN** the stored score, reasoning and time are the later ones
+
+#### Scenario: Requested score replaces the score
+- **WHEN** the user requests a score for a posting that already has one
+- **THEN** the stored score, reasoning and time are the new ones
