@@ -18,7 +18,7 @@ type Status =
   | { kind: 'done'; answer: IntakeAnswer }
   | { kind: 'batch'; results: BatchResult[] }
 
-const SOURCES: [Source, string][] = [['url', 'Link'], ['text', 'Text einfügen'], ['pdf', 'PDF']]
+const SOURCES: [Source, string][] = [['url', 'Link(s)'], ['text', 'Text einfügen'], ['pdf', 'PDF']]
 
 const STEPS: Record<string, string> = {
   bundesagentur: 'Jobbörse der Bundesagentur',
