@@ -3,6 +3,7 @@ import { api, ApiError, type Posting, type PostingPageData, type ScoreAnswer, ty
 import { Badge, OriginalLink, PostingFields, ScoreButton, ScoreProblem, ScoreText, StatusControl } from '@/components/posting'
 import { Button } from '@/components/ui/button'
 import { ReasonsAndNote, VerdictButtons } from '@/components/rating'
+import { addedLabel } from '@/lib/german'
 import { strayPaste, useRating } from '@/lib/rating'
 import { useScore } from '@/lib/score'
 import { cn } from '@/lib/utils'
@@ -11,7 +12,7 @@ import { ErrorWithRetry, Loading } from '@/components/states'
 const BackLink = () => <a href="#/pool" className="self-start text-primary underline underline-offset-2">Zurück zur Liste</a>
 
 /** The page of one posting (`#/anzeigen/<id>`; `postingId` is the decoded ID) from
- * `GET /postings/{id}`: title, company and location, original link, score with reasoning and the
+ * `GET /postings/{id}`: when it was added (above the title), title, company and location, original link, score with reasoning and the
  * compared examples (links to their pages), "Bearbeiten" for correcting title, company and
  * location (`PostingFields`), the rating (verdict, reason chips and note, stored
  * at once by `PUT .../rating` with saving and retry), the application status
@@ -118,6 +119,9 @@ function LoadedPage({ postingId }: { postingId: string }) {
       <BackLink />
       <div className="flex flex-col items-start gap-3">
         <div>
+          <p className="text-[11px] leading-4 text-subtle-foreground">
+            <time dateTime={new Date(row.added_at).toISOString()}>{addedLabel(row.added_at)}</time>
+          </p>
           <h1 className="text-3xl leading-tight font-bold tracking-tight">{posting.title}</h1>
           <p className="text-muted-foreground">{posting.company}, {posting.location_raw}</p>
         </div>
