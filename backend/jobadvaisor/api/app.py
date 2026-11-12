@@ -190,11 +190,11 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
     agent is built on its first message. The built frontend in `frontend` is served at `/`
     after the API routes, so they take precedence; without a build (no `index.html`) the API
     runs alone."""
+    settings = Settings()
     if runs is None or intake is None:
-        settings = Settings()
         runs, intake = runs or configured_runs(settings), intake or configured_intake(settings)
     imports = imports or Imports(intake)
-    backup = backup or Backup(intake.root, state_path(Settings(), intake.root))
+    backup = backup or Backup(intake.root, state_path(settings, intake.root))
     if agent is None:
         configured = cache(lambda: configured_agent(Settings()))
         agent = lambda messages: configured()(messages)  # noqa: E731
@@ -265,8 +265,9 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
         409 `backup running` (a second press is not queued), `backup refused` (detail: the
         branch other than `main` or the operation in progress) or `backup unavailable`."""
         try:
-            backup.start()
-            return {"status": backup_state() | {"running": True}}
+            before = backup_state()  # taken first: a status read after the start could fail on a
+            backup.start()           # backup that is already running, or race a fast one
+            return {"status": before | {"running": True, "progress": backup.progress}}
         except BackupRunning as error:
             return problem(409, "backup running", str(error))
         except BackupRefused as error:

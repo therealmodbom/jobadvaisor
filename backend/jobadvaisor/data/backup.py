@@ -226,10 +226,10 @@ class Backup:
         self._reset_progress()  # not the last run's, while the checks below take their time
         try:
             _refuse(self.status())
+            threading.Thread(target=self._run_in_thread, daemon=True).start()
         except BaseException:
             self._running.release()
             raise
-        threading.Thread(target=self._run_in_thread, daemon=True).start()
 
     @property
     def running(self) -> bool:
@@ -392,7 +392,10 @@ class Backup:
                 stdout, stderr = _communicate(process, timeout, on_stderr)
             except subprocess.TimeoutExpired:
                 os.killpg(process.pid, signal.SIGKILL)
-                process.communicate()
+                if on_stderr is None:
+                    process.communicate()
+                else:  # the reader threads own the pipes; they end when the pipes close
+                    process.wait()
                 raise
         if check and process.returncode != 0:
             raise subprocess.CalledProcessError(process.returncode, command, stdout, stderr)
@@ -418,10 +421,13 @@ def _communicate(process: subprocess.Popen[str], timeout: float,
     streams: dict[str, list[str]] = {"out": [], "err": []}
 
     def pump(stream, name: str) -> None:
-        for line in stream:
-            streams[name].append(line)
-            if name == "err":
-                on_stderr(line)
+        try:
+            for line in stream:
+                streams[name].append(line)
+                if name == "err":
+                    on_stderr(line)
+        except ValueError:  # the pipe was closed under us after a timeout
+            pass
 
     readers = [threading.Thread(target=pump, args=(process.stdout, "out"), daemon=True),
                threading.Thread(target=pump, args=(process.stderr, "err"), daemon=True)]

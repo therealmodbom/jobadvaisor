@@ -81,14 +81,24 @@ export function useBackupStatus(): BackupState {
   // Counts finished requests, so the polling timer is armed again after every one of them.
   const [settled, setSettled] = useState(0)
   const mounted = useRef(true)
+  // Every request takes a number when it starts, and an answer is used only if no later request
+  // has been used already: a slow older fetch must not overwrite a newer status.
+  const issued = useRef(0)
+  const applied = useRef(0)
+  const fresh = (id: number) => {
+    if (!mounted.current || id < applied.current) return false
+    applied.current = id
+    return true
+  }
 
   const refresh = useCallback(() => {
+    const id = ++issued.current
     api<BackupStatus>('/backup').then((answer) => {
-      if (!mounted.current) return
+      if (!fresh(id)) return
       setStatus(answer)
       setUnavailable(null)
     }, (error) => {
-      if (!mounted.current) return
+      if (!fresh(id)) return
       if (error instanceof ApiError && error.status === 409 && error.error === 'backup unavailable') {
         setStatus(null)
         setUnavailable(error.detail)
@@ -118,11 +128,18 @@ export function useBackupStatus(): BackupState {
     return () => window.clearTimeout(timer)
   }, [settled, running, refresh])
 
+  // A refusal stays until its cause is gone (the branch is `main` again, no operation is stopped),
+  // a failed press until a backup runs or the next press.
+  // Adjusted while rendering (React's way to derive state from state), not in an effect.
+  if (refusal && status && status.branch === 'main' && !status.operation) setRefusal(null)
+  if (pressFailed && status?.running) setPressFailed(null)
+
   const press = useCallback(() => {
     setRefusal(null)
     setPressFailed(null)
+    const id = ++issued.current
     api<{ status: BackupStatus }>('/backup', { method: 'POST' }).then((answer) => {
-      if (!mounted.current) return
+      if (!fresh(id)) return
       setStatus(answer.status)
       setUnavailable(null)
       setSettled((count) => count + 1)

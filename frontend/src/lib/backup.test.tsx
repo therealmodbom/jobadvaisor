@@ -200,10 +200,78 @@ test('a press that never reaches the server says so, also when the status cannot
   expect(result.current.status).toBeNull()
 })
 
+test('an older status that arrives late does not overwrite a newer one', async () => {
+  let gets = 0
+  let releaseStale: () => void = () => {}
+  const stale = new Promise<void>((resolve) => { releaseStale = resolve })
+  stubApi({
+    'GET /backup': async () => {
+      const n = ++gets
+      if (n === 2) await stale // the second fetch is slow and answers with what was true before
+      return { body: n === 1 || n === 2 ? PENDING : RUNNING }
+    },
+    'POST /backup': { status: 202, body: { status: RUNNING } },
+  })
+  const { result } = renderHook(() => useBackupStatus())
+  await flush()
+  await tab('visible') // starts the slow fetch
+  act(() => result.current.press())
+  await flush()
+  expect(result.current.status).toEqual(RUNNING)
+  releaseStale()
+  await flush()
+  expect(result.current.status).toEqual(RUNNING)
+})
+
+test('the backup POST itself does not fetch the status a second time', async () => {
+  let gets = 0
+  stubApi({
+    'GET /backup': () => { gets++; return { body: PENDING } },
+    'POST /backup': { status: 202, body: { status: RUNNING } },
+  })
+  const { result } = renderHook(() => useBackupStatus())
+  await flush()
+  act(() => result.current.press())
+  await flush()
+  expect(gets).toBe(1)
+})
+
+test('a refusal goes once the status no longer shows its cause', async () => {
+  let branch = 'other'
+  stubApi({
+    'GET /backup': () => ({ body: { ...PENDING, branch } }),
+    'POST /backup': { status: 409, body: { error: 'backup refused', detail: 'on branch other' } },
+  })
+  const { result } = renderHook(() => useBackupStatus())
+  await flush()
+  act(() => result.current.press())
+  await flush()
+  expect(result.current.refusal).toBe('on branch other')
+  branch = 'main'
+  await advance(15_000) // the next poll sees the branch back on main
+  expect(result.current.refusal).toBeNull()
+})
+
+test('a press failure goes once a backup runs', async () => {
+  let running = false
+  stubApi({
+    'GET /backup': () => ({ body: running ? RUNNING : PENDING }),
+    'POST /backup': { status: 500, body: { error: 'internal error', detail: '' } },
+  })
+  const { result } = renderHook(() => useBackupStatus())
+  await flush()
+  act(() => result.current.press())
+  await flush()
+  expect(result.current.pressFailed).not.toBeNull()
+  running = true
+  await advance(15_000)
+  expect(result.current.pressFailed).toBeNull()
+})
+
 test('a press refused for the branch names why and clears on the next press', async () => {
   let refuse = true
   stubApi({
-    'GET /backup': { body: PENDING },
+    'GET /backup': { body: { ...PENDING, branch: 'other' } },
     'POST /backup': () => refuse
       ? { status: 409, body: { error: 'backup refused', detail: 'on branch other' } }
       : { status: 202, body: { status: RUNNING } },

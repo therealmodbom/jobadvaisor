@@ -660,6 +660,29 @@ def test_a_refusal_after_the_thread_started_is_recorded_as_a_failure(backup, bac
     assert "other" in failure["reason"]
 
 
+def test_a_commit_that_times_out_leaves_no_index_lock_behind(backup, backed_up, monkeypatch):
+    hook = backed_up.root / ".git" / "hooks" / "pre-commit"
+    hook.write_text("#!/bin/sh\nsleep 30\n")
+    hook.chmod(0o755)
+    monkeypatch.setattr("jobadvaisor.data.backup.COMMIT_TIMEOUT", 1)
+    _edit_profile(backed_up.root, "edited by hand")
+    with pytest.raises(BackupFailed, match="timed out"):
+        backup.run()
+    assert not (backed_up.root / ".git" / "index.lock").exists()
+    hook.unlink()
+    assert backup.run().result == "pushed"  # the next backup is not blocked
+
+
+def test_a_thread_that_cannot_start_does_not_leave_the_backup_running(backup, monkeypatch):
+    def refuse(self):
+        raise RuntimeError("can't start new thread")
+
+    monkeypatch.setattr(threading.Thread, "start", refuse)
+    with pytest.raises(RuntimeError):
+        backup.start()
+    assert not backup.running
+
+
 def test_the_fallback_identity_is_used_without_a_repository_identity(backup, backed_up):
     git(backed_up.root, "config", "--unset", "user.name")
     git(backed_up.root, "config", "--unset", "user.email")

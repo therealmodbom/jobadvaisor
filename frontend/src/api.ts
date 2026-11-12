@@ -21,7 +21,8 @@ export const WRITE_DONE = 'jobadvaisor:write-done'
 
 /** Calls the backend at `path`. `json` is sent as a JSON body, `form` as multipart form data.
  * Resolves the parsed answer; rejects with `ApiError` for an error status or no connection.
- * A successful call with a method other than GET fires `WRITE_DONE` on the window. */
+ * A successful call with a method other than GET, except to `/backup` itself, fires
+ * `WRITE_DONE` on the window. */
 export async function api<T>(path: string, { method = 'GET', json, form }: {
   method?: string
   json?: unknown
@@ -41,7 +42,7 @@ export async function api<T>(path: string, { method = 'GET', json, form }: {
   if (!response.ok) {
     throw new ApiError(response.status, body.error ?? 'request failed', body.detail ?? '', body)
   }
-  if (method !== 'GET') window.dispatchEvent(new Event(WRITE_DONE))
+  if (method !== 'GET' && !path.startsWith('/backup')) window.dispatchEvent(new Event(WRITE_DONE))
   return body as T
 }
 
