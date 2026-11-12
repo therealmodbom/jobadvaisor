@@ -36,7 +36,7 @@ TDD per task: a failing test first, then the code. Backend tests use real git on
 - [x] 2.6 Background run: refusals are checked synchronously, then the backup runs in a thread. A second backup while one runs is refused, not queued. Progress reports `{step, files, percent}`, with the percent parsed from `--progress` stderr split on `\r`, and `last_result` records the outcome. Verify with tests for:
   - a test holding the first backup in its push, which sees the second refused and the progress step `pushing` with the file count;
   - the parser on captured git output: `2% (1/42)` gives 2, and a push without progress lines gives `null`.
-- [ ] 2.7 Concurrency (spec: "Writes and backups never interleave"): threads write labels and scores in a loop while backups run repeatedly. Every committed blob loads as a schema-valid file, and every written rating is in a commit or pending at the end. A rating during a slow push is stored without waiting. Verify with these tests.
+- [x] 2.7 Concurrency (spec: "Writes and backups never interleave"): threads write labels and scores in a loop while backups run repeatedly. Every committed blob loads as a schema-valid file, and every written rating is in a commit or pending at the end. A rating during a slow push is stored without waiting. Verify with these tests.
 
 ## 3. API
 

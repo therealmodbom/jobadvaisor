@@ -1,9 +1,12 @@
 """The backup of the data repository, against real git and a local bare repository as the remote
 (`data-repository` → Backup of the data repository)."""
 
+import itertools
 import re
 import subprocess
+import threading
 import time
+from datetime import UTC, datetime
 
 import pytest
 from conftest import git
@@ -18,6 +21,8 @@ from jobadvaisor.data.backup import (
     commit_message,
     push_percent,
 )
+from jobadvaisor.data.models import Label, Score
+from jobadvaisor.data.writer import write_gate, write_label, write_score
 
 
 @pytest.fixture
@@ -391,6 +396,125 @@ def test_a_failure_in_the_thread_is_recorded_and_the_next_backup_may_start(
 ])
 def test_the_push_percentage_comes_from_the_writing_objects_lines(output, percent):
     assert push_percent(output) == percent
+
+
+def _rating(note: str) -> Label:
+    return Label(schema_version="1", kind="rating", verdict="positive", note=note,
+                 rated_at=datetime(2026, 3, 1, 9, 0, tzinfo=UTC))
+
+
+def _score(value: int) -> Score:
+    return Score(schema_version="1", score=value, reasoning="Fits.",
+                 scored_at=datetime(2026, 3, 1, 9, 0, tzinfo=UTC))
+
+
+def test_writes_during_repeated_backups_are_never_half_committed_or_lost(backup, backed_up):
+    stop = threading.Event()
+    last_note: dict[str, str] = {}
+    errors: list[BaseException] = []
+
+    def write_ratings():
+        try:
+            for n in itertools.count():
+                if stop.is_set():
+                    return
+                write_label(backed_up.root, "demo-001", _rating(f"rating {n}"))
+                last_note["demo-001"] = f"rating {n}"
+        except BaseException as error:  # noqa: BLE001 - surfaced by the assertion below
+            errors.append(error)
+
+    def write_scores():
+        try:
+            for n in itertools.count():
+                if stop.is_set():
+                    return
+                write_score(backed_up.root, "demo-002", _score(n % 10 + 1))
+        except BaseException as error:  # noqa: BLE001
+            errors.append(error)
+
+    writers = [threading.Thread(target=write_ratings), threading.Thread(target=write_scores)]
+    for writer_thread in writers:
+        writer_thread.start()
+    for _ in range(8):
+        backup.run()
+    stop.set()
+    for writer_thread in writers:
+        writer_thread.join(timeout=10)
+    assert not errors
+    backup.run()  # whatever the last writes left pending
+
+    commits = git(backed_up.root, "rev-list", "--reverse", "HEAD").split()
+    assert len(commits) > 2, "the backups committed nothing while the writers ran"
+    checked = 0
+    for commit in commits:
+        changed = git(backed_up.root, "diff-tree", "-r", "--root", "--no-commit-id",
+                      "--name-only", commit).split()
+        for path in changed:
+            blob = git(backed_up.root, "show", f"{commit}:{path}")
+            if path.startswith("labels/"):
+                Label.model_validate_json(blob, strict=True)
+                checked += 1
+            elif path.startswith("scores/"):
+                Score.model_validate_json(blob, strict=True)
+                checked += 1
+    assert checked > 0
+    final = git(backed_up.root, "show", "HEAD:labels/demo-001.json")
+    assert last_note["demo-001"] in final  # the last rating written is in a commit
+    assert backup.status().uncommitted == 0
+
+
+def test_a_backup_waits_for_a_write_in_progress_before_it_stages(backup, backed_up):
+    _edit_profile(backed_up.root, "edited by hand")
+    with write_gate:  # a write is in progress
+        backup.start()
+        time.sleep(0.5)
+        assert backup.running
+        assert backup.progress["files"] == 0  # not past staging
+        assert git(backed_up.root, "diff", "--cached", "--name-only") == ""  # nothing staged
+    _wait_until(lambda: not backup.running)
+    assert backup.last_result.result == "pushed"
+
+
+def test_a_write_waits_while_the_backup_commits_and_runs_afterwards(
+        backup, backed_up, tmp_path):
+    release = tmp_path / "release"
+    hook = backed_up.root / ".git" / "hooks" / "pre-commit"
+    hook.write_text(f'#!/bin/sh\nwhile [ ! -e "{release}" ]; do sleep 0.02; done\n')
+    hook.chmod(0o755)
+    _edit_profile(backed_up.root, "edited by hand")
+    backup.start()
+    _wait_until(lambda: backup.progress and backup.progress["step"] == "committing")
+    written = threading.Event()
+
+    def rate():
+        write_label(backed_up.root, "demo-001", _rating("during the commit"))
+        written.set()
+
+    threading.Thread(target=rate).start()
+    assert not written.wait(0.5), "the write ran while the backup was committing"
+    release.write_text("")
+    assert written.wait(10)
+    _wait_until(lambda: not backup.running)
+    # The rating missed the commit and is pending, not lost.
+    assert "during the commit" not in git(backed_up.remote, "show", "main:labels/demo-001.json")
+    assert "during the commit" in (backed_up.root / "labels" / "demo-001.json").read_text()
+    assert backup.status().uncommitted == 1
+
+
+def test_a_rating_during_a_slow_push_is_stored_at_once_and_stays_pending(
+        backup, backed_up, tmp_path):
+    release = tmp_path / "release"
+    _hold_pushes(backed_up.root, release)
+    _edit_profile(backed_up.root, "edited by hand")
+    backup.start()
+    _wait_until(lambda: backup.progress and backup.progress["step"] == "pushing")
+    started = time.monotonic()
+    write_label(backed_up.root, "demo-001", _rating("during the push"))
+    assert time.monotonic() - started < 1
+    release.write_text("")
+    _wait_until(lambda: not backup.running)
+    assert "during the push" not in git(backed_up.remote, "show", "main:labels/demo-001.json")
+    assert backup.status().uncommitted == 1  # shows as pending
 
 
 def test_the_fallback_identity_is_used_without_a_repository_identity(backup, backed_up):
