@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
+import { BackupControl, BackupStrip } from '@/components/backup'
 import { StaleBanner, VersionFooter } from '@/components/version'
+import { useBackupStatus } from '@/lib/backup'
 import { cn } from '@/lib/utils'
 import { useBackendVersion } from '@/lib/version'
 import { ChatView } from '@/views/ChatView'
@@ -54,6 +56,7 @@ function App() {
   }, [view, postingId])
 
   const backendVersion = useBackendVersion()
+  const backup = useBackupStatus()
 
   const content = {
     '#/pool': <PoolView active={view === VIEWS[0] && postingId === null} />,
@@ -65,10 +68,13 @@ function App() {
       <StaleBanner backend={backendVersion} />
       <header className="border-b bg-card">
         <div className="mx-auto flex min-h-16 max-w-[1200px] flex-wrap items-center gap-x-8 gap-y-2 px-6">
-          <a href={VIEWS[0].hash} className="text-[19px] font-bold tracking-tight text-foreground no-underline">
+          <a href={VIEWS[0].hash}
+             className="order-1 flex-auto text-[19px] font-bold tracking-tight text-foreground no-underline sm:flex-none">
             JobAdvAIsor
           </a>
-          <nav aria-label="Hauptnavigation" className="flex flex-auto flex-wrap gap-1">
+          {/* The backup control orders itself around these two (components/backup.tsx). */}
+          <nav aria-label="Hauptnavigation"
+               className="order-4 flex basis-full flex-wrap gap-1 sm:order-2 sm:flex-auto sm:basis-auto">
             {VIEWS.map((item) => (
               <a key={item.hash} href={item.hash} aria-current={item === view ? 'page' : undefined}
                  className={cn('rounded-lg px-3.5 py-2.5 no-underline',
@@ -78,8 +84,10 @@ function App() {
               </a>
             ))}
           </nav>
+          <BackupControl state={backup} />
         </div>
       </header>
+      <BackupStrip status={backup.status} />
       <main className="mx-auto box-border max-w-[1200px] px-6 pt-8 pb-16">
         {/* Every view stays mounted and only the open one shows, so a conversation, an intake
             result or a computing pass survives a look at another view. */}

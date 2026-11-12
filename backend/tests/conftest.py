@@ -1,10 +1,13 @@
 import functools
 import json
+import os
 import shutil
+import subprocess
 import threading
 import time
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from langchain_core.language_models import BaseChatModel
@@ -209,3 +212,34 @@ def data_repository(tmp_path) -> Path:
     write_json(tmp_path / "postings/p2.json", {**POSTING, "title": "Data Engineer"})
     write_json(tmp_path / "labels/p1.json", LABEL)
     return tmp_path
+
+
+def git(root: Path, *args: str) -> str:
+    """Run `git -C root args` for a test and return its stdout; a failing command raises."""
+    return subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True,
+                          text=True).stdout
+
+
+@pytest.fixture(autouse=True)
+def git_without_user_configuration(monkeypatch):
+    """Keep the user's global git configuration (identity, `core.hooksPath` with a hook that
+    blocks commits to `main`) out of tests that run real git."""
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+
+
+@pytest.fixture
+def backed_up(demo_copy, tmp_path) -> SimpleNamespace:
+    """The demo persona copy as a git repository on `main` with one commit, a local bare
+    repository `remote` as `origin` and `main` pushed to it as its upstream. Has `root` and
+    `remote`. The repository has its own identity, so commits need no global configuration."""
+    remote = tmp_path / "remote.git"
+    git(tmp_path, "init", "--bare", "-b", "main", str(remote))
+    git(demo_copy, "init", "-b", "main")
+    git(demo_copy, "config", "user.name", "Test")
+    git(demo_copy, "config", "user.email", "test@example.com")
+    git(demo_copy, "add", "-A")
+    git(demo_copy, "commit", "-m", "Initial data")
+    git(demo_copy, "remote", "add", "origin", str(remote))
+    git(demo_copy, "push", "-u", "origin", "main")
+    return SimpleNamespace(root=demo_copy, remote=remote)

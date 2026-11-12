@@ -3,14 +3,23 @@ import { vi } from 'vitest'
 /** A request the stubbed API received: method, path and the parsed JSON or form body. */
 export type Call = { method: string; path: string; body: unknown }
 
-type Answer = { status?: number; body?: unknown } | Promise<never>
+type Reply = { status?: number; body?: unknown }
+type Answer = Reply | Promise<Reply>
+
+/** The default `GET /backup`: a backed-up repository with nothing pending. */
+const QUIET_BACKUP = {
+  pending: false, uncommitted: 0, unpushed: 0, branch: 'main', remote: 'origin/main',
+  operation: null, running: false, progress: null, last_result: null,
+  last_success: '2026-11-12T09:12:00Z', last_failure: null,
+}
 
 /** Replaces `fetch` with a router over `routes` ("METHOD /path" → answer or answer function),
  * and returns the calls it received. An unrouted request fails the test. The app shell asks
- * `GET /health` on every render, so it answers healthy with version `dev` unless a test routes
- * it itself. */
+ * `GET /health` and `GET /backup` on every render, so it answers healthy with version `dev` and
+ * a quiet backup (nothing pending) unless a test routes them itself. */
 export function stubApi(routes: Record<string, Answer | ((call: Call) => Answer)>): Call[] {
   routes = { 'GET /health': { body: { status: 'ok', checks: { data_repo: 'ok' }, version: 'dev' } },
+             'GET /backup': { body: QUIET_BACKUP },
              ...routes }
   const calls: Call[] = []
   vi.stubGlobal('fetch', vi.fn(async (path: string, init: RequestInit = {}) => {

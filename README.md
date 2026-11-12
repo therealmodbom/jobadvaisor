@@ -55,6 +55,14 @@ mkdir -p ~/.jobadvaisor
 cp -R fixtures/demo-persona ~/.jobadvaisor/demo-data
 ```
 
+The backup button in the header commits and pushes your data, so it needs the data directory to be a git repository of its own. On a plain copy it stays disabled and says why. To try it, make the copy a repository. Without a remote, a backup only commits:
+
+```bash
+git -C ~/.jobadvaisor/demo-data init -b main
+git -C ~/.jobadvaisor/demo-data add -A
+git -C ~/.jobadvaisor/demo-data -c user.name=Demo -c user.email=demo@localhost commit -m "Demo data"
+```
+
 Start the backend on the copy. It listens on port 8710:
 
 ```bash
@@ -93,6 +101,8 @@ VS Code and compatible editors pick up the shared configuration in `.vscode/`. T
 
 Set `DATA_REPOSITORY` in `local.env` to your data repository. The layout follows `schemas/`. Rebuildable local state goes to `STATE_DIRECTORY`, by default `~/.jobadvaisor`.
 
+The app writes your ratings, postings and scores as files. The backup button in the header turns them into a commit on `main` and pushes it to the upstream of `main`, which uses your own git setup (SSH key, credential helper). It is filled and shows a number while something is not backed up yet, also after a change you made by hand, and quiet when everything is. Without a remote it only commits. If git rejects the commit or the push, the button shows why and stays enabled for a retry.
+
 When you add a posting from a URL, intake also looks up the employer's size and founding year once. [docs/company-facts.md](docs/company-facts.md) describes the lookup and how to fill in a record by hand.
 
 ## Deployment
@@ -103,10 +113,23 @@ A pushed tag `v*` builds the image `ghcr.io/therealmodbom/jobadvaisor` with that
 
 ### First-time setup
 
-The server needs read and write access to your data repository's remote with credentials stored on it, for example an SSH key. Never push the data repository to a publicly readable remote.
+The container backs up your data repository over SSH with a key you give it. The remote can be any SSH host: its address, port and provider come only from the data repository's own `origin`, so clone it with the URL you want pushed to, for example `git@<host>:<path>` or `ssh://git@<host>:<port>/<path>`. Never push the data repository to a publicly readable remote.
+
+The image holds no key. Put the key and the file of known hosts into a directory of their own, owned by the container's user (uid 10001), the key readable by it only:
 
 ```bash
-mkdir -p /srv/jobadvaisor/state
+mkdir -p /srv/jobadvaisor/state /srv/jobadvaisor/keys
+cp <private-key-file> /srv/jobadvaisor/keys/id_ed25519
+ssh-keyscan -p <port> <data-remote-host> > /srv/jobadvaisor/keys/known_hosts
+chmod 600 /srv/jobadvaisor/keys/id_ed25519
+chown -R 10001:10001 /srv/jobadvaisor/keys
+```
+
+The `git clone` below and the manual recovery further down run on the host as you, not in the container, so the host needs its own access to the remote. Either your own SSH setup does that, or you point git at the same key and file for the command, for example `GIT_SSH_COMMAND="ssh -i /srv/jobadvaisor/keys/id_ed25519 -o UserKnownHostsFile=/srv/jobadvaisor/keys/known_hosts" git clone <data-remote-url> /srv/jobadvaisor/data` (as root, so it can read the key).
+
+Compare the fingerprints in `known_hosts` (`ssh-keygen -lf /srv/jobadvaisor/keys/known_hosts`) with those your remote publishes. The connection refuses a host that is not in the file. The key needs push access to the remote, and no more.
+
+```bash
 git clone <data-remote-url> /srv/jobadvaisor/data
 git config --global --add safe.directory /srv/jobadvaisor/data
 git -C /srv/jobadvaisor/data config user.name JobAdvAIsor
@@ -120,7 +143,7 @@ Copy `deploy/compose.yaml` to `/srv/jobadvaisor/compose.yaml`, then create three
 |---|---|
 | `settings.env` | Settings that are not secret, with the names from `.env.example`: models, base URLs, `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_BASE_URL`. |
 | `secrets.env` | The keys `LLM_API_KEY`, `MISTRAL_API_KEY`, `SEARCH_API_KEY` and `LANGFUSE_SECRET_KEY` that you use. Mode 600. Create it with an editor or a hidden prompt, never with the values as command arguments. |
-| `.env` | The line `JOBADVAISOR_TAG=<release>`, for example `v0.1.0`. Compose reads it for every command. Optionally `JOBADVAISOR_PORT=<port>` for another host port. The default is 8710. |
+| `.env` | The line `JOBADVAISOR_TAG=<release>`, for example `v0.1.0`. Compose reads it for every command. Optionally `JOBADVAISOR_PORT=<port>` for another host port (the default is 8710), `JOBADVAISOR_SSH_DIR=<directory>` for the keys directory (the default is `/srv/jobadvaisor/keys`) and `JOBADVAISOR_SSH_KEY=<file name>` for the key's file name in it (the default is `id_ed25519`). |
 
 Start the service:
 
@@ -148,6 +171,14 @@ docker compose up -d
 
 A changed `JOBADVAISOR_PORT` needs the same `docker compose up -d`. `docker compose restart` keeps the old port mapping.
 
+The release that adds the backup button needs three one-time steps before `docker compose up -d`. Copy the changed `compose.yaml` together with the new release, create the keys directory as in the first-time setup, and give the data directory to the container's user once, since git run as root on the host may have left root-owned objects in it that the container cannot write:
+
+```bash
+chown -R 10001:10001 /srv/jobadvaisor/data
+```
+
+The first backup afterwards commits everything that was changed since your last hand commit, in one commit.
+
 ### Which version runs
 
 The footer of every page shows the version of the page, the version of the server and the address the page talks to, for example `Frontend v0.1.0 · Backend v0.1.0 · <address you opened>`. Both versions are the release tag of the image. A build without a tag, such as a local one, shows `dev`.
@@ -156,21 +187,17 @@ The server also answers `GET /health` with its status and version, for example `
 
 A tab that stays open across an update still holds the old page. When it comes back into view, a banner says so and offers "Neu laden". Nothing reloads by itself, so a chat or a running pass is not lost until you press it.
 
-### Commit and push the server's data
+### Back up the server's data
 
-The app writes ratings, postings and scores into the data repository on the server and never commits. Until the automatic sync of [#63](https://github.com/therealmodbom/jobadvaisor/issues/63) exists, you commit and push by hand, with the service running. Until you do, the remote does not have the latest ratings.
+The app writes ratings, postings and scores into the data repository on the server. The backup button in the header of every view commits what is pending and pushes it, with the service running. The button is filled and shows a number while something is not backed up, and quiet ("Gesichert") otherwise; the line beside it says in words what is pending and when the last backup was. While it runs, a strip under the header shows the step, the number of files and the share of the push. Afterwards it says "Gepusht, gerade eben" or, without a remote, that the changes were committed and not pushed.
 
-```bash
-git -C /srv/jobadvaisor/data add -A
-git -C /srv/jobadvaisor/data commit -m "Ratings from the server"
-git -C /srv/jobadvaisor/data push
-```
+If the commit or the push fails, a red "Nicht gepusht" (or "Nicht gesichert") shows next to the button. It opens git's own message and the times. The changes stay in the data repository, the app keeps working, and the next press tries again. Until a push succeeds, the remote does not have the latest ratings. A button that is disabled, with an info icon, means the data directory is not a git repository of its own.
 
-Pull on your other computers as usual. Never force-push.
+Pull on your other computers as usual. The app never forces a push. Do not point the scripts that write a data root (the demo persona, the evals) at a server's data repository: the app's write gate does not reach them.
 
 ### When the push is rejected
 
-The remote has changes the server lacks, for example a push from another computer. Stop the service so that no rating lands in the working copy while git changes it. The browser shows a connection error until you start it again.
+The remote has changes the server lacks, for example a push from another computer, so the button shows "Nicht gepusht" with git's `rejected` message. Until the app can apply the remote's changes itself, recover by hand. Stop the service so that no rating lands in the working copy while git changes it. The browser shows a connection error until you start it again.
 
 ```bash
 cd /srv/jobadvaisor
@@ -180,10 +207,11 @@ git -C data commit -m "Ratings from the server"
 git -C data fetch
 git -C data rebase origin/main
 git -C data push
+chown -R 10001:10001 data
 docker compose up -d
 ```
 
-Skip the commit if `git -C data status` shows nothing to commit. Changes that do not overlap go through. The service does not start by itself afterwards, so the last command is part of the recovery.
+Skip the commit if `git -C data status` shows nothing to commit; if the backup button already committed your ratings, there is nothing to commit. Changes that do not overlap go through. Git run as root leaves root-owned objects in the data directory, so the `chown` hands it back to the container's user; without it the next backup fails to commit. The service does not start by itself afterwards, so the last command is part of the recovery. Once it runs, press the backup button once: the red "Nicht gepusht" stays until a backup succeeds, and a press with nothing pending only confirms that everything is pushed.
 
 If two changes touch the same file, `git rebase` stops and names the file. The service stays stopped. Choose one of these:
 
@@ -207,7 +235,7 @@ chown -R 10001:10001 data state
 docker compose up -d
 ```
 
-The state in `state/` rebuilds from the data. Remove `data.old` and `state.old` once the pool shows what you expect. Ratings that were never pushed are only in `data.old`.
+The state in `state/` rebuilds from the data, apart from `backup.json` (the time of the last backup), which the next backup writes again. Remove `data.old` and `state.old` once the pool shows what you expect. Ratings that were never pushed are only in `data.old`.
 
 ## Tests
 

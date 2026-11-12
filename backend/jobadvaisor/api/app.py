@@ -3,6 +3,7 @@
 
 import re
 from collections.abc import Callable
+from dataclasses import asdict
 from datetime import UTC, datetime
 from functools import cache
 from pathlib import Path
@@ -16,6 +17,12 @@ from pydantic import BaseModel, ConfigDict, Field, StrictStr, ValidationError, m
 from starlette.exceptions import HTTPException
 
 from jobadvaisor.agent import AgentContext, Reply, answer
+from jobadvaisor.data.backup import (
+    Backup,
+    BackupRefused,
+    BackupRunning,
+    BackupUnavailable,
+)
 from jobadvaisor.data.loader import DataRepository, DataRepositoryError, load
 from jobadvaisor.data.models import (
     HOST_PATTERN,
@@ -176,16 +183,18 @@ VERSION_FILE = REPOSITORY_ROOT / "VERSION"
 
 def create_app(runs: Runs | None = None, intake: Intake | None = None,
                agent: Agent | None = None, frontend: Path = FRONTEND_BUILD,
-               imports: Imports | None = None) -> FastAPI:
-    """The app over `runs`, `intake`, `agent` (conversation → reply) and `imports`,
-    by default those of the configured data repository (imports over `intake`); the default
+               imports: Imports | None = None, backup: Backup | None = None) -> FastAPI:
+    """The app over `runs`, `intake`, `agent` (conversation → reply), `imports` and `backup`,
+    by default those of the configured data repository (imports over `intake`, the backup of
+    `intake.root` with that repository's state directory); the default
     agent is built on its first message. The built frontend in `frontend` is served at `/`
     after the API routes, so they take precedence; without a build (no `index.html`) the API
     runs alone."""
+    settings = Settings()
     if runs is None or intake is None:
-        settings = Settings()
         runs, intake = runs or configured_runs(settings), intake or configured_intake(settings)
     imports = imports or Imports(intake)
+    backup = backup or Backup(intake.root, state_path(settings, intake.root))
     if agent is None:
         configured = cache(lambda: configured_agent(Settings()))
         agent = lambda messages: configured()(messages)  # noqa: E731
@@ -222,6 +231,49 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
         ok = data_repo == "ok"
         return JSONResponse({"status": "ok" if ok else "fail", "checks": {"data_repo": data_repo},
                              "version": version}, status_code=200 if ok else 503)
+
+    def backup_state() -> dict:
+        """The body of `GET /backup`. Raises `BackupUnavailable`."""
+        status, history = backup.status(), backup.history()
+        return {"pending": status.uncommitted > 0 or status.unpushed > 0,
+                "uncommitted": status.uncommitted, "unpushed": status.unpushed,
+                "branch": status.branch, "remote": status.remote, "operation": status.operation,
+                "running": backup.running, "progress": backup.progress,
+                "last_result": asdict(backup.last_result) if backup.last_result else None,
+                "last_success": history.last_success, "last_failure": history.last_failure}
+
+    @app.get("/backup")
+    def read_backup() -> dict:
+        """What a backup would do and how the last one went: `pending` (`uncommitted` changed
+        files, also those made outside the app, or `unpushed` commits), `branch` (null on a
+        detached HEAD), `remote` (the upstream, null without one), `operation` (a merge or
+        rebase stopped on a conflict), `running` with its `progress` `{step, files, percent}`,
+        `last_result` `{at, result, commit}` of the last finished backup (`pushed`, `committed`
+        or `up_to_date`), `last_success` (time) and `last_failure` `{at, step, reason}` (step
+        `commit` or `push`, reason git's message) since then. 409 `backup unavailable` when the
+        data directory is no git repository of its own."""
+        try:
+            return backup_state()
+        except BackupUnavailable as error:
+            return problem(409, "backup unavailable", str(error))
+
+    @app.post("/backup", status_code=202)
+    def start_backup() -> dict:
+        """Start a backup in the background (commit what is pending, then push when there is an
+        upstream); takes no body and answers at once `{"status"}`, the `GET /backup` body with
+        `running` true. A commit or push failure shows later in `last_failure` of `GET /backup`.
+        409 `backup running` (a second press is not queued), `backup refused` (detail: the
+        branch other than `main` or the operation in progress) or `backup unavailable`."""
+        try:
+            before = backup_state()  # taken first: a status read after the start could fail on a
+            backup.start()           # backup that is already running, or race a fast one
+            return {"status": before | {"running": True, "progress": backup.progress}}
+        except BackupRunning as error:
+            return problem(409, "backup running", str(error))
+        except BackupRefused as error:
+            return problem(409, "backup refused", str(error))
+        except BackupUnavailable as error:
+            return problem(409, "backup unavailable", str(error))
 
     @app.get("/pool")
     def read_pool_view() -> dict:

@@ -1,12 +1,16 @@
 """Write postings, labels and screening results to the data repository. The app writes files;
-the user commits them."""
+the backup (`data/backup.py`) commits and pushes them. Every public write function holds
+`write_gate` for its whole read-modify-write, so a backup, which holds it from `git add` to the
+end of `git commit`, never sees half a write."""
 
+import functools
 import itertools
 import json
 import os
 import re
 import tempfile
 import threading
+from collections.abc import Callable
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -28,7 +32,21 @@ from jobadvaisor.data.models import (
     Score,
 )
 
+# ponytail: process-local, reentrant (write functions call each other); one app process only,
+# a file lock if several ever write the data
+write_gate = threading.RLock()
 
+
+def _gated[**P, R](function: Callable[P, R]) -> Callable[P, R]:
+    """Run `function` while holding `write_gate`."""
+    @functools.wraps(function)
+    def gated(*args: P.args, **kwargs: P.kwargs) -> R:
+        with write_gate:
+            return function(*args, **kwargs)
+    return gated
+
+
+@_gated
 def write_label(root: Path, posting_id: str, label: Label) -> Path:
     """Write `label` as `labels/<posting_id>.json` under `root`, replacing any earlier label.
 
@@ -47,6 +65,7 @@ def write_label(root: Path, posting_id: str, label: Label) -> Path:
     return path
 
 
+@_gated
 def write_score(root: Path, posting_id: str, score: Score) -> Path:
     """Write `score` as `scores/<posting_id>.json` under `root`, replacing any earlier score.
 
@@ -62,6 +81,7 @@ def write_score(root: Path, posting_id: str, score: Score) -> Path:
     return path
 
 
+@_gated
 def merge_extraction_labels(root: Path, additions: dict[str, dict]) -> ExtractionLabels:
     """Merge `additions` (posting ID → feature ID → value) into `extraction-labels.json` under
     `root`, creating the file if missing: an existing label is replaced, every other label and
@@ -89,6 +109,7 @@ def merge_extraction_labels(root: Path, additions: dict[str, dict]) -> Extractio
     return merged
 
 
+@_gated
 def write_company(root: Path, company_id: str, company: Company) -> Path:
     """Write `company` as `companies/<company_id>.json` under `root`, replacing any earlier
     record. Validated again first, unset facts left out, swapped in by rename like
@@ -122,6 +143,7 @@ def read_pool(root: Path) -> Pool:
     return _read_entity(root, Path("pool.json"), Pool) or Pool(schema_version="1")
 
 
+@_gated
 def write_pool(root: Path, pool: Pool) -> Path:
     """Write `pool` as `pool.json` under `root`, replacing the file by rename like `write_label`.
     Validated again first. Raises `ValueError` for an invalid pool. Returns the written path."""
@@ -131,31 +153,26 @@ def write_pool(root: Path, pool: Pool) -> Path:
     return path
 
 
-# ponytail: process-local lock, one app process only; a file lock if several ever write the data
-_pool_lock = threading.Lock()
-
-
+@_gated
 def append_pass(root: Path, finished: PoolPass) -> Pool:
     """Append `finished` to the `passes` of `pool.json` under `root` (created with defaults if
     missing), keeping settings and earlier passes, and return the updated pool. Read-modify-write
-    under a process-local lock with an atomic final write. Raises like `read_pool` and
-    `write_pool`."""
-    with _pool_lock:
-        pool = read_pool(root)
-        pool.passes.append(finished)
-        write_pool(root, pool)
+    under the write gate with an atomic final write. Raises like `read_pool` and `write_pool`."""
+    pool = read_pool(root)
+    pool.passes.append(finished)
+    write_pool(root, pool)
     return pool
 
 
+@_gated
 def update_pool_settings(root: Path, settings: PoolSettings) -> Pool:
     """Replace the `settings` of `pool.json` under `root` (created with defaults if missing),
     keeping the passes, and return the updated pool. Same locking as `append_pass`. Raises like
     `read_pool` and `write_pool`; an invalid `settings` raises `ValueError`."""
     settings = PoolSettings.model_validate(settings.model_dump())
-    with _pool_lock:
-        pool = read_pool(root)
-        pool.settings = settings
-        write_pool(root, pool)
+    pool = read_pool(root)
+    pool.settings = settings
+    write_pool(root, pool)
     return pool
 
 
@@ -195,6 +212,7 @@ def _read_entity[M: Entity](root: Path, relative: Path, model: type[M]) -> M | N
     return entity
 
 
+@_gated
 def write_guard(root: Path, posting_id: str, guard: Guard) -> Posting:
     """Set the `guard` of `postings/<posting_id>.json` under `root` to `guard`, leaving every
     other field as the file on disk holds it, and return the updated posting.
@@ -214,6 +232,7 @@ def read_posting(root: Path, posting_id: str) -> Posting:
     return Posting.model_validate_json(_posting_path(root, posting_id).read_text(), strict=True)
 
 
+@_gated
 def update_posting(root: Path, posting_id: str, updates: dict[str, object]) -> Posting:
     """Replace the top-level keys in `updates` (JSON values) of `postings/<posting_id>.json`
     under `root` in one write, keeping every other key as the file on disk holds it, and return
@@ -224,6 +243,7 @@ def update_posting(root: Path, posting_id: str, updates: dict[str, object]) -> P
     return _update_json(_posting_path(root, posting_id), updates, Posting)
 
 
+@_gated
 def write_login_wall_hosts(root: Path, hosts: list[str]) -> PolicyPack:
     """Set `login_wall_hosts` in `policy-pack.json` under `root` to `hosts`, keeping every other
     key as the file on disk holds it (an absent field stays absent), and return the updated
@@ -232,6 +252,7 @@ def write_login_wall_hosts(root: Path, hosts: list[str]) -> PolicyPack:
     return _update_json(root / "policy-pack.json", {"login_wall_hosts": hosts}, PolicyPack)
 
 
+@_gated
 def write_import_mapping(root: Path, mapping: ImportMapping) -> PolicyPack:
     """Set `import_mapping` in `policy-pack.json` under `root` to `mapping`, keeping every other
     key as the file on disk holds it, and return the updated pack. Written like
@@ -240,23 +261,21 @@ def write_import_mapping(root: Path, mapping: ImportMapping) -> PolicyPack:
                         {"import_mapping": mapping.model_dump(mode="json")}, PolicyPack)
 
 
-_update_lock = threading.Lock()  # ponytail: process-local like `_pool_lock`
-
-
+@_gated
 def _update_json[T: BaseModel](path: Path, updates: dict[str, object], model: type[T]) -> T:
     """Merge `updates` into the JSON object at `path`, validate it as `model`, write it by
-    rename and return it. Read and write run under one lock, so two updates of one file (an
-    import's origin mark and a status `PATCH`) never drop each other's keys."""
-    with _update_lock:
-        data = json.loads(path.read_text()) | updates
-        text = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
-        entity = model.model_validate_json(text, strict=True)
-        temporary = path.with_name(f".{path.name}.tmp")
-        temporary.write_text(text)
-        os.replace(temporary, path)
+    rename and return it. Read and write run under the write gate, so two updates of one file
+    (an import's origin mark and a status `PATCH`) never drop each other's keys."""
+    data = json.loads(path.read_text()) | updates
+    text = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+    entity = model.model_validate_json(text, strict=True)
+    temporary = path.with_name(f".{path.name}.tmp")
+    temporary.write_text(text)
+    os.replace(temporary, path)
     return entity
 
 
+@_gated
 def create_posting(root: Path, base_id: str, posting: Posting) -> str:
     """Write `posting` as a new file `postings/<base_id>.json` under `root`, or with `-2`, `-3`
     … appended when that name is taken, and return the ID used. Never overwrites a file: the

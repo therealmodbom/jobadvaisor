@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted, 2026-11-05.
+Accepted, 2026-11-05. Partly superseded by [ADR 0010](0010-the-app-commits-and-pushes-the-data-repository.md): the data is committed and pushed by the app's backup button, not by hand. The rest stands.
 
 ## Context
 
