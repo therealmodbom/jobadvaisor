@@ -38,6 +38,7 @@ const TEXT: [string, string][] = [
   ['danger', 'card'], ['danger', 'danger-soft'], ['success', 'card'], ['success', 'success-soft'],
   ['foreground', 'card-alt'], ['muted-foreground', 'card-alt'], ['primary', 'card-alt'],
   ['negative', 'card-alt'], ['explore', 'card-alt'],
+  ['subtle-foreground', 'background'], ['subtle-foreground', 'card'],
 ]
 /** Control boundaries and focus ring against their surface: 3:1 (WCAG 1.4.11). */
 const CONTROLS: [string, string][] = [
@@ -53,6 +54,9 @@ test('contrast matches the WCAG formula at its extremes', () => {
 describe.each(Object.entries(themes))('%s theme', (_, theme) => {
   test.each(TEXT)('text %s on %s reaches 4.5:1', (fg, bg) => {
     expect(contrast(theme[fg], theme[bg])).toBeGreaterThanOrEqual(4.5)
+  })
+  test.each(['background', 'card'])('subtle-foreground recedes behind muted-foreground on %s', (bg) => {
+    expect(contrast(theme['subtle-foreground'], theme[bg])).toBeLessThan(contrast(theme['muted-foreground'], theme[bg]))
   })
   test.each(CONTROLS)('control %s on %s reaches 3:1', (fg, bg) => {
     expect(contrast(theme[fg], theme[bg])).toBeGreaterThanOrEqual(3)
