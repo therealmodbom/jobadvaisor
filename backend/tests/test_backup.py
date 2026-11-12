@@ -12,9 +12,11 @@ from jobadvaisor.data.backup import (
     Backup,
     BackupFailed,
     BackupRefused,
+    BackupRunning,
     BackupUnavailable,
     History,
     commit_message,
+    push_percent,
 )
 
 
@@ -324,6 +326,71 @@ def test_an_unreadable_history_file_reads_as_none(backup, tmp_path, content):
     (tmp_path / "state").mkdir()
     (tmp_path / "state" / "backup.json").write_text(content)
     assert backup.history() == History(last_success=None, last_failure=None)
+
+
+def _wait_until(condition, seconds: float = 10.0) -> None:
+    deadline = time.monotonic() + seconds
+    while not condition():
+        assert time.monotonic() < deadline, "timed out waiting for the condition"
+        time.sleep(0.02)
+
+
+def _hold_pushes(root, release) -> None:
+    """A `pre-push` hook that blocks until the file `release` exists."""
+    hook = root / ".git" / "hooks" / "pre-push"
+    hook.write_text(f'#!/bin/sh\nwhile [ ! -e "{release}" ]; do sleep 0.02; done\n')
+    hook.chmod(0o755)
+
+
+def test_a_second_backup_while_one_runs_is_refused_and_progress_shows_the_push(
+        backup, backed_up, tmp_path):
+    release = tmp_path / "release"
+    _hold_pushes(backed_up.root, release)
+    _edit_profile(backed_up.root, "edited by hand")
+    (backed_up.root / "postings" / "new.json").write_text("{}\n")
+    backup.start()
+    _wait_until(lambda: backup.progress and backup.progress["step"] == "pushing")
+    assert backup.running
+    assert backup.progress["files"] == 2
+    with pytest.raises(BackupRunning):
+        backup.start()
+    release.write_text("")
+    _wait_until(lambda: not backup.running)
+    assert backup.progress is None
+    assert backup.last_result.result == "pushed"
+    assert backup.last_result.commit == git(backed_up.root, "rev-parse", "HEAD").strip()
+    assert _remote_subject(backed_up.remote) == "Backup: 1 posting, 1 other file"
+
+
+def test_a_refusal_is_raised_before_the_thread_starts(backup, backed_up):
+    git(backed_up.root, "checkout", "-b", "other")
+    with pytest.raises(BackupRefused):
+        backup.start()
+    assert not backup.running
+
+
+def test_a_failure_in_the_thread_is_recorded_and_the_next_backup_may_start(
+        backup, backed_up, tmp_path):
+    git(backed_up.root, "remote", "set-url", "origin", str(tmp_path / "missing.git"))
+    _edit_profile(backed_up.root, "while offline")
+    backup.start()
+    _wait_until(lambda: not backup.running)
+    assert backup.history().last_failure["step"] == "push"
+    assert backup.last_result is None
+    backup.start()  # not refused as running
+    _wait_until(lambda: not backup.running)
+
+
+@pytest.mark.parametrize("output, percent", [
+    ("Writing objects:   2% (1/42)", 2),
+    ("Counting objects: 100% (5/5), done.\rWriting objects:  60% (12/20)\r"
+     "Writing objects:  65% (13/20)", 65),
+    ("Writing objects: 100% (3/3), 300 bytes | 300.00 KiB/s, done.\n", 100),
+    ("Everything up-to-date\n", None),
+    ("", None),
+])
+def test_the_push_percentage_comes_from_the_writing_objects_lines(output, percent):
+    assert push_percent(output) == percent
 
 
 def test_the_fallback_identity_is_used_without_a_repository_identity(backup, backed_up):

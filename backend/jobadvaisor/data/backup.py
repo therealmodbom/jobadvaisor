@@ -8,8 +8,11 @@ Runs the `git` command (`git -C <root> ...`), never a git library. Every call se
 import json
 import logging
 import os
+import re
 import signal
 import subprocess
+import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -82,10 +85,12 @@ class Status:
 @dataclass(frozen=True)
 class Result:
     """A finished backup: `result` is `pushed`, `committed` (no upstream, so nothing pushed) or
-    `up_to_date`; `commit` is the full SHA of `HEAD` afterwards."""
+    `up_to_date`; `commit` is the full SHA of `HEAD` afterwards; `at` the UTC time it
+    finished, as in `History`."""
 
     result: str
     commit: str
+    at: str
 
 
 @dataclass(frozen=True)
@@ -100,6 +105,10 @@ class History:
 class BackupRefused(Exception):
     """A backup that must not start: another branch than `main`, or a git operation stopped on
     a conflict. `str(error)` names which; nothing was changed."""
+
+
+class BackupRunning(Exception):
+    """`Backup.start()` while a backup already runs; the second one is refused, not queued."""
 
 
 class BackupFailed(Exception):
@@ -119,6 +128,9 @@ class Backup:
     def __init__(self, root: Path, state_path: Path):
         self.root = root
         self.state_path = state_path
+        self.last_result: Result | None = None  # of the last backup `start()` finished
+        self._running = threading.Lock()
+        self._progress: dict[str, object] = {"step": "staging", "files": 0, "percent": None}
 
     def run(self) -> Result:
         """Stage and commit what is pending (under the write gate, temporary files excluded),
@@ -170,22 +182,62 @@ class Backup:
 
     def _backup(self) -> Result:
         status = self.status()
-        if status.operation:
-            raise BackupRefused(f"a {status.operation} is in progress")
-        if status.branch != "main":
-            raise BackupRefused(f"on branch {status.branch}" if status.branch
-                                else "on a detached HEAD")
+        _refuse(status)
         committed = self._commit()
         pushed = False
         if status.remote and (committed or status.unpushed):
             self._push()
             pushed = True
         head = self._git("rev-parse", "HEAD").stdout.strip()
-        return Result("pushed" if pushed else "committed" if committed else "up_to_date", head)
+        return Result("pushed" if pushed else "committed" if committed else "up_to_date", head,
+                      _now())
+
+    def start(self) -> None:
+        """Start a backup in a thread and return at once; poll `running`, `progress`,
+        `last_result` and `history()` for its course. Raises `BackupRunning` while one runs (it
+        is not queued), and `BackupUnavailable` or `BackupRefused` when it could not start, all
+        before the thread starts. A failure in the thread lands in `history()`."""
+        if not self._running.acquire(blocking=False):
+            raise BackupRunning("a backup is running")
+        try:
+            _refuse(self.status())
+        except BaseException:
+            self._running.release()
+            raise
+        self._progress = {"step": "staging", "files": 0, "percent": None}
+        threading.Thread(target=self._run_in_thread, daemon=True).start()
+
+    @property
+    def running(self) -> bool:
+        """Whether a backup started with `start()` is still running."""
+        return self._running.locked()
+
+    @property
+    def progress(self) -> dict[str, object] | None:
+        """`{step, files, percent}` while a backup runs, else `None`. `step` is `staging`,
+        `committing` or `pushing`; `files` the staged file count; `percent` the push's
+        `Writing objects` percentage, `None` until git reports one."""
+        return self._progress if self.running else None
+
+    def _run_in_thread(self) -> None:
+        try:
+            self.last_result = self.run()
+        except (BackupFailed, BackupRefused, BackupUnavailable):
+            pass  # a failure is in `history()`, a refusal only happens if the state changed
+        except Exception as error:  # a git call that timed out or an unreadable repository
+            logger.exception("backup failed unexpectedly")
+            step = "push" if self._progress["step"] == "pushing" else "commit"
+            self._record(last_failure={"at": _now(), "step": step, "reason": str(error)})
+        finally:
+            self._running.release()
+
+    def _set_progress(self, **changes: object) -> None:
+        self._progress = {**self._progress, **changes}
 
     def _commit(self) -> bool:
         """Stage and commit all pending changes under the write gate; `False` if none."""
         with write_gate:
+            self._set_progress(step="staging")
             self._git("add", "-A", "--", ".", *TEMPORARY_EXCLUDES)
             # `add` only skips temporary files; one staged by hand would be committed.
             self._git("reset", "-q", "--", ":(glob)**/.*.tmp", ":(glob)**/.*.new", check=False)
@@ -193,6 +245,7 @@ class Backup:
             paths = [path for path in staged.split("\0") if path]
             if not paths:
                 return False
+            self._set_progress(step="committing", files=len(paths))
             try:
                 commit = self._git("commit", "-m", commit_message(paths), check=False,
                                    env=self._identity(), timeout=COMMIT_TIMEOUT)
@@ -216,9 +269,16 @@ class Backup:
     def _push(self) -> None:
         remote = self._git("config", "branch.main.remote").stdout.strip()
         branch = self._git("config", "branch.main.merge").stdout.strip()
+        self._set_progress(step="pushing")
+
+        def on_stderr(line: str) -> None:
+            percent = push_percent(line)
+            if percent is not None:
+                self._set_progress(percent=percent)
+
         try:
             push = self._git("push", "--progress", remote, f"HEAD:{branch}", check=False,
-                             timeout=PUSH_TIMEOUT)
+                             timeout=PUSH_TIMEOUT, on_stderr=on_stderr)
         except subprocess.TimeoutExpired:
             raise BackupFailed("push", f"timed out after {PUSH_TIMEOUT} seconds") from None
         if push.returncode != 0:
@@ -264,8 +324,13 @@ class Backup:
         return None
 
     def _git(self, *args: str, check: bool = True, optional_locks: bool = True,
-             timeout: float = STATUS_TIMEOUT,
-             env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+             timeout: float = STATUS_TIMEOUT, env: dict[str, str] | None = None,
+             on_stderr: Callable[[str], None] | None = None,
+             ) -> subprocess.CompletedProcess[str]:
+        """Run `git -C root args`. `on_stderr` gets each stderr line while git runs (a `\\r`
+        counts as a line end, so progress updates arrive one by one). Raises
+        `subprocess.TimeoutExpired` after `timeout` seconds, having killed git and its
+        children, and `subprocess.CalledProcessError` for a failure when `check` is set."""
         environment = {**os.environ, "GIT_TERMINAL_PROMPT": "0", **(env or {})}
         if not optional_locks:
             environment["GIT_OPTIONAL_LOCKS"] = "0"
@@ -275,7 +340,7 @@ class Backup:
         with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                               env=environment, start_new_session=True) as process:
             try:
-                stdout, stderr = process.communicate(timeout=timeout)
+                stdout, stderr = _communicate(process, timeout, on_stderr)
             except subprocess.TimeoutExpired:
                 os.killpg(process.pid, signal.SIGKILL)
                 process.communicate()
@@ -283,6 +348,44 @@ class Backup:
         if check and process.returncode != 0:
             raise subprocess.CalledProcessError(process.returncode, command, stdout, stderr)
         return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+
+
+def _refuse(status: Status) -> None:
+    """Raise `BackupRefused` for a git operation stopped on a conflict or a branch other than
+    `main`."""
+    if status.operation:
+        raise BackupRefused(f"a {status.operation} is in progress")
+    if status.branch != "main":
+        raise BackupRefused(f"on branch {status.branch}" if status.branch
+                            else "on a detached HEAD")
+
+
+def _communicate(process: subprocess.Popen[str], timeout: float,
+                 on_stderr: Callable[[str], None] | None) -> tuple[str, str]:
+    """`process.communicate(timeout=timeout)`, handing stderr lines to `on_stderr` as they
+    arrive when it is given. Raises `subprocess.TimeoutExpired` (the caller kills the group)."""
+    if on_stderr is None:
+        return process.communicate(timeout=timeout)
+    lines: list[str] = []
+
+    def pump() -> None:
+        for line in process.stderr:
+            lines.append(line)
+            on_stderr(line)
+
+    reader = threading.Thread(target=pump, daemon=True)
+    reader.start()
+    process.wait(timeout=timeout)
+    reader.join()
+    return process.stdout.read(), "".join(lines)
+
+
+def push_percent(output: str) -> int | None:
+    """The last `Writing objects:  60% (12/20)` percentage in git's push `output` (updates are
+    separated by `\\r` or newlines), or `None` when it has none, as for a push too small to
+    print progress."""
+    found = re.findall(r"Writing objects:\s+(\d+)%", output)
+    return int(found[-1]) if found else None
 
 
 def _now() -> str:
