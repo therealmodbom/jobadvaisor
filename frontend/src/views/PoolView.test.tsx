@@ -56,6 +56,22 @@ test('a row shows score, rating, status, link and the exploration mark', async (
   expect(row('Buchhalter (m/w/d)').getByText(/scores\/broken\.json ist nicht lesbar/)).toBeInTheDocument()
 })
 
+test('each row shows when it was added, above its title, and the order stays as sent', async () => {
+  stubApi({ 'GET /pool': { body: poolWith({ rows: [
+    makeRow('new', 'Neuere Stelle (m/w/d)', { added_at: '2026-11-12T13:05:00+00:00' }),
+    makeRow('old', 'Ältere Stelle (m/w/d)', { added_at: '2026-11-12T08:41:00+00:00' })] }) } })
+  render(<PoolView />)
+  expect(await titles()).toEqual(['Neuere Stelle (m/w/d)', 'Ältere Stelle (m/w/d)'])
+  const second = row('Ältere Stelle (m/w/d)')
+  const line = second.getByText('Hinzugefügt 12.11.2026, 09:41')
+  expect(line).toBeVisible()
+  expect(row('Neuere Stelle (m/w/d)').getByText('Hinzugefügt 12.11.2026, 14:05')).toBeVisible()
+  const heading = screen.getByRole('heading', { name: 'Ältere Stelle (m/w/d)' })
+  expect(heading).toHaveAccessibleName('Ältere Stelle (m/w/d)')
+  expect(line.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(line.closest('time')).toHaveAttribute('datetime', '2026-11-12T08:41:00.000Z')
+})
+
 test.each([
   ['Noch nicht bewertet', ['Data Engineer (m/w/d)', 'Datenjournalist (m/w/d)', 'Neue Stelle (m/w/d)',
     'Vertrieb Innendienst (m/w/d)', 'Analyst (m/w/d)', 'Buchhalter (m/w/d)', 'Importierte Stelle (m/w/d)']],

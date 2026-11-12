@@ -43,6 +43,17 @@ test('shows heading, text, original link, score with reasoning, examples, rating
   await waitFor(() => expect(document.title).toBe('Data Analyst (m/w/d) – JobAdvAIsor'))
 })
 
+test('shows when the posting was added, above the title, which stays the heading name', async () => {
+  stubApi({ 'GET /postings/p1': { body: page() } })
+  render(<PostingPage postingId="p1" />)
+  const heading = await screen.findByRole('heading', { level: 1 })
+  const line = screen.getByText('Hinzugefügt 10.10.2026, 09:12')
+  expect(line).toBeVisible()
+  expect(line.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(heading).toHaveAccessibleName('Data Analyst (m/w/d)')
+  expect(line.closest('time')).toHaveAttribute('datetime', '2026-10-10T07:12:00.000Z')
+})
+
 test('shows "Noch keine Bewertung" without a rating, and origin when set', async () => {
   stubApi({ 'GET /postings/p1': { body: page({
     row: row('p1', 'Data Analyst (m/w/d)', { origin: { table: 'jobs_alt', fit: 'gut', status: 'beworben' } }) }) } })

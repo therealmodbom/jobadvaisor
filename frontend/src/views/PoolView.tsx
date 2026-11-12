@@ -6,7 +6,7 @@ import { Legend, ReasonsAndNote, VerdictButtons } from '@/components/rating'
 import { EmptyState, ErrorWithRetry, Loading } from '@/components/states'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { STATUSES } from '@/lib/german'
+import { addedLabel, STATUSES } from '@/lib/german'
 import { LEVELS, strayPaste, useRating, type Rating } from '@/lib/rating'
 import { useScore, type ScoreCall } from '@/lib/score'
 import { cn, without } from '@/lib/utils'
@@ -212,7 +212,7 @@ function Settings({ settings, onSaved }: { settings: PoolSettings; onSaved: () =
   )
 }
 
-/** One pool row: title link, company and location, score with its button, the "Stichprobe" and
+/** One pool row: the "Hinzugefügt" line (when it entered the app), title link, company and location, score with its button, the "Stichprobe" and
  * import marks, the rating (verdict buttons; the selected row also shows every reason chip and the
  * note field, the others their chosen reasons) and the status control. `onSelect` makes it the row
  * the shortcuts act on, `onLevel` sends a rating level. `onStatus` sends a new status; `saving`
@@ -244,6 +244,9 @@ function Row({ row, chips, rating, selected, onSelect, onLevel, saving, failed, 
         className={cn('flex flex-wrap items-start gap-x-6 gap-y-3 rounded-xl border bg-card px-5 py-4 shadow-card',
           selected && 'outline-2 outline-offset-2 outline-ring')}>
       <div className="min-w-0 flex-[3_1_280px]">
+        <p className="text-[11px] leading-4 text-subtle-foreground">
+          <time dateTime={new Date(row.added_at).toISOString()}>{addedLabel(row.added_at)}</time>
+        </p>
         <h3 className="text-lg leading-snug font-bold">
           <a id={`title-${row.posting_id}`} href={`#/anzeigen/${encodeURIComponent(row.posting_id)}`} className="text-foreground">{row.title}</a>
         </h3>

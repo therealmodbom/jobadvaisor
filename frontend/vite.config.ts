@@ -19,5 +19,6 @@ export default defineConfig({
     strictPort: true,
     proxy: Object.fromEntries(API_ROUTES.map((route) => [route, `http://127.0.0.1:${API_PORT}`])),
   },
-  test: { environment: 'jsdom', setupFiles: ['./src/test-setup.ts'] },
+  // TZ is pinned so date assertions read the same on every machine and in CI.
+  test: { environment: 'jsdom', setupFiles: ['./src/test-setup.ts'], env: { TZ: 'Europe/Berlin' } },
 })

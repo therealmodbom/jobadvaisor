@@ -15,3 +15,11 @@ export const STATUSES: [Status, string][] = [['open', 'offen'], ['applied', 'bew
 export function categoryNames(categories: string[]): string {
   return categories.map((category) => CATEGORIES[category] ?? category).join(', ')
 }
+
+const ADDED_FORMAT = new Intl.DateTimeFormat('de-DE', { dateStyle: 'medium', timeStyle: 'short' })
+
+/** „Hinzugefügt 12.11.2026, 14:05“ for the ISO timestamp `iso` (offset, optional microseconds),
+ * to the minute and in the runtime's time zone, which in the app is the browser's. */
+export function addedLabel(iso: string): string {
+  return `Hinzugefügt ${ADDED_FORMAT.format(new Date(iso))}`
+}

@@ -74,10 +74,11 @@ def app_url(data_root, harness):
 
 @pytest.fixture(scope="module")
 def page(app_url):
-    """One Chromium page for the whole walkthrough; default timeout 10 s."""
+    """One Chromium page for the whole walkthrough, in the Europe/Berlin time zone so the added
+    date reads the same on every machine; default timeout 10 s."""
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
-        page = browser.new_page()
+        page = browser.new_page(timezone_id="Europe/Berlin")
         page.set_default_timeout(10_000)
         yield page
         browser.close()
@@ -125,6 +126,18 @@ def test_a_re_score_from_a_pool_row_replaces_the_score(page, app_url, data_root,
     row.get_by_role("button", name="Neu berechnen").click()
     expect(row.get_by_text("9", exact=True)).to_be_visible()
     assert stored_scores(data_root)["fresh"] == 9
+
+
+def test_the_added_date_shows_in_the_browsers_time_zone_in_the_pool_and_on_the_posting_page(
+        page, app_url):
+    """The fixture's `added_at` is 09:00 UTC; the page is in Europe/Berlin, so it reads 10:00."""
+    added = "Hinzugefügt 05.01.2026, 10:00"
+    page.goto(f"{app_url}/#/pool")
+    expect(pool_row(page, RATED).get_by_text(added)).to_be_visible()
+    page.goto(f"{app_url}/#/anzeigen/rated")
+    expect(page.get_by_role("heading", level=1, name=RATED)).to_be_visible()
+    # a role query skips the pool, which stays in the DOM but hidden
+    expect(page.get_by_role("time").filter(has_text=added)).to_be_visible()
 
 
 def test_an_excluded_posting_has_a_disabled_button_with_its_reason(page, app_url, data_root):

@@ -15,6 +15,7 @@
   --card-alt: #EEF2F8;
   --muted: #E5E8E3;
   --muted-foreground: #4F5760;
+  --subtle-foreground: #666D75;
   --border: #CDD3CB;
   --input: #737C76;
   --primary: #1F49C7;
@@ -42,6 +43,7 @@
     --card-alt: #262C34;
     --muted: #2A2F36;
     --muted-foreground: #A7AFB9;
+    --subtle-foreground: #8E96A0;
     --border: #3A414A;
     --input: #79828E;
     --primary: #93B1FF;
@@ -82,6 +84,7 @@
   --color-secondary-foreground: var(--foreground);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
+  --color-subtle-foreground: var(--subtle-foreground);
   --color-accent: var(--muted);
   --color-accent-foreground: var(--foreground);
   --color-destructive: var(--danger);
