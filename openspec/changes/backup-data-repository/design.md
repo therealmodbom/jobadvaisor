@@ -103,7 +103,7 @@ The pieces:
 - A component `BackupControl` in the app shell shows the button, its highlight, the progress (step, files, percent), the result line and the last successful backup.
 - The button is on every view as a trial. Whether it stays there or moves to the settings page is decided after daily use.
 
-Its look and position in the header are settled in a Design artifact session on the JobAdvAIsor design system **before any UI code** (tasks.md, group 4). Slice 2's gear icon for the settings page is designed in the same session, so the header is laid out once.
+Its look and position follow the Design artifact [Backup-Button und Einstellungen](https://claude.ai/artifact/36PaFpC4LN6NpeKsFYrBUL) on the JobAdvAIsor design system. It is settled in the spec phase, before implementation starts (tasks.md, group 4). It shows the header on desktop and phone, every state of the control, and slice 2's gear icon for the settings page, so the header is laid out once.
 
 ### Image and deployment
 

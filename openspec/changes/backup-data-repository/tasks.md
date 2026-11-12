@@ -48,9 +48,9 @@ TDD per task: a failing test first, then the code. Backend tests use real git on
   - `409 backup unavailable` for a data directory that is not a git repository;
   - a push failure and a commit failure, each in `last_failure` with its step and git's reason.
 
-## 4. Design artifact session (gate for the UI)
+## 4. Design artifact session (spec phase, gate for the implementation)
 
-- [ ] 4.1 With the owner, design in a Design artifact on the JobAdvAIsor design system:
+- [ ] 4.1 With the owner, design in the Design artifact [Backup-Button und Einstellungen](https://claude.ai/artifact/36PaFpC4LN6NpeKsFYrBUL) on the JobAdvAIsor design system, before task 1.1 starts:
   - the backup button in the header, quiet and highlighted;
   - the running state with its progress (step, files, push percent);
   - the success, committed-without-remote and failure states;
@@ -58,7 +58,7 @@ TDD per task: a failing test first, then the code. Backend tests use real git on
   - the last-backup line;
   - slice 2's gear icon for the settings page, so the header is laid out once.
 
-  Verify by the owner approving the artifact. No UI code before this task is done.
+  Verify by the owner approving the artifact. Implementation (group 1 onward) starts only after this.
 
 ## 5. Frontend
 
