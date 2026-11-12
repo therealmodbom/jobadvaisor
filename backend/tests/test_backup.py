@@ -135,6 +135,14 @@ def test_a_plain_directory_is_unavailable(demo_copy, tmp_path):
         Backup(demo_copy, tmp_path / "state").status()
 
 
+def test_git_s_own_refusal_is_the_reason_when_it_is_not_a_missing_repository(backup, monkeypatch):
+    refusal = subprocess.CompletedProcess(
+        [], 128, "", "fatal: detected dubious ownership in repository at '/data'")
+    monkeypatch.setattr(backup, "_git", lambda *args, **kwargs: refusal)
+    with pytest.raises(BackupUnavailable, match="dubious ownership"):
+        backup.status()
+
+
 def test_a_subdirectory_of_another_repository_is_unavailable(backed_up, tmp_path):
     with pytest.raises(BackupUnavailable, match="not the top level"):
         Backup(backed_up.root / "labels", tmp_path / "state").status()

@@ -252,6 +252,46 @@ test('a refusal goes once the status no longer shows its cause', async () => {
   expect(result.current.refusal).toBeNull()
 })
 
+test('a refusal is not wiped by a status fetched before the press', async () => {
+  let refused = false
+  let release: () => void = () => {}
+  const held = new Promise<void>((resolve) => { release = resolve })
+  stubApi({
+    'GET /backup': async () => {
+      if (refused) await held // the status after the refusal is still on its way
+      return { body: { ...PENDING, branch: refused ? 'other' : 'main' } }
+    },
+    'POST /backup': () => {
+      refused = true // the branch changed on the server after the last poll
+      return { status: 409, body: { error: 'backup refused', detail: 'on branch other' } }
+    },
+  })
+  const { result } = renderHook(() => useBackupStatus())
+  await flush()
+  act(() => result.current.press())
+  await flush()
+  expect(result.current.refusal).toBe('on branch other') // the old `main` status does not wipe it
+  release()
+  await flush()
+  expect(result.current.refusal).toBe('on branch other')
+})
+
+test('a first fetch that fails gives a reason in place of the button, and a later one clears it', async () => {
+  let fail = true
+  stubApi({
+    'GET /backup': () => fail ? { status: 500, body: { error: 'internal error', detail: '' } }
+      : { body: QUIET },
+  })
+  const { result } = renderHook(() => useBackupStatus())
+  await flush()
+  expect(result.current.status).toBeNull()
+  expect(result.current.unavailable).toBe('Der Backup-Status ließ sich nicht abrufen.')
+  fail = false
+  await advance(15_000)
+  expect(result.current.unavailable).toBeNull()
+  expect(result.current.status).toEqual(QUIET)
+})
+
 test('a press failure goes once a backup runs', async () => {
   let running = false
   stubApi({

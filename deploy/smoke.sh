@@ -86,13 +86,16 @@ subprocess.run(["git", "-C", str(root), "init", "-q", "-b", "main"], check=True)
 (root / "profile.json").write_text("{}\n")
 assert Backup(root, pathlib.Path(tempfile.mkdtemp())).run().result == "committed"
 '
-# The image is public: no private key outside the dependencies (.venv, /usr/local/lib, whose
-# certifi bundles are public CA lists) and the browser, by name or by content.
-check "no private key in the image" in_image sh -c '
+# The image is public: no private key outside the dependencies (.venv, uv's build cache, whose
+# test files hold dummy keys, /usr/local/lib, whose certifi bundles are public CA lists) and the
+# browser, by name or by content. It runs as root,
+# since the service user cannot enter /root, where a build step would most likely leave a key.
+check "no private key in the image" docker run --rm --user 0 --entrypoint sh "$image" -c '
   [ -z "$(find / -xdev \( -path /proc -o -path /app/backend/.venv -o -path /ms-playwright \
-    -o -path /usr/lib -o -path /usr/local/lib -o -path /usr/share -o -path /etc/ssl \) -prune -o \
+    -o -path /root/.cache -o -path /usr/lib -o -path /usr/local/lib -o -path /usr/share \
+    -o -path /etc/ssl \) -prune -o \
     \( -name "id_*" -o -name "*.pem" -o -name "*.key" \) -print 2>/dev/null)" ] \
-  && ! grep -rIlq --exclude-dir=.venv --exclude-dir=node_modules -- \
+  && ! grep -rIlq --exclude-dir=.venv --exclude-dir=node_modules --exclude-dir=.cache -- \
     "-----BEGIN [A-Z ]*PRIVATE KEY" /app /etc /root /home /opt /srv /var 2>/dev/null'
 
 echo "smoke check passed: $image"

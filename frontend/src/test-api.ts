@@ -3,7 +3,8 @@ import { vi } from 'vitest'
 /** A request the stubbed API received: method, path and the parsed JSON or form body. */
 export type Call = { method: string; path: string; body: unknown }
 
-type Answer = { status?: number; body?: unknown } | Promise<never>
+type Reply = { status?: number; body?: unknown }
+type Answer = Reply | Promise<Reply>
 
 /** The default `GET /backup`: a backed-up repository with nothing pending. */
 const QUIET_BACKUP = {

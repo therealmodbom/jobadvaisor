@@ -27,6 +27,7 @@ HISTORY_FILE = "backup.json"
 STATUS_TIMEOUT = 30
 COMMIT_TIMEOUT = 60
 PUSH_TIMEOUT = 60
+STOP_GRACE = 2  # seconds git gets to clean up after SIGTERM before SIGKILL
 
 # Variables that point git at a repository other than the one `-C` names.
 GIT_REDIRECTS = {"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR"}
@@ -356,7 +357,9 @@ class Backup:
         except FileNotFoundError:
             raise BackupUnavailable("git is not installed") from None
         if top.returncode != 0:
-            raise BackupUnavailable(f"{self.root} is not a git repository")
+            if "not a git repository" in top.stderr or not top.stderr.strip():
+                raise BackupUnavailable(f"{self.root} is not a git repository")
+            raise BackupUnavailable(top.stderr.strip())  # git's own refusal, for instance ownership
         if Path(top.stdout.strip()).resolve() != self.root.resolve():
             raise BackupUnavailable(f"{self.root} is not the top level of its git repository")
 
@@ -391,7 +394,7 @@ class Backup:
             try:
                 stdout, stderr = _communicate(process, timeout, on_stderr)
             except subprocess.TimeoutExpired:
-                os.killpg(process.pid, signal.SIGKILL)
+                _stop(process)
                 if on_stderr is None:
                     process.communicate()
                 else:  # the reader threads own the pipes; they end when the pipes close
@@ -400,6 +403,22 @@ class Backup:
         if check and process.returncode != 0:
             raise subprocess.CalledProcessError(process.returncode, command, stdout, stderr)
         return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+
+
+def _stop(process: subprocess.Popen[str]) -> None:
+    """End git and its children: SIGTERM first, which lets git remove its `index.lock`, and
+    SIGKILL for whatever is still alive after a short grace period."""
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+        process.wait(timeout=STOP_GRACE)
+    except subprocess.TimeoutExpired:
+        pass
+    except ProcessLookupError:
+        return
+    try:
+        os.killpg(process.pid, signal.SIGKILL)  # children that ignored SIGTERM or outlived git
+    except ProcessLookupError:
+        pass
 
 
 def _refuse(status: Status) -> None:

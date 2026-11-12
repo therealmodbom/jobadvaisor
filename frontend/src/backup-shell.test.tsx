@@ -76,7 +76,9 @@ test('a failed status fetch leaves the app and its header usable', async () => {
   })
   render(<App />)
   expect(await screen.findByText('Data Analyst (m/w/d)')).toBeVisible()
-  expect(screen.queryByRole('button', { name: /Sichern|Gesichert/ })).toBeNull()
+  // the button is there, disabled, and its info icon says the status could not be fetched
+  expect(await screen.findByRole('button', { name: 'Sichern' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Warum ist Sichern nicht möglich?' })).toBeVisible()
 })
 
 test('the header with the backup control has no accessibility violations', async () => {

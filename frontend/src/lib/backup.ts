@@ -76,7 +76,10 @@ export type BackupState = {
 export function useBackupStatus(): BackupState {
   const [status, setStatus] = useState<BackupStatus | null>(null)
   const [unavailable, setUnavailable] = useState<string | null>(null)
-  const [refusal, setRefusal] = useState<string | null>(null)
+  // The refusal's detail, and the number of the press it answers: only a status fetched after
+  // that press can show that its cause is gone.
+  const [refusal, setRefusal] = useState<{ detail: string; after: number } | null>(null)
+  const [statusId, setStatusId] = useState(0) // the request the current status came from
   const [pressFailed, setPressFailed] = useState<string | null>(null)
   // Counts finished requests, so the polling timer is armed again after every one of them.
   const [settled, setSettled] = useState(0)
@@ -91,17 +94,26 @@ export function useBackupStatus(): BackupState {
     return true
   }
 
+  const hasStatus = useRef(false)
+
   const refresh = useCallback(() => {
     const id = ++issued.current
     api<BackupStatus>('/backup').then((answer) => {
       if (!fresh(id)) return
+      hasStatus.current = true
       setStatus(answer)
+      setStatusId(id)
       setUnavailable(null)
     }, (error) => {
       if (!fresh(id)) return
       if (error instanceof ApiError && error.status === 409 && error.error === 'backup unavailable') {
+        hasStatus.current = false
         setStatus(null)
+        setStatusId(id)
         setUnavailable(error.detail)
+      } else if (!hasStatus.current) {
+        // No status yet and none to keep: say so, so the header still has its button.
+        setUnavailable('Der Backup-Status ließ sich nicht abrufen.')
       }
     }).finally(() => { if (mounted.current) setSettled((count) => count + 1) })
   }, [])
@@ -131,7 +143,9 @@ export function useBackupStatus(): BackupState {
   // A refusal stays until its cause is gone (the branch is `main` again, no operation is stopped),
   // a failed press until a backup runs or the next press.
   // Adjusted while rendering (React's way to derive state from state), not in an effect.
-  if (refusal && status && status.branch === 'main' && !status.operation) setRefusal(null)
+  if (refusal && status && statusId > refusal.after && status.branch === 'main' && !status.operation) {
+    setRefusal(null)
+  }
   if (pressFailed && status?.running) setPressFailed(null)
 
   const press = useCallback(() => {
@@ -140,13 +154,16 @@ export function useBackupStatus(): BackupState {
     const id = ++issued.current
     api<{ status: BackupStatus }>('/backup', { method: 'POST' }).then((answer) => {
       if (!fresh(id)) return
+      hasStatus.current = true
       setStatus(answer.status)
+      setStatusId(id)
       setUnavailable(null)
       setSettled((count) => count + 1)
     }, (error) => {
       if (!(error instanceof ApiError) || !mounted.current) return
-      if (error.status === 409 && error.error === 'backup refused') setRefusal(error.detail)
+      if (error.status === 409 && error.error === 'backup refused') setRefusal({ detail: error.detail, after: id })
       else if (error.status === 409 && error.error === 'backup unavailable') {
+        hasStatus.current = false
         setStatus(null)
         setUnavailable(error.detail)
       } else if (!(error.status === 409 && error.error === 'backup running')) {
@@ -157,5 +174,5 @@ export function useBackupStatus(): BackupState {
     })
   }, [refresh])
 
-  return { status, unavailable, refusal, pressFailed, press }
+  return { status, unavailable, refusal: refusal?.detail ?? null, pressFailed, press }
 }

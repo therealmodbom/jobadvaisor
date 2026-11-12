@@ -141,6 +141,21 @@ test('the failure panel closes on a second press of the toggle, Escape and a cli
   expect(screen.queryByRole('dialog')).toBeNull()
 })
 
+test('a rejected push says a retry cannot help and points to the manual recovery', async () => {
+  const failure = { at: at(12, 14, 35), step: 'push' as const,
+                    reason: '! [rejected] main -> main (fetch first)' }
+  render(<BackupControl state={state({ ...PENDING, last_failure: failure }).value} />)
+  await userEvent.click(screen.getByRole('button', { name: 'Nicht gepusht' }))
+  const panel = screen.getByRole('dialog', { name: 'Push fehlgeschlagen' })
+  expect(panel).toHaveTextContent('Der Remote hat Änderungen, die hier fehlen')
+  expect(panel).not.toHaveTextContent('versuch es noch einmal')
+})
+
+test('no remote and no backup yet does not claim a local commit', () => {
+  render(<BackupControl state={state({ ...QUIET, remote: null, last_success: null }).value} />)
+  expect(screen.getByText('Kein Remote eingerichtet · noch keine Sicherung')).toBeVisible()
+})
+
 test('a failed commit is named as not backed up, not as not pushed', async () => {
   const failure = { at: at(12, 14, 35), step: 'commit' as const, reason: 'rejected by hook' }
   render(<BackupControl state={state({ ...PENDING, last_failure: failure }).value} />)

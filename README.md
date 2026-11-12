@@ -125,6 +125,8 @@ chmod 600 /srv/jobadvaisor/keys/id_ed25519
 chown -R 10001:10001 /srv/jobadvaisor/keys
 ```
 
+The `git clone` below and the manual recovery further down run on the host as you, not in the container, so the host needs its own access to the remote. Either your own SSH setup does that, or you point git at the same key and file for the command, for example `GIT_SSH_COMMAND="ssh -i /srv/jobadvaisor/keys/id_ed25519 -o UserKnownHostsFile=/srv/jobadvaisor/keys/known_hosts" git clone <data-remote-url> /srv/jobadvaisor/data` (as root, so it can read the key).
+
 Compare the fingerprints in `known_hosts` (`ssh-keygen -lf /srv/jobadvaisor/keys/known_hosts`) with those your remote publishes. The connection refuses a host that is not in the file. The key needs push access to the remote, and no more.
 
 ```bash
@@ -169,7 +171,7 @@ docker compose up -d
 
 A changed `JOBADVAISOR_PORT` needs the same `docker compose up -d`. `docker compose restart` keeps the old port mapping.
 
-The release that adds the backup button needs two one-time steps before `docker compose up -d`. Copy the changed `compose.yaml` together with the new release, create the keys directory as in the first-time setup, and give the data directory to the container's user once, since git run as root on the host may have left root-owned objects in it that the container cannot write:
+The release that adds the backup button needs three one-time steps before `docker compose up -d`. Copy the changed `compose.yaml` together with the new release, create the keys directory as in the first-time setup, and give the data directory to the container's user once, since git run as root on the host may have left root-owned objects in it that the container cannot write:
 
 ```bash
 chown -R 10001:10001 /srv/jobadvaisor/data
@@ -209,7 +211,7 @@ chown -R 10001:10001 data
 docker compose up -d
 ```
 
-Skip the commit if `git -C data status` shows nothing to commit; if the backup button already committed your ratings, there is nothing to commit. Changes that do not overlap go through. Git run as root leaves root-owned objects in the data directory, so the `chown` hands it back to the container's user; without it the next backup fails to commit. The service does not start by itself afterwards, so the last command is part of the recovery.
+Skip the commit if `git -C data status` shows nothing to commit; if the backup button already committed your ratings, there is nothing to commit. Changes that do not overlap go through. Git run as root leaves root-owned objects in the data directory, so the `chown` hands it back to the container's user; without it the next backup fails to commit. The service does not start by itself afterwards, so the last command is part of the recovery. Once it runs, press the backup button once: the red "Nicht gepusht" stays until a backup succeeds, and a press with nothing pending only confirms that everything is pushed.
 
 If two changes touch the same file, `git rebase` stops and names the file. The service stays stopped. Choose one of these:
 

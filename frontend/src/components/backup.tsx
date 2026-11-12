@@ -15,6 +15,9 @@ const BUTTON_SLOT = 'order-2 sm:order-4'
 const lastBackup = (status: BackupStatus) =>
   status.last_success ? `zuletzt ${whenText(status.last_success)}` : 'noch keine Sicherung'
 
+/** What git says when the remote has commits the push lacks. */
+const REJECTED = /rejected|non-fast-forward|fetch first/
+
 /** A result this recent still counts as "just now". */
 const JUST_NOW_MS = 60_000
 
@@ -74,9 +77,11 @@ function FailureToggle({ failure, status }: { failure: BackupFailure; status: Ba
              className="absolute top-full right-0 z-20 mt-2 flex w-full flex-col gap-2.5 rounded-xl border bg-card p-4 shadow-card sm:w-[360px]">
           <p className="font-bold">{push ? 'Push hat nicht geklappt' : 'Sichern hat nicht geklappt'}</p>
           <p className="text-sm text-muted-foreground">
-            {push
-              ? 'Deine Änderungen sind lokal committet und gehen nicht verloren. Der Push zum Remote hat nicht geklappt – versuch es noch einmal.'
-              : 'Deine Änderungen liegen noch im Datenverzeichnis und gehen nicht verloren. Git hat das Committen abgelehnt – versuch es noch einmal.'}
+            {!push
+              ? 'Deine Änderungen liegen noch im Datenverzeichnis und gehen nicht verloren. Git hat das Committen abgelehnt – versuch es noch einmal.'
+              : REJECTED.test(failure.reason)
+                ? 'Der Remote hat Änderungen, die hier fehlen. Deine Änderungen sind lokal committet und gehen nicht verloren; ein neuer Versuch hilft nicht. Bis die App den Remote selbst abgleicht, hilft die Wiederherstellung von Hand (README, Abschnitt „When the push is rejected“).'
+                : 'Deine Änderungen sind lokal committet und gehen nicht verloren. Der Push zum Remote hat nicht geklappt – versuch es noch einmal.'}
           </p>
           <code className="block rounded-lg bg-background px-3 py-2 font-mono text-[13px] leading-[18px] whitespace-pre-wrap break-words">
             {failure.reason}
@@ -130,7 +135,9 @@ function statusLine(status: BackupStatus, refusal: string | null,
   if (fresh && result.result === 'pushed') return { text: 'Gepusht, gerade eben', tone: 'success' }
   if (fresh && result.result === 'up_to_date') return { text: 'Schon alles gesichert, gerade eben', tone: 'success' }
   if (status.remote === null) {
-    return { text: `Nur lokal committet – kein Remote eingerichtet · ${lastBackup(status)}` }
+    return { text: status.last_success
+      ? `Nur lokal committet – kein Remote eingerichtet · ${lastBackup(status)}`
+      : `Kein Remote eingerichtet · ${lastBackup(status)}` }
   }
   return { text: lastBackup(status) }
 }
