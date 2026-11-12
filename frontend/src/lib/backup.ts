@@ -167,8 +167,10 @@ export function useBackupStatus(): BackupState {
         setStatus(null)
         setUnavailable(error.detail)
       } else if (!(error.status === 409 && error.error === 'backup running')) {
-        setPressFailed(error.status === 0 ? 'Der Server ist nicht erreichbar.'
-          : `Der Server hat mit einem Fehler geantwortet (${error.status}${error.detail ? `: ${error.detail}` : ''}).`)
+        // A lost connection can drop the answer of a backup that did start: say it is unknown.
+        setPressFailed(error.status === 0
+          ? 'Der Server ist nicht erreichbar. Ob das Sichern gestartet wurde, ist unklar.'
+          : `Sichern ist nicht bestätigt: Der Server hat mit einem Fehler geantwortet (${error.status}${error.detail ? `: ${error.detail}` : ''}).`)
       }
       refresh() // a backup already running, or any other change since the last status
     })

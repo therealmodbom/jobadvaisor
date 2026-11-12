@@ -182,7 +182,8 @@ test('a press that fails with a server error says so, and the next press clears 
   await flush()
   act(() => result.current.press())
   await flush()
-  expect(result.current.pressFailed).toBe('Der Server hat mit einem Fehler geantwortet (500: RuntimeError: boom).')
+  expect(result.current.pressFailed).toBe(
+    'Sichern ist nicht bestätigt: Der Server hat mit einem Fehler geantwortet (500: RuntimeError: boom).')
   expect(result.current.refusal).toBeNull()
   fail = false
   act(() => result.current.press())
@@ -196,7 +197,8 @@ test('a press that never reaches the server says so, also when the status cannot
   await flush()
   act(() => result.current.press())
   await flush()
-  expect(result.current.pressFailed).toBe('Der Server ist nicht erreichbar.')
+  expect(result.current.pressFailed).toBe(
+    'Der Server ist nicht erreichbar. Ob das Sichern gestartet wurde, ist unklar.')
   expect(result.current.status).toBeNull()
 })
 

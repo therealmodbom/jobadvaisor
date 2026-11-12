@@ -123,7 +123,7 @@ function WhyUnavailable({ reason }: { reason: string }) {
 /** The status line left of the button, in words, for a status without a failure. */
 function statusLine(status: BackupStatus, refusal: string | null,
                     pressFailed: string | null): { text: string; tone?: 'success' | 'danger' } {
-  if (pressFailed) return { text: `Sichern wurde nicht gestartet. ${pressFailed}`, tone: 'danger' }
+  if (pressFailed) return { text: pressFailed, tone: 'danger' }
   if (refusal) return { text: refusalText(refusal), tone: 'danger' }
   if (status.running) return { text: 'wird gesichert…' }
   const count = status.uncommitted + status.unpushed

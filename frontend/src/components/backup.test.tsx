@@ -184,8 +184,9 @@ test('a refused press says why, in German', () => {
 })
 
 test('a press that failed on the way says so, in place of the status line', () => {
-  render(<BackupControl state={state(PENDING, { pressFailed: 'Der Server ist nicht erreichbar.' }).value} />)
-  expect(screen.getByText('Sichern wurde nicht gestartet. Der Server ist nicht erreichbar.')).toBeVisible()
+  const message = 'Der Server ist nicht erreichbar. Ob das Sichern gestartet wurde, ist unklar.'
+  render(<BackupControl state={state(PENDING, { pressFailed: message }).value} />)
+  expect(screen.getByText(message)).toBeVisible()
   expect(screen.getByRole('button', { name: 'Sichern (3)' })).toBeEnabled()
 })
 
