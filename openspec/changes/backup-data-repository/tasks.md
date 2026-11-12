@@ -9,7 +9,7 @@ TDD per task: a failing test first, then the code. Backend tests use real git on
 
 ## 2. Backup module (`data/backup.py`)
 
-- [ ] 2.1 Status: own-repository check, uncommitted count (with changes made outside the app, temporary files excluded), unpushed count, branch (`null` when detached), upstream name, in-progress operation. Verify with tests for:
+- [x] 2.1 Status: own-repository check, uncommitted count (with changes made outside the app, temporary files excluded), unpushed count, branch (`null` when detached), upstream name, in-progress operation. Verify with tests for:
   - a clean repository;
   - a hand-edited file;
   - an untracked new posting;
@@ -20,8 +20,8 @@ TDD per task: a failing test first, then the code. Backend tests use real git on
   - a `MERGE_HEAD` present;
   - a rebase stopped on a conflict (detached HEAD);
   - a plain directory and a subdirectory of another repository, both unavailable.
-- [ ] 2.2 Commit message by kind (ratings, scores, postings, company records, other files; singular for 1). Verify with a test on staged paths of mixed kinds, including the spec scenario of 3 ratings and 1 posting.
-- [ ] 2.3 Backup: refuse off `main` or during an operation, then stage under the gate with temporary files excluded, commit with the repository's identity or the fallback, and push to the upstream with a timeout and without force. Verify with tests for:
+- [x] 2.2 Commit message by kind (ratings, scores, postings, company records, other files; singular for 1). Verify with a test on staged paths of mixed kinds, including the spec scenario of 3 ratings and 1 posting.
+- [x] 2.3 Backup: refuse off `main` or during an operation, then stage under the gate with temporary files excluded, commit with the repository's identity or the fallback, and push to the upstream with a timeout and without force. Verify with tests for:
   - pending changes are committed and pushed;
   - nothing pending, but an unpushed commit, is pushed;
   - no upstream commits only and adds no remote;
