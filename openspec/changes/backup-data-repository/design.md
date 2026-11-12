@@ -108,7 +108,7 @@ Its look and position follow the Design artifact [Backup-Button und Einstellunge
 - **Placement:** right end of the header, before the gear icon. A status line in words sits left of the button on desktop and under the first header row on a phone.
 - **Labels:** pending is a filled primary button `Sichern (n)`; quiet is an outline button `Gesichert` with a check icon, still clickable.
 - **Progress:** a thin strip under the header, only while a backup runs, showing the step, the file count and the push percentage when known.
-- **Failure:** a small `Nicht gepusht` toggle replaces the status line and stays until a push succeeds. It opens and closes a panel holding the explanation, git's message and the times; on desktop Escape or a click outside also close it.
+- **Failure:** a small toggle replaces the status line and stays until the next backup succeeds, which is a push, or a commit when there is no upstream. It reads `Nicht gepusht` after a failed push and `Nicht gesichert` after a failed commit. It opens and closes a panel holding the explanation, git's message and the times; on desktop Escape or a click outside also close it.
 
 ### Image and deployment
 
