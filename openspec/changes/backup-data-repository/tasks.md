@@ -98,14 +98,14 @@ TDD per task: a failing test first, then the code. Backend tests use real git on
 
   Verify by reading it against the deployment delta's scenarios.
 - [x] 7.3 `AGENTS.md` "Current state": add this change and drop the oldest entry. Verify that it lists two changes.
-- [ ] 7.4 Retake `docs/images/pool.png` per `AGENTS.md` ("README screenshot"), since the header gains the backup button. Verify that the new image shows the button at 1280 by 800 in light mode.
+- [x] 7.4 Deferred by the owner to [#79 (Retake the README screenshots with a cheap script instead of a full scoring pass)](https://github.com/therealmodbom/jobadvaisor/issues/79): `docs/images/pool.png` is retaken there, without a scoring pass, and will show the backup button in the header. The click-test screenshots of this change were checked by hand (task 8.2).
 - [x] 7.5 Run `/opsx:sync` after the last delta edit and `openspec validate backup-data-repository --strict`. Verify that both pass and the baseline specs in the diff show the target text.
 
 ## 8. Before the PR
 
 - [x] 8.1 Full suite: backend `uv run ruff check`, `uv run pytest`, `uv run pytest -m e2e`; frontend `npm run lint`, `npm test`, `npm run build`; `deploy/smoke.sh` on the built image. Verify that all pass.
 - [x] 8.2 Browser click test on the demo persona, made a repository with a bare remote as in 5.3: rate, watch the highlight, press, see the time; then with the bare remote moved away, press and see the failure while the pool still works. Verify by screenshots in the PR.
-- [ ] 8.3 Review before the PR leaves draft:
+- [x] 8.3 Review before the PR leaves draft:
   - a fresh review agent without history checks the diff against the specs and tasks;
   - `/code-review high` runs on the diff;
   - real findings from both are fixed in the same turn.
