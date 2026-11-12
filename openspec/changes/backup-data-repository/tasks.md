@@ -4,8 +4,8 @@ TDD per task: a failing test first, then the code. Backend tests use real git on
 
 ## 1. Write gate
 
-- [ ] 1.1 Add a reentrant `write_gate` to `data/writer.py` that every public write function holds, and replace `_pool_lock` and `_update_lock` with it. Verify with a test where a thread holding the gate makes every public write function (`write_label`, `write_score`, `write_company`, `write_pool`, `write_guard`, `create_posting`, `update_posting`, `append_pass`, `update_pool_settings`, `merge_extraction_labels`, `write_login_wall_hosts`, `write_import_mapping`) wait until it is released. The existing writer tests must still pass.
-- [ ] 1.2 Rewrite the `writer.py` module docstring ("the user commits") to name the gate and the backup. Verify with `uv run ruff check`.
+- [x] 1.1 Add a reentrant `write_gate` to `data/writer.py` that every public write function holds, and replace `_pool_lock` and `_update_lock` with it. Verify with a test where a thread holding the gate makes every public write function (`write_label`, `write_score`, `write_company`, `write_pool`, `write_guard`, `create_posting`, `update_posting`, `append_pass`, `update_pool_settings`, `merge_extraction_labels`, `write_login_wall_hosts`, `write_import_mapping`) wait until it is released. The existing writer tests must still pass.
+- [x] 1.2 Rewrite the `writer.py` module docstring ("the user commits") to name the gate and the backup. Verify with `uv run ruff check`.
 
 ## 2. Backup module (`data/backup.py`)
 
