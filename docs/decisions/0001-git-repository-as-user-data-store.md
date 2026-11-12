@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted, 2026-10-05.
+Accepted, 2026-10-05. Partly superseded by [ADR 0010](0010-the-app-commits-and-pushes-the-data-repository.md): the app no longer only writes files, it commits and pushes them on a button press. The rest stands.
 
 ## Context
 

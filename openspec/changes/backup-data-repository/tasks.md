@@ -87,8 +87,8 @@ TDD per task: a failing test first, then the code. Backend tests use real git on
 
 ## 7. Documentation
 
-- [ ] 7.1 ADR 0010 "The app commits and pushes the data repository" (alternatives: hand commits as today; a host cron job without UI feedback; GitPython or dulwich instead of the `git` command; an HTTPS token). Mark ADR 0001 and 0009 as partly superseded with a link, and add the index row. Verify that the links resolve.
-- [ ] 7.2 README Deployment section:
+- [x] 7.1 ADR 0010 "The app commits and pushes the data repository" (alternatives: hand commits as today; a host cron job without UI feedback; GitPython or dulwich instead of the `git` command; an HTTPS token). Mark ADR 0001 and 0009 as partly superseded with a link, and add the index row. Verify that the links resolve.
+- [x] 7.2 README Deployment section:
   - "Commit and push the server's data" becomes the backup button, with its highlight and result;
   - first-time setup gains the keys directory (placeholders, owner 10001, mode 600), and the `.env` table gains `JOBADVAISOR_SSH_DIR` and `JOBADVAISOR_SSH_KEY` with their defaults; the remote comes from the data repository's `origin`, any SSH host;
   - "When the push is rejected" stays as the manual recovery until the sync slice, names the button instead of the hand commit, and ends with `chown -R 10001:10001 data` (git run as root leaves root-owned objects the container cannot write);
@@ -97,7 +97,7 @@ TDD per task: a failing test first, then the code. Backend tests use real git on
   - the quick start says the backup button needs the demo copy to be a git repository, with the `git init` commands.
 
   Verify by reading it against the deployment delta's scenarios.
-- [ ] 7.3 `AGENTS.md` "Current state": add this change and drop the oldest entry. Verify that it lists two changes.
+- [x] 7.3 `AGENTS.md` "Current state": add this change and drop the oldest entry. Verify that it lists two changes.
 - [ ] 7.4 Retake `docs/images/pool.png` per `AGENTS.md` ("README screenshot"), since the header gains the backup button. Verify that the new image shows the button at 1280 by 800 in light mode.
 - [ ] 7.5 Run `/opsx:sync` after the last delta edit and `openspec validate backup-data-repository --strict`. Verify that both pass and the baseline specs in the diff show the target text.
 
