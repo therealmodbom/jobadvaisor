@@ -10,7 +10,8 @@ The app writes ratings, scores and postings into the data repository and never c
 - The button is highlighted while the data repository has uncommitted changes, also ones made outside the app, or commits its upstream lacks. Otherwise it is quiet.
 - The UI shows the time of the last successful backup, and a failed commit or push with its reason. A failure does not block the app, and the next press retries.
 - One write gate in the app: every write to the data repository and every backup commit take it, so a commit never contains a half-finished write and no write lands while git stages and commits.
-- The release image carries `git` and an SSH client. The deployment mounts a key and a `known_hosts` file read-only, so the container pushes to an SSH remote with credentials that stay on the host.
+- The release image carries `git` and an SSH client. The deployment mounts a key and a `known_hosts` file read-only, so the container pushes to an SSH remote with credentials that stay on the host. The remote comes from the data repository itself, and the key's location is a deployment setting, so any installation can push to its own host and provider with the same image.
+- A press runs the backup in the background and shows its progress: the step, the number of files, and the push's percentage.
 - **BREAKING** (documentation contract): the app commits its own changes. ADR 0010 supersedes the "never commits" part of ADR 0001 and the hand commit in ADR 0009. The README's "Commit and push the server's data" section becomes the backup button and the credential setup. The rejected-push recovery stays manual until slice 3.
 
 Later slices, each its own change and PR, proposed once the slice before it has merged:

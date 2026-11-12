@@ -175,6 +175,13 @@ A backup requested while another runs SHALL be refused and SHALL NOT be queued.
 - **WHEN** a backup is pushing and a second backup is requested
 - **THEN** the second is refused as already running, and the first finishes unaffected
 
+### Requirement: Backup progress reported
+A backup SHALL run in the background, and the status SHALL report while it runs which step it is in (staging, committing or pushing), how many files the commit holds, and the share of the push that git reports as done.
+
+#### Scenario: Slow push
+- **WHEN** a backup committing 40 files is pushing and git reports 60 percent written
+- **THEN** the status reports the step pushing, 40 files and 60 percent
+
 ### Requirement: A failed backup keeps every change
 A failed commit or push SHALL leave every change on disk and every commit made in the repository, SHALL be reported with its reason, and SHALL NOT stop the app. A later backup SHALL retry what is still missing. A push that does not finish within a time limit SHALL count as failed.
 

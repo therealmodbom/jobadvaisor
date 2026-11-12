@@ -14,7 +14,7 @@ Every view SHALL show a backup button. It SHALL be highlighted while the backend
 - **THEN** the button is shown without the highlight
 
 ### Requirement: Backup status kept current
-The UI SHALL fetch the backup status when the page loads, when the tab becomes visible, after each backup, and every 15 seconds while the tab is visible. A failed fetch SHALL leave the last status shown.
+The UI SHALL fetch the backup status when the page loads, when the tab becomes visible, every second while a backup runs, and every 15 seconds otherwise while the tab is visible. A failed fetch SHALL leave the last status shown.
 
 #### Scenario: Change made outside the app
 - **WHEN** a file in the data repository is changed by hand while the tab is open and visible
@@ -26,6 +26,13 @@ When the backend reports the backup as unavailable, the button SHALL be disabled
 #### Scenario: Data directory without git
 - **WHEN** the data repository is a plain copied directory
 - **THEN** the button is disabled and its info icon says the data directory is not a git repository
+
+### Requirement: Backup progress shown
+While a backup runs, the UI SHALL show its current step, the number of files being committed and, during the push, the share git reports as done, so the user can see where it stands.
+
+#### Scenario: Push under way
+- **WHEN** a backup of 40 files is pushing and the backend reports 60 percent
+- **THEN** the UI shows that it is pushing, the 40 files and 60 percent
 
 ### Requirement: Backup progress and result
 A press SHALL start a backup and disable the button until it ends. Afterwards the UI SHALL show the result: success, committed without a remote, or the failure with its reason. A failure SHALL leave every view usable, and the button SHALL stay enabled for a retry.

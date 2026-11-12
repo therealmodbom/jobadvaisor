@@ -55,9 +55,10 @@ Every call runs with `GIT_TERMINAL_PROMPT=0`, so git never waits for input. Stat
 - **Backup:**
   1. Refuse when not on `main` or when an operation is in progress.
   2. Under the gate: `git add -A -- . <excludes>`, then `git reset -q -- ':(glob)**/.*.tmp' ':(glob)**/.*.new'`. The exclude only keeps `add` from staging a temporary file; one already staged by hand would still be committed, and the reset unstages it. Then `git diff --cached --name-only` for the message, and `git commit` when something is staged.
-  3. Outside the gate: when `main` has an upstream, `git push <remote> HEAD:<merge ref>` from `branch.main.remote` and `branch.main.merge`, with a 60-second timeout. Never `--force`.
+  3. Outside the gate: when `main` has an upstream, `git push --progress <remote> HEAD:<merge ref>` from `branch.main.remote` and `branch.main.merge`, with a 60-second timeout. Never `--force`.
+- **Background run and progress:** `POST /backup` checks the refusals, then starts the backup in a thread and answers at once, like `POST /pool/passes`. The thread records its step (`staging`, `committing`, `pushing`), the number of staged files, and the push percentage. It reads the percentage from git's `Writing objects:  60% (12/20)` lines on stderr, which `--progress` writes even without a terminal, separated by `\r` rather than newlines (probed with git 2.56). A push too small to print progress shows no percentage.
 - **Identity:** the repository's own `user.name` and `user.email` when it has them, as the README's setup gives it. Otherwise `JobAdvAIsor <jobadvaisor@localhost>` through `GIT_AUTHOR_*` and `GIT_COMMITTER_*` for that one commit. The container has no global git config to fall back on.
-- **Message:** `Backup: 3 ratings, 1 posting`. Kinds come from the first path segment:
+- **Message:** one subject line, for example `Backup: 2 ratings, 12 scores, 1 posting, 1 company record, 1 other file`. The kinds appear in that fixed order. Kinds come from the first path segment:
   - `labels/` are ratings.
   - `scores/` are scores.
   - `postings/` are postings.
@@ -70,18 +71,19 @@ Every call runs with `GIT_TERMINAL_PROMPT=0`, so git never waits for input. Stat
 
 The routes follow the `{error, detail}` convention of the other routes:
 
-- `GET /backup` → `{"pending", "uncommitted", "unpushed", "branch", "remote", "operation", "running", "last_success", "last_failure"}`.
+- `GET /backup` → `{"pending", "uncommitted", "unpushed", "branch", "remote", "operation", "running", "progress", "last_result", "last_success", "last_failure"}`.
   - `pending` is `uncommitted > 0 or unpushed > 0`.
   - `remote` is the upstream's name or `null`.
   - `operation` is the in-progress git operation or `null`.
-  - `last_failure` is `{at, step, reason}` or `null`.
+  - `progress` is `{step, files, percent}` while a backup runs, else `null`. `percent` is `null` until git reports one.
+  - `last_result` is `{at, result, commit}` of the last backup that finished. `result` is `pushed`, `committed` (no upstream) or `up_to_date`.
+  - `last_failure` is `{at, step, reason}` or `null`, where `step` is `commit` or `push` and `reason` is git's message.
   - A data directory that is not the top level of its own git repository answers `409 backup unavailable`, with the reason as the detail. `POST` answers the same.
-- `POST /backup` takes no body and answers `{"result", "commit", "status"}`, where `status` has the shape of `GET /backup`.
-  - `result` is `pushed`, `committed` (no upstream) or `up_to_date`.
+- `POST /backup` takes no body. It starts the backup and answers `202 {"status"}`, with `running` true.
   - `409 backup running`.
   - `409 backup refused`, with the branch or the operation as the detail.
-  - `502 push failed`, with git's message as the detail and the `status` in the body. The commit stays.
-  - `500 commit failed`.
+  - `409 backup unavailable`.
+  - A commit or push failure appears later in `last_failure` of `GET /backup`. The commit stays.
 
 `create_app` takes an optional `backup`, built from `intake.root` and that repository's `state_path` (`index.py`) when absent, the same way the other dependencies are. Tests pass their own.
 
@@ -97,8 +99,9 @@ The file `backup.json` in the data repository's own state path (`<STATE_DIRECTOR
 
 The pieces:
 
-- A hook `useBackupStatus` fetches `GET /backup` on mount, when the tab becomes visible, every 15 seconds while it is visible, and after a press. Its shape is the same as `useBackendVersion`.
-- A component `BackupControl` in the app shell shows the button, its highlight, the result line and the last successful backup.
+- A hook `useBackupStatus` fetches `GET /backup` on mount, when the tab becomes visible, every second while `running`, and every 15 seconds otherwise while the tab is visible. Its shape is the same as `useBackendVersion`.
+- A component `BackupControl` in the app shell shows the button, its highlight, the progress (step, files, percent), the result line and the last successful backup.
+- The button is on every view as a trial. Whether it stays there or moves to the settings page is decided after daily use.
 
 Its look and position in the header are settled in a Design artifact session on the JobAdvAIsor design system **before any UI code** (tasks.md, group 4). Slice 2's gear icon for the settings page is designed in the same session, so the header is laid out once.
 
@@ -106,10 +109,12 @@ Its look and position in the header are settled in a Design artifact session on 
 
 - `Dockerfile`: `apt-get install --no-install-recommends git openssh-client` in the runtime stage. Slice 3 needs `git merge-tree --write-tree` (git ≥ 2.38), so the smoke check asserts the version.
 - `deploy/compose.yaml`:
-  - Mounts `/srv/jobadvaisor/keys` read-only at `/keys`, holding the key and `known_hosts`, owned by 10001, with the key at mode 600.
-  - Sets `GIT_SSH_COMMAND=ssh -i /keys/<key> -o UserKnownHostsFile=/keys/known_hosts -o StrictHostKeyChecking=yes -o BatchMode=yes`.
+  - Mounts `${JOBADVAISOR_SSH_DIR:-/srv/jobadvaisor/keys}` read-only at `/keys`. The directory holds the key and `known_hosts`, owned by 10001, with the key at mode 600.
+  - Sets `GIT_SSH_COMMAND=ssh -i /keys/${JOBADVAISOR_SSH_KEY:-id_ed25519} -o UserKnownHostsFile=/keys/known_hosts -o StrictHostKeyChecking=yes -o BatchMode=yes`.
+  - Both variables live in the Compose project's `.env` next to `JOBADVAISOR_TAG`, so each installation sets its own without editing `compose.yaml`.
+  - The remote, and with it the host, the port (`ssh://host:port/path`) and the provider, comes only from the data repository's own `origin`. Nothing in the image or the code names one.
   - `GIT_SSH_COMMAND` is a git variable, not an app setting, so `.env.example` and `Settings` do not change.
-  - The host path and key name are placeholders in the public repository.
+  - A local run outside the container uses the user's own `ssh` setup unchanged.
 - `deploy/smoke.sh`:
   - As the service user, `git init` a repository in a temporary directory, commit with the fallback identity, and check that it succeeded.
   - Check that `ssh -V` runs.

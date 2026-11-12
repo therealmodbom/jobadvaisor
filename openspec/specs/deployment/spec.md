@@ -182,3 +182,10 @@ The deployment SHALL mount the SSH key and the known-hosts file from the host re
 #### Scenario: Credentials missing
 - **WHEN** the container runs without the key and the user presses the backup button
 - **THEN** the changes are committed, the push fails with its reason shown, and the app keeps serving
+
+### Requirement: Any SSH remote, configured per installation
+The image and the code SHALL name no remote host or provider: a backup pushes to the upstream the data repository itself names. The host directory that holds the key and the known-hosts file, and the key's file name, SHALL be deployment settings with defaults, so that another installation uses its own host, provider and key without changing the image or the Compose file.
+
+#### Scenario: Another installation
+- **WHEN** an installation's data repository has an SSH remote at another provider, and its deployment settings name its own key directory and key file
+- **THEN** the backup pushes to that remote with that key, with the same image and Compose file

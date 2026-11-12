@@ -33,24 +33,27 @@ TDD per task: a failing test first, then the code. Backend tests use real git on
   - the fallback identity is used without a repository identity.
 - [ ] 2.4 Failures: an unreachable remote (a bare-repository path that does not exist) and a rejected push (a second clone pushed first) both keep the commit, report git's reason and leave both histories unchanged, and a later backup pushes. Verify with tests. Add a test that a push exceeding the timeout counts as failed, using a fake `GIT_SSH_COMMAND` that sleeps.
 - [ ] 2.5 `backup.json` in the data repository's `state_path`: last success, last failure with step and reason, the failure cleared on success, and a missing or unreadable file read as "none". Verify with tests.
-- [ ] 2.6 One backup at a time: a second backup while one runs is refused, not queued. Verify with a test that holds the first backup in its push.
+- [ ] 2.6 Background run: refusals are checked synchronously, then the backup runs in a thread. A second backup while one runs is refused, not queued. Progress reports `{step, files, percent}`, with the percent parsed from `--progress` stderr split on `\r`, and `last_result` records the outcome. Verify with tests for:
+  - a test holding the first backup in its push, which sees the second refused and the progress step `pushing` with the file count;
+  - the parser on captured git output: `2% (1/42)` gives 2, and a push without progress lines gives `null`.
 - [ ] 2.7 Concurrency (spec: "Writes and backups never interleave"): threads write labels and scores in a loop while backups run repeatedly. Every committed blob loads as a schema-valid file, and every written rating is in a commit or pending at the end. A rating during a slow push is stored without waiting. Verify with these tests.
 
 ## 3. API
 
 - [ ] 3.1 `GET /backup` and `POST /backup` in `api/app.py` with the bodies and errors from design.md, and `create_app(backup=…)`. Verify with `test_api.py` tests for:
-  - each `result` value;
+  - `202` with `running` true;
+  - each `last_result.result` value once the run finished;
   - `409 backup running`;
   - `409 backup refused`;
   - `409 backup unavailable` for a data directory that is not a git repository;
-  - `502 push failed` with `status` in the body;
-  - `500 commit failed`.
+  - a push failure and a commit failure, each in `last_failure` with its step and git's reason.
 
 ## 4. Design artifact session (gate for the UI)
 
 - [ ] 4.1 With the owner, design in a Design artifact on the JobAdvAIsor design system:
   - the backup button in the header, quiet and highlighted;
-  - the running, success, committed-without-remote and failure states;
+  - the running state with its progress (step, files, push percent);
+  - the success, committed-without-remote and failure states;
   - the unavailable state (disabled, with an info icon);
   - the last-backup line;
   - slice 2's gear icon for the settings page, so the header is laid out once.
@@ -59,8 +62,8 @@ TDD per task: a failing test first, then the code. Backend tests use real git on
 
 ## 5. Frontend
 
-- [ ] 5.1 API types and `useBackupStatus` (fetch on mount, when the tab becomes visible, every 15 seconds while visible, after a press; a failed fetch keeps the last status). Verify with Vitest tests using fake timers and visibility changes.
-- [ ] 5.2 `BackupControl` in the app shell as designed in 4.1: highlight, disabled while running, the result line per outcome, the failure reason, the last successful backup or "noch keine Sicherung", and the unavailable state (disabled, with a focusable info icon giving the reason). Verify with component tests for each state and for an `ApiError` 502 that leaves the button enabled.
+- [ ] 5.1 API types and `useBackupStatus` (fetch on mount, when the tab becomes visible, every second while a backup runs, otherwise every 15 seconds while visible; a failed fetch keeps the last status). Verify with Vitest tests using fake timers and visibility changes.
+- [ ] 5.2 `BackupControl` in the app shell as designed in 4.1: highlight, disabled while running with the progress (step, files, percent when known), the result line per outcome, the failure reason, the last successful backup or "noch keine Sicherung", and the unavailable state (disabled, with a focusable info icon giving the reason). Verify with component tests for each state, and for a `last_failure` that leaves the button enabled.
 - [ ] 5.3 e2e (`uv run pytest -m e2e`) on a demo-persona copy made a repository (`git init`, initial commit, a bare remote as upstream): rate a posting, the button is highlighted, press, it is quiet and shows the time, and the bare remote holds the rating. Verify that the test passes.
 
 ## 6. Image and deployment
@@ -73,11 +76,12 @@ TDD per task: a failing test first, then the code. Backend tests use real git on
   - no private key file (`id_*`, `*.pem`, `*.key`, a file starting with `-----BEGIN`) exists outside the dependency and browser directories.
 
   Verify with `deploy/smoke.sh <image>` on the built image.
-- [ ] 6.3 `deploy/compose.yaml`: read-only `/keys` mount and `GIT_SSH_COMMAND` with placeholder host paths and key name. Verify that `docker compose -f deploy/compose.yaml config --no-interpolate` parses, run with dummy env files so no secret is read.
+- [ ] 6.3 `deploy/compose.yaml`: read-only `/keys` mount from `${JOBADVAISOR_SSH_DIR:-…}`, and `GIT_SSH_COMMAND` with the key name from `${JOBADVAISOR_SSH_KEY:-…}`. No host, provider or remote is named anywhere. Verify that `docker compose -f deploy/compose.yaml config --no-interpolate` parses, run with dummy env files so no secret is read.
 - [ ] 6.4 Built-image check against a real SSH remote:
   1. Run the image with a demo-persona clone owned by 10001 bind-mounted.
   2. Run an SSH server container holding a bare repository as the remote, with the key and `known_hosts` mounted as documented.
-  3. Press the backup through `POST /backup`.
+  3. Use a non-default key directory and key name set in the Compose project's `.env`.
+  4. Press the backup through `POST /backup`.
 
   Verify that the remote holds the commit, and that a run without the key reports `push failed` with ssh's reason while `GET /pool` still answers.
 
@@ -86,7 +90,7 @@ TDD per task: a failing test first, then the code. Backend tests use real git on
 - [ ] 7.1 ADR 0010 "The app commits and pushes the data repository" (alternatives: hand commits as today; a host cron job without UI feedback; GitPython or dulwich instead of the `git` command; an HTTPS token). Mark ADR 0001 and 0009 as partly superseded with a link, and add the index row. Verify that the links resolve.
 - [ ] 7.2 README Deployment section:
   - "Commit and push the server's data" becomes the backup button, with its highlight and result;
-  - first-time setup gains the keys directory (placeholders, owner 10001, mode 600);
+  - first-time setup gains the keys directory (placeholders, owner 10001, mode 600), and the `.env` table gains `JOBADVAISOR_SSH_DIR` and `JOBADVAISOR_SSH_KEY` with their defaults; the remote comes from the data repository's `origin`, any SSH host;
   - "When the push is rejected" stays as the manual recovery until the sync slice, names the button instead of the hand commit, and ends with `chown -R 10001:10001 data` (git run as root leaves root-owned objects the container cannot write);
   - the update steps for this release add the one-time `chown` and the keys directory;
   - one sentence says not to point the scripts that write a data root (demo persona, evals) at a server's data repository;
@@ -119,7 +123,7 @@ TDD per task: a failing test first, then the code. Backend tests use real git on
   - stored in the state directory;
   - the scheduler and debounce in the uvicorn process.
 - **Slice 3, `sync-with-remote` (#99):**
-  - fetch;
+  - a regular fetch in every mode, also without local changes (the interval a setting on the settings page): in `manual` it only feeds the highlight, in `on_change` and `scheduled` the remote's changes are applied;
   - a `git merge-tree --write-tree` check that leaves the working tree untouched;
   - merge under the write gate, then push;
   - on a conflict, stop with nothing touched and the file named;
