@@ -26,7 +26,7 @@ See proposal.md for the motivation. The current state that shapes the approach:
 
 ### Why the app commits at all
 
-[ADR 0010](../../../docs/decisions/0010-the-app-commits-and-pushes-the-data-repository.md) records the decision and the rejected alternatives. It supersedes the "never commits" part of ADR 0001 and the hand commit of ADR 0009.
+[ADR 0010](../../../../docs/decisions/0010-the-app-commits-and-pushes-the-data-repository.md) records the decision and the rejected alternatives. It supersedes the "never commits" part of ADR 0001 and the hand commit of ADR 0009.
 
 ### One write gate in `writer.py`
 
