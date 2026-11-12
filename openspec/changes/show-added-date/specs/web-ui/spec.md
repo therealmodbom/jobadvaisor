@@ -3,7 +3,7 @@
 ## ADDED Requirements
 
 ### Requirement: Date a posting was added
-Each pool row and the posting page SHALL show, above the title, when the posting was added: „Hinzugefügt“ followed by date and time to the minute in German form („Hinzugefügt 12.11.2026, 14:05“), in the browser's time zone. The line SHALL be set smaller and lighter than company and place, and SHALL meet the contrast the requirement "Accessible and consistent presentation" sets. It SHALL change neither the ranking nor the filters.
+Each pool row and the posting page SHALL show, above the title, when the posting was added: „Hinzugefügt“ followed by date and time to the minute in German form („Hinzugefügt 12.11.2026, 14:05“), in the browser's time zone. The line SHALL be set smaller and with lower contrast than company and place, and SHALL meet the contrast the requirement "Accessible and consistent presentation" sets. It SHALL change neither the ranking nor the filters.
 
 #### Scenario: Two postings added on one day
 - **WHEN** the pool holds two postings added on 12 November 2026 at 09:41 and at 14:05 local time
