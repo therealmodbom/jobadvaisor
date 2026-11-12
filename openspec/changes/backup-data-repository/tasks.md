@@ -28,7 +28,7 @@ TDD per task: a failing test first, then the code. Backend tests use real git on
   - another branch changes nothing;
   - a merge stopped on a conflict changes nothing and names the operation;
   - a subdirectory of another repository commits nothing in that repository;
-  - a leftover `.pool.json.tmp` is not committed, and the status is clean afterwards;
+  - a leftover `.pool.json.tmp` is not committed, also when it was staged by hand before the backup, and the status is clean afterwards;
   - a rejected commit (a failing `pre-commit` hook in the test repository) keeps every change pending and reports `commit failed`;
   - the fallback identity is used without a repository identity.
 - [ ] 2.4 Failures: an unreachable remote (a bare-repository path that does not exist) and a rejected push (a second clone pushed first) both keep the commit, report git's reason and leave both histories unchanged, and a later backup pushes. Verify with tests. Add a test that a push exceeding the timeout counts as failed, using a fake `GIT_SSH_COMMAND` that sleeps.

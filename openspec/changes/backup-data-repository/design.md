@@ -54,7 +54,7 @@ Every call runs with `GIT_TERMINAL_PROMPT=0`, so git never waits for input. Stat
   - A `MERGE_HEAD`, `CHERRY_PICK_HEAD`, `REVERT_HEAD`, `rebase-merge` or `rebase-apply` under `git rev-parse --git-dir` means an operation is in progress.
 - **Backup:**
   1. Refuse when not on `main` or when an operation is in progress.
-  2. Under the gate: `git add -A -- . <excludes>`. Then `git diff --cached --name-only` for the message, and `git commit` when something is staged.
+  2. Under the gate: `git add -A -- . <excludes>`, then `git reset -q -- ':(glob)**/.*.tmp' ':(glob)**/.*.new'`. The exclude only keeps `add` from staging a temporary file; one already staged by hand would still be committed, and the reset unstages it. Then `git diff --cached --name-only` for the message, and `git commit` when something is staged.
   3. Outside the gate: when `main` has an upstream, `git push <remote> HEAD:<merge ref>` from `branch.main.remote` and `branch.main.merge`, with a 60-second timeout. Never `--force`.
 - **Identity:** the repository's own `user.name` and `user.email` when it has them, as the README's setup gives it. Otherwise `JobAdvAIsor <jobadvaisor@localhost>` through `GIT_AUTHOR_*` and `GIT_COMMITTER_*` for that one commit. The container has no global git config to fall back on.
 - **Message:** `Backup: 3 ratings, 1 posting`. Kinds come from the first path segment:
