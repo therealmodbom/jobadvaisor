@@ -50,7 +50,7 @@ TDD per task: a failing test first, then the code. Backend tests use real git on
 
 ## 4. Design artifact session (spec phase, gate for the implementation)
 
-- [ ] 4.1 With the owner, design in the Design artifact [Backup-Button und Einstellungen](https://claude.ai/artifact/36PaFpC4LN6NpeKsFYrBUL) on the JobAdvAIsor design system, before task 1.1 starts:
+- [x] 4.1 (approved by the owner 2026-11-12) With the owner, design in the Design artifact [Backup-Button und Einstellungen](https://claude.ai/artifact/36PaFpC4LN6NpeKsFYrBUL) on the JobAdvAIsor design system, before task 1.1 starts:
   - the backup button in the header, quiet and highlighted;
   - the running state with its progress (step, files, push percent);
   - the success, committed-without-remote and failure states;

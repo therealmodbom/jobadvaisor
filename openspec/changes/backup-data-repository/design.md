@@ -103,7 +103,12 @@ The pieces:
 - A component `BackupControl` in the app shell shows the button, its highlight, the progress (step, files, percent), the result line and the last successful backup.
 - The button is on every view as a trial. Whether it stays there or moves to the settings page is decided after daily use.
 
-Its look and position follow the Design artifact [Backup-Button und Einstellungen](https://claude.ai/artifact/36PaFpC4LN6NpeKsFYrBUL) on the JobAdvAIsor design system. It is settled in the spec phase, before implementation starts (tasks.md, group 4). It shows the header on desktop and phone, every state of the control, and slice 2's gear icon for the settings page, so the header is laid out once.
+Its look and position follow the Design artifact [Backup-Button und Einstellungen](https://claude.ai/artifact/36PaFpC4LN6NpeKsFYrBUL) on the JobAdvAIsor design system. It is settled in the spec phase, before implementation starts (tasks.md, group 4). It shows the header on desktop and phone, every state of the control, and slice 2's gear icon for the settings page, so the header is laid out once. The approved design sets these rules:
+
+- **Placement:** right end of the header, before the gear icon. A status line in words sits left of the button on desktop and under the first header row on a phone.
+- **Labels:** pending is a filled primary button `Sichern (n)`; quiet is an outline button `Gesichert` with a check icon, still clickable.
+- **Progress:** a thin strip under the header, only while a backup runs, showing the step, the file count and the push percentage when known.
+- **Failure:** a small `Nicht gepusht` toggle replaces the status line and stays until a push succeeds. It opens and closes a panel holding the explanation, git's message and the times; on desktop Escape or a click outside also close it.
 
 ### Image and deployment
 
