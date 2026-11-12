@@ -40,7 +40,7 @@ TDD per task: a failing test first, then the code. Backend tests use real git on
 
 ## 3. API
 
-- [ ] 3.1 `GET /backup` and `POST /backup` in `api/app.py` with the bodies and errors from design.md, and `create_app(backup=…)`. Verify with `test_api.py` tests for:
+- [x] 3.1 `GET /backup` and `POST /backup` in `api/app.py` with the bodies and errors from design.md, and `create_app(backup=…)`. Verify with `test_api.py` tests for:
   - `202` with `running` true;
   - each `last_result.result` value once the run finished;
   - `409 backup running`;
