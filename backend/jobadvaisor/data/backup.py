@@ -292,18 +292,34 @@ class Backup:
         porcelain = self._git("status", "--porcelain=v1", "-z", "--no-renames",
                               "--untracked-files=all", "--", ".", *TEMPORARY_EXCLUDES,
                               optional_locks=False).stdout
-        upstream = self._git("rev-parse", "--abbrev-ref", "@{upstream}", check=False,
-                             optional_locks=False)
-        remote = upstream.stdout.strip() if upstream.returncode == 0 else None
-        unpushed = 0
-        if remote:
-            unpushed = int(self._git("rev-list", "--count", "@{upstream}..HEAD",
-                                     optional_locks=False).stdout)
         branch = self._git("symbolic-ref", "--short", "-q", "HEAD", check=False,
                            optional_locks=False).stdout.strip() or None
+        # The upstream comes from the branch's configuration, not from `@{upstream}`, which
+        # fails until a remote-tracking ref exists (a first push to an empty remote).
+        upstream = self._upstream(branch)
+        remote = f"{upstream[0]}/{upstream[1].removeprefix('refs/heads/')}" if upstream else None
+        unpushed = 0
+        if upstream:
+            counted = self._git("rev-list", "--count", "@{upstream}..HEAD", check=False,
+                                optional_locks=False)
+            if counted.returncode != 0:  # no tracking ref yet: nothing was ever pushed
+                counted = self._git("rev-list", "--count", "HEAD", check=False,
+                                    optional_locks=False)
+            unpushed = int(counted.stdout) if counted.returncode == 0 else 0
         return Status(uncommitted=len([entry for entry in porcelain.split("\0") if entry]),
                       unpushed=unpushed, branch=branch, remote=remote,
                       operation=self._operation())
+
+    def _upstream(self, branch: str | None) -> tuple[str, str] | None:
+        """The remote name and the merge ref (`refs/heads/main`) `branch` is configured to push
+        to, or `None` for a detached HEAD or a branch without both settings."""
+        if branch is None:
+            return None
+        values = [self._git("config", f"branch.{branch}.{key}", check=False,
+                            optional_locks=False) for key in ("remote", "merge")]
+        if any(value.returncode != 0 or not value.stdout.strip() for value in values):
+            return None
+        return values[0].stdout.strip(), values[1].stdout.strip()
 
     def _require_own_repository(self) -> None:
         try:

@@ -81,6 +81,31 @@ def test_without_a_remote_there_is_no_upstream_and_nothing_unpushed(backup, back
     assert (status.remote, status.unpushed) == (None, 0)
 
 
+def _upstream_without_tracking_ref(backed_up, tmp_path):
+    """`main` configured to push to an empty remote it has never pushed to, so no
+    remote-tracking ref exists yet (`git rev-parse @{upstream}` fails)."""
+    empty = tmp_path / "empty.git"
+    git(tmp_path, "init", "--bare", "-b", "main", str(empty))
+    git(backed_up.root, "remote", "set-url", "origin", str(empty))
+    git(backed_up.root, "update-ref", "-d", "refs/remotes/origin/main")
+    return empty
+
+
+def test_a_configured_upstream_without_a_tracking_ref_still_counts_as_a_remote(
+        backup, backed_up, tmp_path):
+    _upstream_without_tracking_ref(backed_up, tmp_path)
+    status = backup.status()
+    assert (status.remote, status.unpushed) == ("origin/main", 1)  # the one initial commit
+
+
+def test_a_first_backup_pushes_to_an_empty_remote_with_a_configured_upstream(
+        backup, backed_up, tmp_path):
+    empty = _upstream_without_tracking_ref(backed_up, tmp_path)
+    _edit_profile(backed_up.root, "first backup")
+    assert backup.run().result == "pushed"
+    assert git(empty, "rev-parse", "main") == git(backed_up.root, "rev-parse", "HEAD")
+
+
 def test_another_branch_is_named(backup, backed_up):
     git(backed_up.root, "checkout", "-b", "other")
     assert backup.status().branch == "other"
