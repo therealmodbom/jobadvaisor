@@ -109,7 +109,9 @@ function WhyUnavailable({ reason }: { reason: string }) {
 }
 
 /** The status line left of the button, in words, for a status without a failure. */
-function statusLine(status: BackupStatus, refusal: string | null): { text: string; tone?: 'success' | 'danger' } {
+function statusLine(status: BackupStatus, refusal: string | null,
+                    pressFailed: string | null): { text: string; tone?: 'success' | 'danger' } {
+  if (pressFailed) return { text: `Sichern wurde nicht gestartet. ${pressFailed}`, tone: 'danger' }
   if (refusal) return { text: refusalText(refusal), tone: 'danger' }
   if (status.running) return { text: 'wird gesichert…' }
   const count = status.uncommitted + status.unpushed
@@ -132,7 +134,7 @@ function statusLine(status: BackupStatus, refusal: string | null): { text: strin
  * and, with an info icon that gives the reason, while the backup is unavailable. Renders nothing
  * before the first status has arrived. */
 export function BackupControl({ state }: { state: BackupState }) {
-  const { status, unavailable, refusal, press } = state
+  const { status, unavailable, refusal, pressFailed, press } = state
   if (unavailable !== null) {
     return (
       <div className="flex items-center gap-2">
@@ -144,7 +146,8 @@ export function BackupControl({ state }: { state: BackupState }) {
   if (status === null) return null
   const failure = status.last_failure
   const count = status.uncommitted + status.unpushed
-  const line = failure && !refusal && !status.running ? null : statusLine(status, refusal)
+  const notice = refusal || pressFailed
+  const line = failure && !notice && !status.running ? null : statusLine(status, refusal, pressFailed)
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
       {line && (

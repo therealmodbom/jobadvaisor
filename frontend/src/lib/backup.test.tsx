@@ -170,6 +170,36 @@ test('a press refused because a backup runs fetches the status instead', async (
   expect(result.current.refusal).toBeNull()
 })
 
+test('a press that fails with a server error says so, and the next press clears it', async () => {
+  let fail = true
+  stubApi({
+    'GET /backup': { body: PENDING },
+    'POST /backup': () => fail
+      ? { status: 500, body: { error: 'internal error', detail: 'RuntimeError: boom' } }
+      : { status: 202, body: { status: RUNNING } },
+  })
+  const { result } = renderHook(() => useBackupStatus())
+  await flush()
+  act(() => result.current.press())
+  await flush()
+  expect(result.current.pressFailed).toBe('Der Server hat mit einem Fehler geantwortet (500: RuntimeError: boom).')
+  expect(result.current.refusal).toBeNull()
+  fail = false
+  act(() => result.current.press())
+  await flush()
+  expect(result.current.pressFailed).toBeNull()
+})
+
+test('a press that never reaches the server says so, also when the status cannot be fetched either', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('network down') }))
+  const { result } = renderHook(() => useBackupStatus())
+  await flush()
+  act(() => result.current.press())
+  await flush()
+  expect(result.current.pressFailed).toBe('Der Server ist nicht erreichbar.')
+  expect(result.current.status).toBeNull()
+})
+
 test('a press refused for the branch names why and clears on the next press', async () => {
   let refuse = true
   stubApi({

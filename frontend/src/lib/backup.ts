@@ -60,6 +60,9 @@ export type BackupState = {
   unavailable: string | null
   /** Why the last press was refused (another branch, an operation in progress), else `null`. */
   refusal: string | null
+  /** A German sentence when the last press did not reach the backend or failed there (a server
+   * error, a lost connection), else `null`: the backup did not start, or the answer is unknown. */
+  pressFailed: string | null
   /** Starts a backup; the status follows by itself. */
   press: () => void
 }
@@ -74,6 +77,7 @@ export function useBackupStatus(): BackupState {
   const [status, setStatus] = useState<BackupStatus | null>(null)
   const [unavailable, setUnavailable] = useState<string | null>(null)
   const [refusal, setRefusal] = useState<string | null>(null)
+  const [pressFailed, setPressFailed] = useState<string | null>(null)
   // Counts finished requests, so the polling timer is armed again after every one of them.
   const [settled, setSettled] = useState(0)
   const mounted = useRef(true)
@@ -116,6 +120,7 @@ export function useBackupStatus(): BackupState {
 
   const press = useCallback(() => {
     setRefusal(null)
+    setPressFailed(null)
     api<{ status: BackupStatus }>('/backup', { method: 'POST' }).then((answer) => {
       if (!mounted.current) return
       setStatus(answer.status)
@@ -124,13 +129,16 @@ export function useBackupStatus(): BackupState {
     }, (error) => {
       if (!(error instanceof ApiError) || !mounted.current) return
       if (error.status === 409 && error.error === 'backup refused') setRefusal(error.detail)
-      if (error.status === 409 && error.error === 'backup unavailable') {
+      else if (error.status === 409 && error.error === 'backup unavailable') {
         setStatus(null)
         setUnavailable(error.detail)
+      } else if (!(error.status === 409 && error.error === 'backup running')) {
+        setPressFailed(error.status === 0 ? 'Der Server ist nicht erreichbar.'
+          : `Der Server hat mit einem Fehler geantwortet (${error.status}${error.detail ? `: ${error.detail}` : ''}).`)
       }
       refresh() // a backup already running, or any other change since the last status
     })
   }, [refresh])
 
-  return { status, unavailable, refusal, press }
+  return { status, unavailable, refusal, pressFailed, press }
 }

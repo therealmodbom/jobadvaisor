@@ -26,7 +26,10 @@ const PENDING: BackupStatus = {
 /** A control state around `status`, with `press` recorded. */
 function state(status: BackupStatus | null, extra: Partial<BackupState> = {}) {
   const press = vi.fn()
-  return { press, value: { status, unavailable: null, refusal: null, press, ...extra } as BackupState }
+  return {
+    press,
+    value: { status, unavailable: null, refusal: null, pressFailed: null, press, ...extra } as BackupState,
+  }
 }
 
 const button = () => screen.getAllByRole('button')[0]
@@ -163,6 +166,12 @@ test('before the first status arrives the control shows nothing to press', () =>
 test('a refused press says why, in German', () => {
   render(<BackupControl state={state(PENDING, { refusal: 'on branch other' }).value} />)
   expect(screen.getByText(/Sichern geht nur auf main; das Repository steht auf „other“/)).toBeVisible()
+})
+
+test('a press that failed on the way says so, in place of the status line', () => {
+  render(<BackupControl state={state(PENDING, { pressFailed: 'Der Server ist nicht erreichbar.' }).value} />)
+  expect(screen.getByText('Sichern wurde nicht gestartet. Der Server ist nicht erreichbar.')).toBeVisible()
+  expect(screen.getByRole('button', { name: 'Sichern (3)' })).toBeEnabled()
 })
 
 test('a refusal for an operation in progress says why', () => {
