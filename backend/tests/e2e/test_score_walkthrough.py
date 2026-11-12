@@ -130,7 +130,7 @@ def test_a_re_score_from_a_pool_row_replaces_the_score(page, app_url, data_root,
 
 def test_the_added_date_shows_in_the_browsers_time_zone_in_the_pool_and_on_the_posting_page(
         page, app_url):
-    """The fixture's `added_at` is 09:00 UTC; the page's zone is Europe/Berlin, so it reads 10:00."""
+    """The fixture's `added_at` is 09:00 UTC; the page is in Europe/Berlin, so it reads 10:00."""
     added = "Hinzugefügt 05.01.2026, 10:00"
     page.goto(f"{app_url}/#/pool")
     expect(pool_row(page, RATED).get_by_text(added)).to_be_visible()
