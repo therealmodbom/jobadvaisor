@@ -4,6 +4,13 @@ import { Button } from '@/components/ui/button'
 import { whenText, type BackupFailure, type BackupState, type BackupStatus, type BackupStep } from '@/lib/backup'
 import { cn } from '@/lib/utils'
 
+/** Where the control's parts sit in the header, which is a wrapping flex row: the control renders
+ * its parts as direct children of it (`display: contents`). On a phone the wordmark and the
+ * button share the first row, the status line takes the second and the navigation the third; from
+ * `sm` up the order is wordmark, navigation, status line, button. */
+const LINE_SLOT = 'order-3 basis-full sm:basis-auto'
+const BUTTON_SLOT = 'order-2 sm:order-4'
+
 /** The last successful backup as a phrase: "zuletzt heute, 09:12" or "noch keine Sicherung". */
 const lastBackup = (status: BackupStatus) =>
   status.last_success ? `zuletzt ${whenText(status.last_success)}` : 'noch keine Sicherung'
@@ -55,7 +62,7 @@ function FailureToggle({ failure, status }: { failure: BackupFailure; status: Ba
     }
   }, [open])
   return (
-    <div ref={root} className="relative">
+    <div ref={root} className={cn('relative', LINE_SLOT)}>
       <button type="button" aria-expanded={open} aria-controls={open ? panelId : undefined}
               onClick={() => setOpen(!open)}
               className="inline-flex items-center gap-1.5 rounded-md bg-danger-soft px-2 py-1.5 text-sm font-bold text-danger">
@@ -64,7 +71,7 @@ function FailureToggle({ failure, status }: { failure: BackupFailure; status: Ba
       </button>
       {open && (
         <div id={panelId} role="dialog" aria-label={push ? 'Push fehlgeschlagen' : 'Sichern fehlgeschlagen'}
-             className="absolute top-full right-0 z-20 mt-2 flex w-[min(360px,calc(100vw-32px))] flex-col gap-2.5 rounded-xl border bg-card p-4 shadow-card">
+             className="absolute top-full right-0 z-20 mt-2 flex w-full flex-col gap-2.5 rounded-xl border bg-card p-4 shadow-card sm:w-[360px]">
           <p className="font-bold">{push ? 'Push hat nicht geklappt' : 'Sichern hat nicht geklappt'}</p>
           <p className="text-sm text-muted-foreground">
             {push
@@ -137,7 +144,7 @@ export function BackupControl({ state }: { state: BackupState }) {
   const { status, unavailable, refusal, pressFailed, press } = state
   if (unavailable !== null) {
     return (
-      <div className="flex items-center gap-2">
+      <div className={cn('flex items-center gap-2', BUTTON_SLOT)}>
         <Button variant="outline" disabled><CloudUpload aria-hidden="true" />Sichern</Button>
         <WhyUnavailable reason={unavailable} />
       </div>
@@ -149,9 +156,9 @@ export function BackupControl({ state }: { state: BackupState }) {
   const notice = refusal || pressFailed
   const line = failure && !notice && !status.running ? null : statusLine(status, refusal, pressFailed)
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+    <div className="contents">
       {line && (
-        <span className={cn('inline-flex items-center gap-1.5 text-sm',
+        <span className={cn('inline-flex items-center gap-1.5 text-sm', LINE_SLOT,
           line.tone === 'success' ? 'text-success' : line.tone === 'danger' ? 'text-danger' : 'text-muted-foreground')}>
           {line.tone === 'success' && <Check className="size-3.5" aria-hidden="true" />}
           {line.text}
@@ -159,14 +166,17 @@ export function BackupControl({ state }: { state: BackupState }) {
       )}
       {failure && !status.running && <FailureToggle failure={failure} status={status} />}
       {status.running ? (
-        <Button disabled><LoaderCircle className="animate-spin" aria-hidden="true" />Sichern ({count})</Button>
+        <Button className={BUTTON_SLOT} disabled>
+          <LoaderCircle className="animate-spin" aria-hidden="true" />Sichern ({count})
+        </Button>
       ) : status.pending ? (
-        <Button onClick={press}>
+        <Button className={BUTTON_SLOT} onClick={press}>
           <CloudUpload aria-hidden="true" />
           {failure ? 'Erneut sichern' : 'Sichern'} ({count})
         </Button>
       ) : (
-        <Button variant="outline" onClick={press} aria-label="Gesichert – jetzt erneut sichern">
+        <Button className={BUTTON_SLOT} variant="outline" onClick={press}
+                aria-label="Gesichert – jetzt erneut sichern">
           <Check className="text-success" aria-hidden="true" />Gesichert
         </Button>
       )}

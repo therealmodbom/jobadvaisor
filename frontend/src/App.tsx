@@ -68,10 +68,13 @@ function App() {
       <StaleBanner backend={backendVersion} />
       <header className="border-b bg-card">
         <div className="mx-auto flex min-h-16 max-w-[1200px] flex-wrap items-center gap-x-8 gap-y-2 px-6">
-          <a href={VIEWS[0].hash} className="text-[19px] font-bold tracking-tight text-foreground no-underline">
+          <a href={VIEWS[0].hash}
+             className="order-1 flex-auto text-[19px] font-bold tracking-tight text-foreground no-underline sm:flex-none">
             JobAdvAIsor
           </a>
-          <nav aria-label="Hauptnavigation" className="flex flex-auto flex-wrap gap-1">
+          {/* The backup control orders itself around these two (components/backup.tsx). */}
+          <nav aria-label="Hauptnavigation"
+               className="order-4 flex basis-full flex-wrap gap-1 sm:order-2 sm:flex-auto sm:basis-auto">
             {VIEWS.map((item) => (
               <a key={item.hash} href={item.hash} aria-current={item === view ? 'page' : undefined}
                  className={cn('rounded-lg px-3.5 py-2.5 no-underline',
