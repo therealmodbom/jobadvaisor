@@ -62,8 +62,8 @@ TDD per task: a failing test first, then the code. Backend tests use real git on
 
 ## 5. Frontend
 
-- [ ] 5.1 API types and `useBackupStatus` (fetch on mount, when the tab becomes visible, every second while a backup runs, otherwise every 15 seconds while visible; a failed fetch keeps the last status). Verify with Vitest tests using fake timers and visibility changes.
-- [ ] 5.2 `BackupControl` in the app shell as designed in 4.1: highlight, disabled while running with the progress (step, files, percent when known), the result line per outcome, the failure reason, the last successful backup or "noch keine Sicherung", and the unavailable state (disabled, with a focusable info icon giving the reason). Verify with component tests for each state, and for a `last_failure` that leaves the button enabled.
+- [x] 5.1 API types and `useBackupStatus` (fetch on mount, when the tab becomes visible, every second while a backup runs, otherwise every 15 seconds while visible; a failed fetch keeps the last status). Verify with Vitest tests using fake timers and visibility changes.
+- [x] 5.2 `BackupControl` in the app shell as designed in 4.1: highlight, disabled while running with the progress (step, files, percent when known), the result line per outcome, the failure reason, the last successful backup or "noch keine Sicherung", and the unavailable state (disabled, with a focusable info icon giving the reason). Verify with component tests for each state, and for a `last_failure` that leaves the button enabled.
 - [ ] 5.3 e2e (`uv run pytest -m e2e`) on a demo-persona copy made a repository (`git init`, initial commit, a bare remote as upstream): rate a posting, the button is highlighted, press, it is quiet and shows the time, and the bare remote holds the rating. Verify that the test passes.
 
 ## 6. Image and deployment

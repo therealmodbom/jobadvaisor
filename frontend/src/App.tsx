@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
+import { BackupControl, BackupStrip } from '@/components/backup'
 import { StaleBanner, VersionFooter } from '@/components/version'
+import { useBackupStatus } from '@/lib/backup'
 import { cn } from '@/lib/utils'
 import { useBackendVersion } from '@/lib/version'
 import { ChatView } from '@/views/ChatView'
@@ -54,6 +56,7 @@ function App() {
   }, [view, postingId])
 
   const backendVersion = useBackendVersion()
+  const backup = useBackupStatus()
 
   const content = {
     '#/pool': <PoolView active={view === VIEWS[0] && postingId === null} />,
@@ -78,8 +81,10 @@ function App() {
               </a>
             ))}
           </nav>
+          <BackupControl state={backup} />
         </div>
       </header>
+      <BackupStrip status={backup.status} />
       <main className="mx-auto box-border max-w-[1200px] px-6 pt-8 pb-16">
         {/* Every view stays mounted and only the open one shows, so a conversation, an intake
             result or a computing pass survives a look at another view. */}
