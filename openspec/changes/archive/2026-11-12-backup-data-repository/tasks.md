@@ -111,7 +111,7 @@ TDD per task: a failing test first, then the code. Backend tests use real git on
   - real findings from both are fixed in the same turn.
 
   Then `gh pr ready` on #95, rewrite its description for the implementation with `Closes #97` and `Refs #63`, and check that the follow-up monitor still runs. Verify that the PR is ready and the monitor is listed by `pr-monitor.sh status`.
-- [ ] 8.4 On "fertig zum Mergen": tick the tasks, run `openspec archive backup-data-repository --yes` on this branch, and check that the baseline specs hold no duplicate requirement. Verify that `openspec list` shows no active change.
+- [x] 8.4 On "fertig zum Mergen": tick the tasks, run `openspec archive backup-data-repository --yes` on this branch, and check that the baseline specs hold no duplicate requirement. Verify that `openspec list` shows no active change.
 
 ## Later slices (outline; each its own change, proposed after the previous one merges)
 
