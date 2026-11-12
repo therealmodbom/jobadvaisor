@@ -139,7 +139,9 @@ function statusLine(status: BackupStatus, refusal: string | null,
       ? `Nur lokal committet – kein Remote eingerichtet · ${lastBackup(status)}`
       : `Kein Remote eingerichtet · ${lastBackup(status)}` }
   }
-  return { text: lastBackup(status) }
+  // Quiet with no recorded backup (the repository is clean, the app never backed it up): "noch
+  // keine Sicherung" would contradict the quiet button.
+  return { text: status.last_success ? lastBackup(status) : 'Nichts zu sichern' }
 }
 
 /** The backup control of the app header: the status line, the button and, after a failure, the

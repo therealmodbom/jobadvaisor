@@ -67,6 +67,12 @@ test('a backup that has never succeeded says so', () => {
   expect(screen.getByText('3 Änderungen nicht gesichert · noch keine Sicherung')).toBeVisible()
 })
 
+test('nothing to back up and no recorded backup says there is nothing to back up', () => {
+  render(<BackupControl state={state({ ...QUIET, last_success: null }).value} />)
+  expect(screen.getByText('Nichts zu sichern')).toBeVisible()
+  expect(screen.queryByText(/noch keine Sicherung/)).toBeNull()
+})
+
 test('yesterday and older times name the day', () => {
   const { rerender } = render(
     <BackupControl state={state({ ...QUIET, last_success: at(11, 21, 5) }).value} />)
