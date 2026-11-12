@@ -23,12 +23,12 @@ Greenfield: the repository holds only OpenSpec, `AGENTS.md`, the kickoff brief a
 
 Each decision below has its own ADR in `docs/decisions/`; this design does not restate the rationale.
 
-- Git repository as the user data store → [ADR 0001](../../../docs/decisions/0001-git-repository-as-user-data-store.md).
-- Legacy exporter outside the app → [ADR 0002](../../../docs/decisions/0002-legacy-exporter-outside-the-app.md).
-- Provider-agnostic LLM access through LangChain → [ADR 0003](../../../docs/decisions/0003-provider-agnostic-llm-access-through-langchain.md).
-- SQLite and Chroma locally, Postgres (checkpoints and pgvector) as the later adapter → [ADR 0004](../../../docs/decisions/0004-sqlite-and-chroma-locally-postgres-later.md).
-- Hybrid agent design: fixed triage graph, open to ReAct nodes an eval justifies, plus a free conversational agent over the same tools → [ADR 0005](../../../docs/decisions/0005-hybrid-agent-design.md).
-- Pydantic models as the single source of the data repository's JSON Schemas → [ADR 0006](../../../docs/decisions/0006-pydantic-models-as-schema-source.md).
+- Git repository as the user data store → [ADR 0001](../../../../docs/decisions/0001-git-repository-as-user-data-store.md).
+- Legacy exporter outside the app → [ADR 0002](../../../../docs/decisions/0002-legacy-exporter-outside-the-app.md).
+- Provider-agnostic LLM access through LangChain → [ADR 0003](../../../../docs/decisions/0003-provider-agnostic-llm-access-through-langchain.md).
+- SQLite and Chroma locally, Postgres (checkpoints and pgvector) as the later adapter → [ADR 0004](../../../../docs/decisions/0004-sqlite-and-chroma-locally-postgres-later.md).
+- Hybrid agent design: fixed triage graph, open to ReAct nodes an eval justifies, plus a free conversational agent over the same tools → [ADR 0005](../../../../docs/decisions/0005-hybrid-agent-design.md).
+- Pydantic models as the single source of the data repository's JSON Schemas → [ADR 0006](../../../../docs/decisions/0006-pydantic-models-as-schema-source.md).
 
 ### Repository layout
 
@@ -81,7 +81,7 @@ Alternative: run extraction first and exclude on features. Rejected: it spends a
 
 ### Decision models
 
-A decision model returns a probability per option instead of text. Through an OpenAI-compatible router it takes a chat-completions request with `response_format: {"type": "questions"}` and typed questions: `score` for an ordered rubric, `choice` for one of several options, `noul` for yes or no. The role `decider` reads `DECIDER_MODEL` and an optional `DECIDER_BASE_URL`, like the chat roles, and is called through the OpenAI client directly, with `LLM_API_KEY` as its key, since LangChain has no binding for that response format. This is the one model access outside LangChain ([ADR 0003](../../../docs/decisions/0003-provider-agnostic-llm-access-through-langchain.md) records the exception). The first candidate is TypeSafe Jev (`typesafe/jev-1.13.0` on Requesty), pinned to a version because thresholds do not transfer between releases.
+A decision model returns a probability per option instead of text. Through an OpenAI-compatible router it takes a chat-completions request with `response_format: {"type": "questions"}` and typed questions: `score` for an ordered rubric, `choice` for one of several options, `noul` for yes or no. The role `decider` reads `DECIDER_MODEL` and an optional `DECIDER_BASE_URL`, like the chat roles, and is called through the OpenAI client directly, with `LLM_API_KEY` as its key, since LangChain has no binding for that response format. This is the one model access outside LangChain ([ADR 0003](../../../../docs/decisions/0003-provider-agnostic-llm-access-through-langchain.md) records the exception). The first candidate is TypeSafe Jev (`typesafe/jev-1.13.0` on Requesty), pinned to a version because thresholds do not transfer between releases.
 
 In this change a decision model has one production path, the default content-guard classifier (see Content guard). Everywhere else it is an eval competitor: it scores postings (0–10 as a `score` question) and fills categorical features (`choice` questions) next to the LLM judge and the extractor. It produces no text, so it cannot replace the judge's written reasoning; a production use would pair it with an LLM call for the reasoning. Without `DECIDER_MODEL`, the decision-model rows are skipped with that reason.
 
