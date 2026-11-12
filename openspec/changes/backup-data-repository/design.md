@@ -4,7 +4,7 @@
 
 See proposal.md for the motivation. The current state that shapes the approach:
 
-- Every app write to the data repository goes through the public functions of `backend/jobadvaisor/data/writer.py`. They write a temporary file (`.<name>.tmp`, `.<random>.new` for new postings) and rename it into place, so no file is ever half-written. Two process-local locks, `_pool_lock` and `_update_lock`, serialise some read-modify-writes. `write_label`, `write_score`, `write_company` and `create_posting` take no lock. Scripts that write a data root (`data/demo_persona.py`, `data/trim_linkedin.py`, the evals) run outside the server process.
+- Every app write to the data repository goes through the public functions of `backend/jobadvaisor/data/writer.py`. They write a temporary file (`.<name>.tmp`, `.<random>.new` for new postings) and rename it into place. The one exception is the rollback of `merge_extraction_labels`, which writes the old content back in place. Two process-local locks, `_pool_lock` and `_update_lock`, serialise some read-modify-writes. `write_label`, `write_score`, `write_company`, `write_pool`, `create_posting` and `merge_extraction_labels` take no lock. Scripts that write a data root (`data/demo_persona.py`, `data/trim_linkedin.py`, the evals) run outside the server process.
 - One uvicorn worker (`Dockerfile`, last line). Sync routes and background passes run in threads of that one process.
 - The release image (`python:3.12-slim`) has no `git` and no `ssh`. The service user is uid 10001 with no home directory. The README's first-time setup chowns the data directory to 10001 and sets a repository-local `user.name` and `user.email`.
 - `/health` loads the whole repository. The backup status does not touch it.
@@ -37,25 +37,24 @@ A module-level `threading.RLock`, `write_gate`, replaces `_pool_lock` and `_upda
 - Rejected: per-file locks. A commit needs a moment in which no file changes, so it would have to take every lock anyway.
 - Rejected: a write queue in a worker thread. It adds ordering and error-propagation code for no gain over a lock, in a single process.
 
-Slice 3 holds the same gate while git changes the working tree.
+Slice 3 holds the same gate while git changes the working tree. A rating during a sync then waits, so slice 3 modifies the baseline scenario "Rating during a sync", which says the user sees that the rating was not saved.
 
 ### `git` through `subprocess`, in `data/backup.py`
 
-A new module `data/backup.py` runs the `git` command (`git -C <root> …`) with a timeout, and adds no Python package.
-
-- Rejected: GitPython. It adds a dependency that also runs the `git` command underneath.
-- Rejected: dulwich. A second git implementation could disagree with the one the user resolves conflicts with in slice 4.
+A new module `data/backup.py` runs the `git` command (`git -C <root> …`) with a timeout, and adds no Python package. ADR 0010 says why no git library is used.
 
 Every call runs with `GIT_TERMINAL_PROMPT=0`, so git never waits for input. Status calls also run with `GIT_OPTIONAL_LOCKS=0`, so a poll never takes `index.lock` while a backup commits.
 
+- **Own repository:** `git rev-parse --show-toplevel` must equal the resolved data repository path. Otherwise the backup is unavailable. A plain directory fails this check, and so does a directory inside another repository: a commit there would land in the enclosing repository.
+- **Temporary files:** status and staging use the same exclude pathspecs, `':(exclude,glob)**/.*.tmp' ':(exclude,glob)**/.*.new'`. A crashed write's leftover then never counts as pending and is never committed.
 - **Status:**
-  - `git status --porcelain=v1 -z --untracked-files=all` gives the uncommitted changes, also those made outside the app.
-  - `git symbolic-ref --short HEAD` gives the branch.
+  - `git status --porcelain=v1 -z --untracked-files=all -- . <excludes>` gives the uncommitted changes, also those made outside the app.
+  - `git symbolic-ref --short -q HEAD` gives the branch, or `null` on a detached HEAD, as during a rebase.
   - `git rev-list --count @{upstream}..HEAD` gives the commits the upstream lacks, as of the last push or fetch.
   - A `MERGE_HEAD`, `CHERRY_PICK_HEAD`, `REVERT_HEAD`, `rebase-merge` or `rebase-apply` under `git rev-parse --git-dir` means an operation is in progress.
 - **Backup:**
   1. Refuse when not on `main` or when an operation is in progress.
-  2. Under the gate: `git add -A -- . ':(exclude,glob)**/.*.tmp' ':(exclude,glob)**/.*.new'`, so a temporary file a crash left behind is never committed. Then `git diff --cached --name-only` for the message, and `git commit` when something is staged.
+  2. Under the gate: `git add -A -- . <excludes>`. Then `git diff --cached --name-only` for the message, and `git commit` when something is staged.
   3. Outside the gate: when `main` has an upstream, `git push <remote> HEAD:<merge ref>` from `branch.main.remote` and `branch.main.merge`, with a 60-second timeout. Never `--force`.
 - **Identity:** the repository's own `user.name` and `user.email` when it has them, as the README's setup gives it. Otherwise `JobAdvAIsor <jobadvaisor@localhost>` through `GIT_AUTHOR_*` and `GIT_COMMITTER_*` for that one commit. The container has no global git config to fall back on.
 - **Message:** `Backup: 3 ratings, 1 posting`. Kinds come from the first path segment:
@@ -76,7 +75,7 @@ The routes follow the `{error, detail}` convention of the other routes:
   - `remote` is the upstream's name or `null`.
   - `operation` is the in-progress git operation or `null`.
   - `last_failure` is `{at, step, reason}` or `null`.
-  - A data directory that is no git repository answers `409 backup unavailable`.
+  - A data directory that is not the top level of its own git repository answers `409 backup unavailable`, with the reason as the detail. `POST` answers the same.
 - `POST /backup` takes no body and answers `{"result", "commit", "status"}`, where `status` has the shape of `GET /backup`.
   - `result` is `pushed`, `committed` (no upstream) or `up_to_date`.
   - `409 backup running`.
@@ -84,11 +83,11 @@ The routes follow the `{error, detail}` convention of the other routes:
   - `502 push failed`, with git's message as the detail and the `status` in the body. The commit stays.
   - `500 commit failed`.
 
-`create_app` takes an optional `backup`, built from `intake.root` and `Settings().state_directory` when absent, the same way the other dependencies are. Tests pass their own.
+`create_app` takes an optional `backup`, built from `intake.root` and that repository's `state_path` (`index.py`) when absent, the same way the other dependencies are. Tests pass their own.
 
 ### Last success and failure in the state directory
 
-The file `backup.json` in the state directory holds `last_success` and `last_failure`. A success clears the failure.
+The file `backup.json` in the data repository's own state path (`<STATE_DIRECTORY>/<name>-<hash>`, as the local stores use) holds `last_success` and `last_failure`. A success clears the failure.
 
 - Git cannot hold this information: a failed push leaves no trace in git, and "last successful backup" includes the push.
 - Losing the file loses only the display until the next backup, so the state directory stays rebuildable in practice.
@@ -122,17 +121,19 @@ This change adds no LLM call, so it needs no eval.
 
 ## Risks / Trade-offs
 
-- [A script (`demo_persona.py`, an eval) writes the same data repository while the server commits] → Those scripts write their own roots, not a live server's data. The README says not to point them at a server's data repository. A cross-process lock is out of proportion for this.
+- [A script (`demo_persona.py`, an eval) writes the same data repository while the server commits] → Those scripts write their own roots, not a live server's data. The README gains a sentence saying not to point them at a server's data repository (task 7.2). A cross-process lock is out of proportion for this.
 - [A write sequence spans several writer calls (intake creates a posting, then stores its guard result), so a backup can commit the first half] → Every file is valid on its own and the second half is pending afterwards, so the next backup has it. No reader depends on the two arriving in one commit.
 - [The push holds no gate, so a write during a push is not in the pushed commit] → It shows as pending, which is the truth. The spec requires exactly this.
 - [Without mounted credentials, every press on the server fails the push, and the button stays highlighted] → That is the honest state until the key is mounted. The README's setup step names it, and the failure shows git's reason.
 - [ssh as a user without a home directory warns that it cannot create `~/.ssh`] → The known-hosts file and the key are given explicitly and `BatchMode` is set, so the warning has no effect. The built image is verified against a real SSH remote before the PR (tasks.md, group 5).
+- [Git run as root on the host (the hand commits so far, the manual recovery that stays until slice 3) leaves root-owned directories under `.git/objects`, so the container's commit fails with "insufficient permission"] → The migration plan and the README's recovery end with `chown -R 10001:10001` on the data directory.
 - [A pre-commit hook in the data repository rejects the commit] → It is reported as `commit failed` with the hook's output. The data repository's rules say it has no hook.
 
 ## Migration Plan
 
 1. Release the image with git, and copy the new `compose.yaml` together with the new release, as the README already says for compose changes.
 2. On the server, create `/srv/jobadvaisor/keys` with the key and `known_hosts`, chown them to 10001 and set the key to mode 600 (README).
-3. The first press commits everything uncommitted since the last hand commit, in one commit.
+3. Run `chown -R 10001:10001` on the data directory once, since earlier hand commits as root may have left root-owned objects.
+4. The first press commits everything uncommitted since the last hand commit, in one commit.
 
 Rollback: the previous image ignores the new mount and variable. The commits the app made are ordinary commits.

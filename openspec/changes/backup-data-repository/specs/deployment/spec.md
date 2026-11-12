@@ -9,8 +9,15 @@ The release image SHALL contain git and an SSH client, and its service user SHAL
 - **WHEN** the smoke check runs on a built image
 - **THEN** it fails unless the service user can commit in a fresh repository and both git and the SSH client report a version
 
+### Requirement: No push credential in the image
+The release image SHALL NOT contain a push credential, such as an SSH key or a token.
+
+#### Scenario: Image inspection for keys
+- **WHEN** the release image is searched for private key files
+- **THEN** none is found
+
 ### Requirement: Push credentials from the host
-The image SHALL NOT contain a push credential. The deployment SHALL mount the SSH key and the known-hosts file from the host read-only, and the documentation SHALL describe this with placeholder paths. Without them, a push SHALL fail with a reported reason and the app SHALL keep running.
+The deployment SHALL mount the SSH key and the known-hosts file from the host read-only, and the documentation SHALL describe this with placeholder paths. Without them, a push SHALL fail with a reported reason and the app SHALL keep running.
 
 #### Scenario: Credentials mounted
 - **WHEN** the key and known-hosts file are mounted as documented and the user presses the backup button
@@ -27,7 +34,7 @@ The deployment documentation SHALL name the backup button as the way to commit a
 
 #### Scenario: Unpushed changes
 - **WHEN** the user rates a posting and has not pressed the backup button since
-- **THEN** the documentation says the remote lacks that rating until the button is pressed, and the button is highlighted
+- **THEN** the documentation says the remote lacks that rating until the button is pressed
 
 #### Scenario: Remote changed elsewhere
 - **WHEN** another machine pushed a commit to the remote that does not touch what the server changed, the server's push is rejected, and the user follows the documented recovery
