@@ -68,16 +68,16 @@ TDD per task: a failing test first, then the code. Backend tests use real git on
 
 ## 6. Image and deployment
 
-- [ ] 6.1 `Dockerfile`: install `git` and `openssh-client` with `--no-install-recommends`. Verify with `docker build`.
-- [ ] 6.2 `deploy/smoke.sh`:
+- [x] 6.1 `Dockerfile`: install `git` and `openssh-client` with `--no-install-recommends`. Verify with `docker build`.
+- [x] 6.2 `deploy/smoke.sh`:
   - the service user commits in a fresh repository with the fallback identity;
   - `ssh -V` runs;
   - git is at least 2.38;
   - no private key file (`id_*`, `*.pem`, `*.key`, a file starting with `-----BEGIN`) exists outside the dependency and browser directories.
 
   Verify with `deploy/smoke.sh <image>` on the built image.
-- [ ] 6.3 `deploy/compose.yaml`: read-only `/keys` mount from `${JOBADVAISOR_SSH_DIR:-…}`, and `GIT_SSH_COMMAND` with the key name from `${JOBADVAISOR_SSH_KEY:-…}`. No host, provider or remote is named anywhere. Verify that `docker compose -f deploy/compose.yaml config --no-interpolate` parses, run with dummy env files so no secret is read.
-- [ ] 6.4 Built-image check against a real SSH remote:
+- [x] 6.3 `deploy/compose.yaml`: read-only `/keys` mount from `${JOBADVAISOR_SSH_DIR:-…}`, and `GIT_SSH_COMMAND` with the key name from `${JOBADVAISOR_SSH_KEY:-…}`. No host, provider or remote is named anywhere. Verify that `docker compose -f deploy/compose.yaml config --no-interpolate` parses, run with dummy env files so no secret is read.
+- [x] 6.4 Built-image check against a real SSH remote:
   1. Run the image with a demo-persona clone owned by 10001 bind-mounted.
   2. Run an SSH server container holding a bare repository as the remote, with the key and `known_hosts` mounted as documented.
   3. Use a non-default key directory and key name set in the Compose project's `.env`.

@@ -20,6 +20,12 @@ ENV PYTHONUNBUFFERED=1 \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
     PATH=/app/backend/.venv/bin:$PATH
 COPY --from=ghcr.io/astral-sh/uv:0.9.17 /uv /usr/local/bin/uv
+# git and ssh for the backup (backend/jobadvaisor/data/backup.py commits and pushes the data
+# repository). No key and no known_hosts file: the deployment mounts them at run time (README),
+# since the image is public and holds no secret.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git openssh-client \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app/backend
 # Dependencies first, so a source-only change reuses this layer

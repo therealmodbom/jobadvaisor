@@ -1,7 +1,8 @@
 # JobAdvAIsor on a private server. Copy this file to /srv/jobadvaisor/compose.yaml; see the
 # Deployment section of the README. Next to it live:
 #   .env          project settings for this file: JOBADVAISOR_TAG (the release to run) and,
-#                 optionally, JOBADVAISOR_PORT
+#                 optionally, JOBADVAISOR_PORT, JOBADVAISOR_SSH_DIR (the keys directory) and
+#                 JOBADVAISOR_SSH_KEY (the key's file name in it)
 #   settings.env  non-secret settings (models, URLs), same names as .env.example
 #   secrets.env   secrets, mode 600, only its owner can read it
 services:
@@ -17,9 +18,18 @@ services:
     environment:
       DATA_REPOSITORY: /data
       STATE_DIRECTORY: /state
+      # How the backup button pushes: the key and known_hosts file from /keys, no prompt and no
+      # unknown host. The remote itself (host, port, provider) is the data repository's `origin`.
+      GIT_SSH_COMMAND: >-
+        ssh -i /keys/${JOBADVAISOR_SSH_KEY:-id_ed25519}
+        -o UserKnownHostsFile=/keys/known_hosts
+        -o StrictHostKeyChecking=yes
+        -o BatchMode=yes
     volumes:
       - /srv/jobadvaisor/data:/data
       - /srv/jobadvaisor/state:/state
+      # The backup's SSH key and known_hosts file, owned by uid 10001, the key mode 600
+      - ${JOBADVAISOR_SSH_DIR:-/srv/jobadvaisor/keys}:/keys:ro
     # unless-stopped keeps a deliberate `docker compose stop` stopped across a host reboot
     restart: unless-stopped
     healthcheck:

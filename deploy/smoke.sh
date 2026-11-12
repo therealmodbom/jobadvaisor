@@ -71,4 +71,28 @@ check "no env or data file under /app" in_image sh -c '
   [ -z "$(find /app -path /app/backend/.venv -prune -o -path /app/frontend/dist -prune -o \
     \( -name .env -o -name local.env -o -name "*.json" \) -print)" ]'
 
+# The backup (backend/jobadvaisor/data/backup.py) needs git and ssh in the image, and `git merge-tree
+# --write-tree`, which the sync slice uses, needs git 2.38.
+check "ssh runs" in_image ssh -V
+check "git is at least 2.38" in_image sh -c '
+  [ "$(printf "%s\n2.38\n" "$(git --version | cut -d" " -f3)" | sort -V | head -n1)" = 2.38 ]'
+# The real backup code as the service user: a fresh repository has no identity and no global git
+# configuration, so the commit proves the fallback identity works. No remote, so it only commits.
+check "the service user can back up a fresh repository" in_image python -c '
+import pathlib, subprocess, tempfile
+from jobadvaisor.data.backup import Backup
+root = pathlib.Path(tempfile.mkdtemp())
+subprocess.run(["git", "-C", str(root), "init", "-q", "-b", "main"], check=True)
+(root / "profile.json").write_text("{}\n")
+assert Backup(root, pathlib.Path(tempfile.mkdtemp())).run().result == "committed"
+'
+# The image is public: no private key outside the dependencies (.venv, /usr/local/lib, whose
+# certifi bundles are public CA lists) and the browser, by name or by content.
+check "no private key in the image" in_image sh -c '
+  [ -z "$(find / -xdev \( -path /proc -o -path /app/backend/.venv -o -path /ms-playwright \
+    -o -path /usr/lib -o -path /usr/local/lib -o -path /usr/share -o -path /etc/ssl \) -prune -o \
+    \( -name "id_*" -o -name "*.pem" -o -name "*.key" \) -print 2>/dev/null)" ] \
+  && ! grep -rIlq --exclude-dir=.venv --exclude-dir=node_modules -- \
+    "-----BEGIN [A-Z ]*PRIVATE KEY" /app /etc /root /home /opt /srv /var 2>/dev/null'
+
 echo "smoke check passed: $image"
