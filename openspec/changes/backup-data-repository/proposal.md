@@ -2,7 +2,7 @@
 
 ## Why
 
-The app writes ratings, scores and postings into the data repository and never commits them. The user commits and pushes by hand, on the server with `git -C /srv/jobadvaisor/data …`, so the remote lacks every rating since the last time they remembered, and a lost server loses them. This change is the first of four slices of [#63](https://github.com/therealmodbom/jobadvaisor/issues/63) (Back up user data automatically): the app commits and pushes on a button press, and shows when something is not backed up yet.
+The app writes ratings, scores and postings into the data repository and never commits them. The user commits and pushes by hand, on the server with `git -C /srv/jobadvaisor/data …`, so the remote lacks every rating since the last time they remembered, and a lost server loses them. This change is the first of four slices of [#63](https://github.com/therealmodbom/jobadvaisor/issues/63) (Back up user data automatically), tracked as its sub-issue [#97](https://github.com/therealmodbom/jobadvaisor/issues/97): the app commits and pushes on a button press, and shows when something is not backed up yet.
 
 ## What Changes
 

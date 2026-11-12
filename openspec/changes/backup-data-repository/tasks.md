@@ -101,19 +101,24 @@ TDD per task: a failing test first, then the code. Backend tests use real git on
 
 - [ ] 8.1 Full suite: backend `uv run ruff check`, `uv run pytest`, `uv run pytest -m e2e`; frontend `npm run lint`, `npm test`, `npm run build`; `deploy/smoke.sh` on the built image. Verify that all pass.
 - [ ] 8.2 Browser click test on the demo persona, made a repository with a bare remote as in 5.3: rate, watch the highlight, press, see the time; then with the bare remote moved away, press and see the failure while the pool still works. Verify by screenshots in the PR.
-- [ ] 8.3 Fresh review agent without history on the diff, real findings fixed in the same turn. Then `create-pull-request` with `Closes` left out (slices 2 to 4 remain): `Refs #63 (Back up user data automatically)`, and arm the follow-up monitor. Verify that the PR is open and the monitor is armed.
+- [ ] 8.3 Review before the PR leaves draft:
+  - a fresh review agent without history checks the diff against the specs and tasks;
+  - `/code-review high` runs on the diff;
+  - real findings from both are fixed in the same turn.
+
+  Then `gh pr ready` on #95, rewrite its description for the implementation with `Closes #97` and `Refs #63`, and check that the follow-up monitor still runs. Verify that the PR is ready and the monitor is listed by `pr-monitor.sh status`.
 - [ ] 8.4 On "fertig zum Mergen": tick the tasks, run `openspec archive backup-data-repository --yes` on this branch, and check that the baseline specs hold no duplicate requirement. Verify that `openspec list` shows no active change.
 
 ## Later slices (outline; each its own change, proposed after the previous one merges)
 
-- **Slice 2, `backup-modes`:**
+- **Slice 2, `backup-modes` (#98):**
   - settings page behind the header's gear icon, with a backup section only (#68 (Settings page for app-wide settings) moves the pool thresholds there later);
   - mode `manual` / `on_change` / `scheduled`;
   - debounce, default 60 seconds;
   - daily clock times in the user's time zone (check zone data in the image);
   - stored in the state directory;
   - the scheduler and debounce in the uvicorn process.
-- **Slice 3, `sync-with-remote`:**
+- **Slice 3, `sync-with-remote` (#99):**
   - fetch;
   - a `git merge-tree --write-tree` check that leaves the working tree untouched;
   - merge under the write gate, then push;
@@ -122,9 +127,9 @@ TDD per task: a failing test first, then the code. Backend tests use real git on
   - the write gate held while git changes the tree, so the baseline scenario "Rating during a sync" (the rating is not saved) is modified to "the rating waits";
   - an ADR for merge over rebase, from the spike in which `rebase --abort` dropped writes made during the conflict and `merge --abort` failed after one;
   - the README's manual recovery replaced.
-- **Slice 4, `conflict-banner`:**
+- **Slice 4, `conflict-banner` (#100):**
   - a banner on every view naming the file;
   - writes to that file held back;
   - reads skip it, `/health` included;
   - resume detection by repository state, with no restart;
-  - `Closes #63 (Back up user data automatically)`.
+  - `Closes #100`. #63 closes once all of its sub-issues are closed.
