@@ -50,8 +50,12 @@ A press SHALL start a backup and disable the button until it ends. Afterwards th
 - **THEN** the UI says the changes were committed and not pushed because no remote is set
 
 ### Requirement: Last successful backup shown
-Next to the backup button, the UI SHALL show the time of the last successful backup, or that there has been none yet.
+Next to the backup button, the UI SHALL show the time of the last successful backup, or that there has been none yet while changes are not backed up.
 
 #### Scenario: No backup yet
-- **WHEN** no backup has succeeded for this data repository
+- **WHEN** no backup has succeeded for this data repository and changes are not backed up
 - **THEN** the UI says there has been no backup yet
+
+#### Scenario: Nothing to back up and no backup yet
+- **WHEN** no backup has succeeded for this data repository and nothing is waiting to be backed up
+- **THEN** the UI says there is nothing to back up, not that there has been no backup, so the line does not contradict the quiet button
