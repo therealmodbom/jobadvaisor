@@ -5,12 +5,20 @@ Runs the `git` command (`git -C <root> ...`), never a git library. Every call se
 `GIT_OPTIONAL_LOCKS=0`, so a poll never takes `index.lock` while a backup commits.
 """
 
+import json
+import logging
 import os
+import signal
 import subprocess
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 from jobadvaisor.data.writer import write_gate
+
+logger = logging.getLogger(__name__)
+
+HISTORY_FILE = "backup.json"
 
 STATUS_TIMEOUT = 30
 COMMIT_TIMEOUT = 60
@@ -80,6 +88,15 @@ class Result:
     commit: str
 
 
+@dataclass(frozen=True)
+class History:
+    """What `backup.json` holds: `last_success` as a UTC time (`2026-11-12T13:40:00Z`) and
+    `last_failure` as `{at, step, reason}` since then, each `None` when there is none."""
+
+    last_success: str | None
+    last_failure: dict[str, str] | None
+
+
 class BackupRefused(Exception):
     """A backup that must not start: another branch than `main`, or a git operation stopped on
     a conflict. `str(error)` names which; nothing was changed."""
@@ -107,7 +124,51 @@ class Backup:
         """Stage and commit what is pending (under the write gate, temporary files excluded),
         then push to the upstream of `main` when there is one. Never forces a push. Raises
         `BackupUnavailable` and `BackupRefused` before changing anything, `BackupFailed` for a
-        commit or push that git rejects."""
+        commit or push that git rejects. A finished or failed run is recorded in `history()`;
+        a refused one is not."""
+        try:
+            result = self._backup()
+        except BackupFailed as failure:
+            self._record(last_failure={"at": _now(), "step": failure.step,
+                                       "reason": failure.reason})
+            raise
+        self._record(last_success=_now(), last_failure=None)
+        return result
+
+    def history(self) -> History:
+        """The time of the last successful backup and the last failure since then, from
+        `backup.json` in the state directory. A missing or unreadable file, or a field of the
+        wrong shape, reads as `None`: it holds only the display, and the next backup rewrites
+        it."""
+        try:
+            data = json.loads((self.state_path / HISTORY_FILE).read_text())
+        except (OSError, ValueError):
+            return History(None, None)
+        if not isinstance(data, dict):
+            return History(None, None)
+        success, failure = data.get("last_success"), data.get("last_failure")
+        if not isinstance(success, str):
+            success = None
+        if not (isinstance(failure, dict) and all(
+                isinstance(failure.get(key), str) for key in ("at", "step", "reason"))):
+            failure = None
+        return History(success, failure)
+
+    def _record(self, **changes: object) -> None:
+        """Write `changes` into `backup.json`, keeping the other field. A state directory that
+        cannot be written loses only the display, so the failure is logged, not raised."""
+        history = self.history()
+        data = {"last_success": history.last_success, "last_failure": history.last_failure,
+                **changes}
+        try:
+            self.state_path.mkdir(parents=True, exist_ok=True)
+            temporary = self.state_path / f".{HISTORY_FILE}.tmp"
+            temporary.write_text(json.dumps(data, indent=2) + "\n")
+            os.replace(temporary, self.state_path / HISTORY_FILE)
+        except OSError:
+            logger.warning("cannot write %s", self.state_path / HISTORY_FILE, exc_info=True)
+
+    def _backup(self) -> Result:
         status = self.status()
         if status.operation:
             raise BackupRefused(f"a {status.operation} is in progress")
@@ -132,8 +193,12 @@ class Backup:
             paths = [path for path in staged.split("\0") if path]
             if not paths:
                 return False
-            commit = self._git("commit", "-m", commit_message(paths), check=False,
-                               env=self._identity(), timeout=COMMIT_TIMEOUT)
+            try:
+                commit = self._git("commit", "-m", commit_message(paths), check=False,
+                                   env=self._identity(), timeout=COMMIT_TIMEOUT)
+            except subprocess.TimeoutExpired:
+                raise BackupFailed("commit", f"timed out after {COMMIT_TIMEOUT} seconds") \
+                    from None
         if commit.returncode != 0:
             raise BackupFailed("commit", _reason(commit))
         return True
@@ -151,8 +216,11 @@ class Backup:
     def _push(self) -> None:
         remote = self._git("config", "branch.main.remote").stdout.strip()
         branch = self._git("config", "branch.main.merge").stdout.strip()
-        push = self._git("push", "--progress", remote, f"HEAD:{branch}", check=False,
-                         timeout=PUSH_TIMEOUT)
+        try:
+            push = self._git("push", "--progress", remote, f"HEAD:{branch}", check=False,
+                             timeout=PUSH_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            raise BackupFailed("push", f"timed out after {PUSH_TIMEOUT} seconds") from None
         if push.returncode != 0:
             raise BackupFailed("push", _reason(push))
 
@@ -201,8 +269,24 @@ class Backup:
         environment = {**os.environ, "GIT_TERMINAL_PROMPT": "0", **(env or {})}
         if not optional_locks:
             environment["GIT_OPTIONAL_LOCKS"] = "0"
-        return subprocess.run(["git", "-C", str(self.root), *args], capture_output=True,
-                              text=True, check=check, timeout=timeout, env=environment)
+        command = ["git", "-C", str(self.root), *args]
+        # Own process group: on a timeout the kill reaches ssh and hooks too, which would
+        # otherwise keep the output pipes open and block the caller past the timeout.
+        with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                              env=environment, start_new_session=True) as process:
+            try:
+                stdout, stderr = process.communicate(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                os.killpg(process.pid, signal.SIGKILL)
+                process.communicate()
+                raise
+        if check and process.returncode != 0:
+            raise subprocess.CalledProcessError(process.returncode, command, stdout, stderr)
+        return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+
+
+def _now() -> str:
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _reason(process: subprocess.CompletedProcess[str]) -> str:

@@ -31,8 +31,8 @@ TDD per task: a failing test first, then the code. Backend tests use real git on
   - a leftover `.pool.json.tmp` is not committed, also when it was staged by hand before the backup, and the status is clean afterwards;
   - a rejected commit (a failing `pre-commit` hook in the test repository) keeps every change pending and reports `commit failed`;
   - the fallback identity is used without a repository identity.
-- [ ] 2.4 Failures: an unreachable remote (a bare-repository path that does not exist) and a rejected push (a second clone pushed first) both keep the commit, report git's reason and leave both histories unchanged, and a later backup pushes. Verify with tests. Add a test that a push exceeding the timeout counts as failed, using a fake `GIT_SSH_COMMAND` that sleeps.
-- [ ] 2.5 `backup.json` in the data repository's `state_path`: last success, last failure with step and reason, the failure cleared on success, and a missing or unreadable file read as "none". Verify with tests.
+- [x] 2.4 Failures: an unreachable remote (a bare-repository path that does not exist) and a rejected push (a second clone pushed first) both keep the commit, report git's reason and leave both histories unchanged, and a later backup pushes. Verify with tests. Add a test that a push exceeding the timeout counts as failed, using a fake `GIT_SSH_COMMAND` that sleeps.
+- [x] 2.5 `backup.json` in the data repository's `state_path`: last success, last failure with step and reason, the failure cleared on success, and a missing or unreadable file read as "none". Verify with tests.
 - [ ] 2.6 Background run: refusals are checked synchronously, then the backup runs in a thread. A second backup while one runs is refused, not queued. Progress reports `{step, files, percent}`, with the percent parsed from `--progress` stderr split on `\r`, and `last_result` records the outcome. Verify with tests for:
   - a test holding the first backup in its push, which sees the second refused and the progress step `pushing` with the file count;
   - the parser on captured git output: `2% (1/42)` gives 2, and a push without progress lines gives `null`.

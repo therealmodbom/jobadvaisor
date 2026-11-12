@@ -1,7 +1,9 @@
 """The backup of the data repository, against real git and a local bare repository as the remote
 (`data-repository` → Backup of the data repository)."""
 
+import re
 import subprocess
+import time
 
 import pytest
 from conftest import git
@@ -11,6 +13,7 @@ from jobadvaisor.data.backup import (
     BackupFailed,
     BackupRefused,
     BackupUnavailable,
+    History,
     commit_message,
 )
 
@@ -207,6 +210,120 @@ def test_a_rejected_commit_keeps_every_change_pending(backup, backed_up):
     assert failure.value.step == "commit"
     assert "rejected by hook" in failure.value.reason
     assert backup.status().uncommitted == 1
+
+
+def test_an_unreachable_remote_keeps_the_commit_and_a_later_backup_pushes(
+        backup, backed_up, tmp_path):
+    git(backed_up.root, "remote", "set-url", "origin", str(tmp_path / "missing.git"))
+    _edit_profile(backed_up.root, "while offline")
+    with pytest.raises(BackupFailed) as failure:
+        backup.run()
+    assert failure.value.step == "push"
+    assert "missing.git" in failure.value.reason
+    assert git(backed_up.root, "log", "-1", "--format=%s").strip() == "Backup: 1 other file"
+    assert backup.status().unpushed == 1
+    git(backed_up.root, "remote", "set-url", "origin", str(backed_up.remote))
+    assert backup.run().result == "pushed"
+    assert _remote_subject(backed_up.remote) == "Backup: 1 other file"
+
+
+def test_a_rejected_push_keeps_the_commit_and_leaves_the_remote_alone(
+        backup, backed_up, tmp_path):
+    other = tmp_path / "other-clone"
+    git(tmp_path, "clone", str(backed_up.remote), str(other))
+    git(other, "config", "user.name", "Other")
+    git(other, "config", "user.email", "other@example.com")
+    _commit_edit(other, "pushed first")
+    git(other, "push", "origin", "main")
+    remote_head = git(backed_up.remote, "rev-parse", "main")
+    _edit_profile(backed_up.root, "pushed second")
+    with pytest.raises(BackupFailed) as failure:
+        backup.run()
+    assert failure.value.step == "push"
+    assert "rejected" in failure.value.reason
+    assert git(backed_up.remote, "rev-parse", "main") == remote_head
+    assert git(backed_up.root, "log", "-1", "--format=%s").strip() == "Backup: 1 other file"
+
+
+def test_a_push_that_exceeds_the_timeout_counts_as_failed(
+        backup, backed_up, tmp_path, monkeypatch):
+    fake_ssh = tmp_path / "slow-ssh"
+    fake_ssh.write_text("#!/bin/sh\nsleep 5\n")
+    fake_ssh.chmod(0o755)
+    monkeypatch.setenv("GIT_SSH_COMMAND", str(fake_ssh))
+    monkeypatch.setattr("jobadvaisor.data.backup.PUSH_TIMEOUT", 1)
+    git(backed_up.root, "remote", "set-url", "origin", "ssh://localhost/data.git")
+    _edit_profile(backed_up.root, "slow remote")
+    started = time.monotonic()
+    with pytest.raises(BackupFailed, match="timed out") as failure:
+        backup.run()
+    assert failure.value.step == "push"
+    assert time.monotonic() - started < 4  # the timeout cuts the push off, ssh included
+
+
+def test_without_a_backup_there_is_no_history(backup):
+    assert backup.history() == History(last_success=None, last_failure=None)
+
+
+def test_a_successful_backup_is_recorded_in_the_state_directory(backup, backed_up, tmp_path):
+    _edit_profile(backed_up.root, "edited by hand")
+    backup.run()
+    history = backup.history()
+    assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", history.last_success)
+    assert history.last_failure is None
+    assert (tmp_path / "state" / "backup.json").is_file()
+    assert Backup(backed_up.root, tmp_path / "state").history() == history  # read from the file
+
+
+def test_a_failed_push_is_recorded_beside_the_earlier_success(backup, backed_up, tmp_path):
+    _edit_profile(backed_up.root, "first")
+    backup.run()
+    success = backup.history().last_success
+    git(backed_up.root, "remote", "set-url", "origin", str(tmp_path / "missing.git"))
+    _edit_profile(backed_up.root, "second")
+    with pytest.raises(BackupFailed):
+        backup.run()
+    history = backup.history()
+    assert history.last_success == success
+    assert history.last_failure["step"] == "push"
+    assert "missing.git" in history.last_failure["reason"]
+    assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", history.last_failure["at"])
+
+
+def test_a_failed_commit_is_recorded_with_its_step(backup, backed_up):
+    hook = backed_up.root / ".git" / "hooks" / "pre-commit"
+    hook.write_text("#!/bin/sh\necho rejected by hook\nexit 1\n")
+    hook.chmod(0o755)
+    _edit_profile(backed_up.root, "edited by hand")
+    with pytest.raises(BackupFailed):
+        backup.run()
+    assert backup.history().last_failure["step"] == "commit"
+
+
+def test_a_success_clears_the_failure(backup, backed_up, tmp_path):
+    git(backed_up.root, "remote", "set-url", "origin", str(tmp_path / "missing.git"))
+    _edit_profile(backed_up.root, "while offline")
+    with pytest.raises(BackupFailed):
+        backup.run()
+    git(backed_up.root, "remote", "set-url", "origin", str(backed_up.remote))
+    backup.run()
+    history = backup.history()
+    assert history.last_failure is None
+    assert history.last_success is not None
+
+
+def test_a_refused_backup_is_not_recorded(backup, backed_up):
+    git(backed_up.root, "checkout", "-b", "other")
+    with pytest.raises(BackupRefused):
+        backup.run()
+    assert backup.history() == History(last_success=None, last_failure=None)
+
+
+@pytest.mark.parametrize("content", ["not json", "[1, 2]", '{"last_success": 5}'])
+def test_an_unreadable_history_file_reads_as_none(backup, tmp_path, content):
+    (tmp_path / "state").mkdir()
+    (tmp_path / "state" / "backup.json").write_text(content)
+    assert backup.history() == History(last_success=None, last_failure=None)
 
 
 def test_the_fallback_identity_is_used_without_a_repository_identity(backup, backed_up):
