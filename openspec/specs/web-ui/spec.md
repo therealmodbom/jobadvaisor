@@ -350,5 +350,9 @@ Next to the backup button, the UI SHALL show the time of the last successful bac
 - **THEN** the UI says there has been no backup yet
 
 #### Scenario: Nothing to back up and no backup yet
-- **WHEN** no backup has succeeded for this data repository and nothing is waiting to be backed up
+- **WHEN** no backup has succeeded for this data repository, it has a remote and nothing is waiting to be backed up
 - **THEN** the UI says there is nothing to back up, not that there has been no backup, so the line does not contradict the quiet button
+
+#### Scenario: No remote and no backup yet
+- **WHEN** no backup has succeeded for this data repository, it has no remote and nothing is waiting to be backed up
+- **THEN** the UI says that no remote is set and that there has been no backup yet, because nothing can have been pushed
