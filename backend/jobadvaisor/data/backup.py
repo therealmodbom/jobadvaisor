@@ -12,6 +12,7 @@ import re
 import signal
 import subprocess
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -26,6 +27,9 @@ HISTORY_FILE = "backup.json"
 STATUS_TIMEOUT = 30
 COMMIT_TIMEOUT = 60
 PUSH_TIMEOUT = 60
+
+# Variables that point git at a repository other than the one `-C` names.
+GIT_REDIRECTS = {"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR"}
 
 # The author when the repository has no identity of its own and the machine no global one.
 FALLBACK_NAME = "JobAdvAIsor"
@@ -134,18 +138,38 @@ class Backup:
 
     def run(self) -> Result:
         """Stage and commit what is pending (under the write gate, temporary files excluded),
-        then push to the upstream of `main` when there is one. Never forces a push. Raises
-        `BackupUnavailable` and `BackupRefused` before changing anything, `BackupFailed` for a
-        commit or push that git rejects. A finished or failed run is recorded in `history()`;
-        a refused one is not."""
+        then push to the upstream of `main` when there is one, and return when it is done. Never
+        forces a push. Raises `BackupRunning` while another backup runs, `BackupUnavailable` and
+        `BackupRefused` before changing anything, `BackupFailed` for a commit or push that git
+        rejects or any other git call that fails. A finished or failed run is recorded in
+        `history()` and `last_result`; a refused one is not."""
+        if not self._running.acquire(blocking=False):
+            raise BackupRunning("a backup is running")
+        try:
+            return self._finish()
+        finally:
+            self._running.release()
+
+    def _finish(self) -> Result:
+        """One backup with its record: `last_result` and `history()` follow its outcome."""
+        self._reset_progress()
         try:
             result = self._backup()
         except BackupFailed as failure:
-            self._record(last_failure={"at": _now(), "step": failure.step,
-                                       "reason": failure.reason})
+            self._fail(failure)
             raise
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+            failure = BackupFailed("push" if self._progress["step"] == "pushing" else "commit",
+                                   _git_reason(error))
+            self._fail(failure)
+            raise failure from error
+        self.last_result = result
         self._record(last_success=_now(), last_failure=None)
         return result
+
+    def _fail(self, failure: BackupFailed) -> None:
+        self.last_result = None
+        self._record(last_failure={"at": _now(), "step": failure.step, "reason": failure.reason})
 
     def history(self) -> History:
         """The time of the last successful backup and the last failure since then, from
@@ -199,12 +223,12 @@ class Backup:
         before the thread starts. A failure in the thread lands in `history()`."""
         if not self._running.acquire(blocking=False):
             raise BackupRunning("a backup is running")
+        self._reset_progress()  # not the last run's, while the checks below take their time
         try:
             _refuse(self.status())
         except BaseException:
             self._running.release()
             raise
-        self._progress = {"step": "staging", "files": 0, "percent": None}
         threading.Thread(target=self._run_in_thread, daemon=True).start()
 
     @property
@@ -221,15 +245,20 @@ class Backup:
 
     def _run_in_thread(self) -> None:
         try:
-            self.last_result = self.run()
-        except (BackupFailed, BackupRefused, BackupUnavailable):
-            pass  # a failure is in `history()`, a refusal only happens if the state changed
-        except Exception as error:  # a git call that timed out or an unreadable repository
+            self._finish()
+        except BackupFailed:
+            pass  # recorded by `_finish`
+        except (BackupRefused, BackupUnavailable) as error:  # the state changed since `start()`
+            self._fail(BackupFailed("commit", str(error)))
+        except Exception as error:  # not a git failure, for instance an unreadable directory
             logger.exception("backup failed unexpectedly")
-            step = "push" if self._progress["step"] == "pushing" else "commit"
-            self._record(last_failure={"at": _now(), "step": step, "reason": str(error)})
+            self._fail(BackupFailed("push" if self._progress["step"] == "pushing" else "commit",
+                                    f"{type(error).__name__}: {error}"))
         finally:
             self._running.release()
+
+    def _reset_progress(self) -> None:
+        self._progress = {"step": "staging", "files": 0, "percent": None}
 
     def _set_progress(self, **changes: object) -> None:
         self._progress = {**self._progress, **changes}
@@ -347,7 +376,11 @@ class Backup:
         counts as a line end, so progress updates arrive one by one). Raises
         `subprocess.TimeoutExpired` after `timeout` seconds, having killed git and its
         children, and `subprocess.CalledProcessError` for a failure when `check` is set."""
-        environment = {**os.environ, "GIT_TERMINAL_PROMPT": "0", **(env or {})}
+        # `-C root` must decide the repository: a GIT_DIR of the process (the tests run from a
+        # git hook, for instance) would send the backup to another repository.
+        environment = {name: value for name, value in os.environ.items()
+                       if name not in GIT_REDIRECTS}
+        environment |= {"GIT_TERMINAL_PROMPT": "0", **(env or {})}
         if not optional_locks:
             environment["GIT_OPTIONAL_LOCKS"] = "0"
         command = ["git", "-C", str(self.root), *args]
@@ -382,18 +415,26 @@ def _communicate(process: subprocess.Popen[str], timeout: float,
     arrive when it is given. Raises `subprocess.TimeoutExpired` (the caller kills the group)."""
     if on_stderr is None:
         return process.communicate(timeout=timeout)
-    lines: list[str] = []
+    streams: dict[str, list[str]] = {"out": [], "err": []}
 
-    def pump() -> None:
-        for line in process.stderr:
-            lines.append(line)
-            on_stderr(line)
+    def pump(stream, name: str) -> None:
+        for line in stream:
+            streams[name].append(line)
+            if name == "err":
+                on_stderr(line)
 
-    reader = threading.Thread(target=pump, daemon=True)
-    reader.start()
+    readers = [threading.Thread(target=pump, args=(process.stdout, "out"), daemon=True),
+               threading.Thread(target=pump, args=(process.stderr, "err"), daemon=True)]
+    for reader in readers:
+        reader.start()
+    deadline = time.monotonic() + timeout
     process.wait(timeout=timeout)
-    reader.join()
-    return process.stdout.read(), "".join(lines)
+    for reader in readers:
+        reader.join(max(0.0, deadline - time.monotonic()))
+    if any(reader.is_alive() for reader in readers):
+        # A child (a hook, an ssh master) outlives git and still holds its output open.
+        raise subprocess.TimeoutExpired(process.args, timeout)
+    return "".join(streams["out"]), "".join(streams["err"])
 
 
 def push_percent(output: str) -> int | None:
@@ -406,6 +447,14 @@ def push_percent(output: str) -> int | None:
 
 def _now() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _git_reason(error: subprocess.CalledProcessError | subprocess.TimeoutExpired) -> str:
+    """The reason of a git call that raised: git's own output, or the time it ran out of."""
+    if isinstance(error, subprocess.TimeoutExpired):
+        return f"timed out after {error.timeout:g} seconds"
+    return (str(error.stderr or "") + str(error.stdout or "")).strip() \
+        or f"git exited with {error.returncode}"
 
 
 def _reason(process: subprocess.CompletedProcess[str]) -> str:

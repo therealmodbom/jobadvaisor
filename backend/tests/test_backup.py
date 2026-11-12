@@ -1,6 +1,7 @@
 """The backup of the data repository, against real git and a local bare repository as the remote
 (`data-repository` → Backup of the data repository)."""
 
+import dataclasses
 import itertools
 import re
 import subprocess
@@ -540,6 +541,123 @@ def test_a_rating_during_a_slow_push_is_stored_at_once_and_stays_pending(
     _wait_until(lambda: not backup.running)
     assert "during the push" not in git(backed_up.remote, "show", "main:labels/demo-001.json")
     assert backup.status().uncommitted == 1  # shows as pending
+
+
+def test_a_failing_stage_is_a_commit_failure_with_git_s_reason(backup, backed_up):
+    (backed_up.root / ".git" / "index.lock").write_text("")  # as left by a crashed git
+    _edit_profile(backed_up.root, "edited by hand")
+    with pytest.raises(BackupFailed) as failure:
+        backup.run()
+    assert failure.value.step == "commit"
+    assert "index.lock" in failure.value.reason
+    assert backup.history().last_failure["step"] == "commit"
+
+
+def test_a_push_whose_child_process_holds_the_output_open_still_times_out(
+        backup, backed_up, monkeypatch):
+    hook = backed_up.root / ".git" / "hooks" / "pre-push"
+    hook.write_text("#!/bin/sh\nsleep 6 &\n")  # leaves a child holding git's stderr
+    hook.chmod(0o755)
+    monkeypatch.setattr("jobadvaisor.data.backup.PUSH_TIMEOUT", 1)
+    _edit_profile(backed_up.root, "edited by hand")
+    started = time.monotonic()
+    with pytest.raises(BackupFailed, match="timed out"):
+        backup.run()
+    assert time.monotonic() - started < 4
+
+
+def test_git_variables_of_the_process_do_not_redirect_the_backup(backup, backed_up, tmp_path,
+                                                                 monkeypatch):
+    other = tmp_path / "other-repository"
+    git(tmp_path, "init", "-b", "main", str(other))
+    _edit_profile(backed_up.root, "edited by hand")
+    monkeypatch.setenv("GIT_DIR", str(other / ".git"))
+    monkeypatch.setenv("GIT_WORK_TREE", str(other))
+    assert backup.status().uncommitted == 1
+    backup.run()
+    monkeypatch.delenv("GIT_DIR")
+    monkeypatch.delenv("GIT_WORK_TREE")
+    assert git(backed_up.root, "log", "-1", "--format=%s").strip() == "Backup: 1 other file"
+    assert subprocess.run(["git", "-C", str(other), "rev-parse", "HEAD"],
+                          capture_output=True).returncode != 0  # no commit in the other one
+
+
+def test_a_push_goes_to_the_branch_s_own_remote_and_merge_ref(backup, backed_up, tmp_path):
+    other = tmp_path / "other.git"
+    git(tmp_path, "init", "--bare", "-b", "main", str(other))
+    git(backed_up.root, "remote", "add", "backup", str(other))
+    git(backed_up.root, "config", "branch.main.remote", "backup")
+    git(backed_up.root, "config", "branch.main.merge", "refs/heads/data")
+    origin_head = git(backed_up.remote, "rev-parse", "main")
+    _edit_profile(backed_up.root, "edited by hand")
+    assert backup.status().remote == "backup/data"
+    assert backup.run().result == "pushed"
+    assert git(other, "rev-parse", "data") == git(backed_up.root, "rev-parse", "HEAD")
+    assert git(backed_up.remote, "rev-parse", "main") == origin_head
+
+
+def test_run_refuses_a_second_backup_while_one_runs(backup, backed_up, tmp_path):
+    release = tmp_path / "release"
+    _hold_pushes(backed_up.root, release)
+    _edit_profile(backed_up.root, "edited by hand")
+    backup.start()
+    _wait_until(lambda: backup.progress and backup.progress["step"] == "pushing")
+    with pytest.raises(BackupRunning):
+        backup.run()
+    release.write_text("")
+    _wait_until(lambda: not backup.running)
+
+
+def test_progress_of_an_earlier_run_is_gone_when_the_next_starts(backup, backed_up):
+    _edit_profile(backed_up.root, "first")
+    backup.start()
+    _wait_until(lambda: not backup.running)
+    entered, release = threading.Event(), threading.Event()
+    status = backup.status
+
+    def slow_status():
+        entered.set()
+        release.wait(10)
+        return status()
+
+    backup.status = slow_status
+    starter = threading.Thread(target=backup.start)
+    starter.start()
+    assert entered.wait(10)
+    assert backup.running
+    assert backup.progress == {"step": "staging", "files": 0, "percent": None}
+    release.set()
+    starter.join(10)
+    _wait_until(lambda: not backup.running)
+
+
+def test_a_failure_leaves_no_result_of_an_earlier_success(backup, backed_up, tmp_path):
+    _edit_profile(backed_up.root, "first")
+    backup.start()
+    _wait_until(lambda: not backup.running)
+    assert backup.last_result.result == "pushed"
+    git(backed_up.root, "remote", "set-url", "origin", str(tmp_path / "missing.git"))
+    _edit_profile(backed_up.root, "second")
+    backup.start()
+    _wait_until(lambda: not backup.running)
+    assert backup.last_result is None
+    assert backup.history().last_failure["step"] == "push"
+
+
+def test_a_refusal_after_the_thread_started_is_recorded_as_a_failure(backup, backed_up):
+    status, calls = backup.status, []
+
+    def changed_branch():
+        calls.append(1)
+        real = status()
+        return real if len(calls) == 1 else dataclasses.replace(real, branch="other")
+
+    backup.status = changed_branch  # the state changes between start() and the thread's run
+    backup.start()
+    _wait_until(lambda: not backup.running)
+    failure = backup.history().last_failure
+    assert failure["step"] == "commit"
+    assert "other" in failure["reason"]
 
 
 def test_the_fallback_identity_is_used_without_a_repository_identity(backup, backed_up):

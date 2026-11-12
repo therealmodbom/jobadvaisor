@@ -51,9 +51,13 @@ def test_every_public_write_function_waits_for_the_gate(data_repository):
     writes = _writes(data_repository)
     finished: dict[str, threading.Event] = {name: threading.Event() for name in writes}
 
+    failures: dict[str, BaseException] = {}
+
     def run(name, call):
         try:
             call()
+        except BaseException as error:  # noqa: BLE001 - reported by the assertion below
+            failures[name] = error
         finally:
             finished[name].set()
 
@@ -66,6 +70,7 @@ def test_every_public_write_function_waits_for_the_gate(data_repository):
     for thread in threads:
         thread.join(timeout=10)
     assert all(event.is_set() for event in finished.values())
+    assert not failures, f"writes that failed once the gate was released: {failures}"
 
 
 def test_the_gate_is_reentrant():

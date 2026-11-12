@@ -1,6 +1,7 @@
 """`GET /backup` and `POST /backup` over a real git repository and a local bare remote
 (`data-repository` → Backup status, Backup of the data repository)."""
 
+import subprocess
 import time
 from types import SimpleNamespace
 
@@ -120,6 +121,21 @@ def test_another_branch_is_409_backup_refused_naming_it(api):
     assert response.status_code == 409
     assert response.json()["error"] == "backup refused"
     assert "other" in response.json()["detail"]
+
+
+def test_a_merge_stopped_on_a_conflict_is_409_backup_refused_naming_it(api):
+    git(api.root, "checkout", "-b", "other")
+    _edit(api, "on other")
+    git(api.root, "commit", "-am", "on other")
+    git(api.root, "checkout", "main")
+    _edit(api, "on main")
+    git(api.root, "commit", "-am", "on main")
+    subprocess.run(["git", "-C", str(api.root), "merge", "other"], capture_output=True)
+    assert api.http.get("/backup").json()["operation"] == "merge"
+    response = api.http.post("/backup")
+    assert response.status_code == 409
+    assert response.json()["error"] == "backup refused"
+    assert "merge" in response.json()["detail"]
 
 
 def test_a_directory_that_is_no_repository_is_409_backup_unavailable(demo_copy, tmp_path):
