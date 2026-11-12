@@ -99,6 +99,11 @@ export function useBackupStatus(): BackupState {
   const refresh = useCallback(() => {
     const id = ++issued.current
     api<BackupStatus>('/backup').then((answer) => {
+      // `api` reads an unparseable body as `{}`: a 200 that is no status (a proxy serving the
+      // page) is a failed fetch, not a status to render.
+      if (typeof answer?.pending !== 'boolean') throw new Error('not a backup status')
+      return answer
+    }).then((answer) => {
       if (!fresh(id)) return
       hasStatus.current = true
       setStatus(answer)

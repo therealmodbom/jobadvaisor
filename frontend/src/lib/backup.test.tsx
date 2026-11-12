@@ -294,6 +294,23 @@ test('a first fetch that fails gives a reason in place of the button, and a late
   expect(result.current.status).toEqual(QUIET)
 })
 
+test('an answer that is no status (for instance the page itself) counts as a failed fetch', async () => {
+  serve({})
+  const { result } = renderHook(() => useBackupStatus())
+  await flush()
+  expect(result.current.status).toBeNull()
+  expect(result.current.unavailable).toBe('Der Backup-Status ließ sich nicht abrufen.')
+})
+
+test('a later answer that is no status keeps the last status', async () => {
+  serve(QUIET, {})
+  const { result } = renderHook(() => useBackupStatus())
+  await flush()
+  await advance(15_000)
+  expect(result.current.status).toEqual(QUIET)
+  expect(result.current.unavailable).toBeNull()
+})
+
 test('a press failure goes once a backup runs', async () => {
   let running = false
   stubApi({
