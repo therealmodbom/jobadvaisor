@@ -47,11 +47,9 @@ Worktrees live under `worktrees/` (gitignored), one per branch: `git worktree ad
 
 ### Review workspace
 
-Agents work in `worktrees/`, one per branch, and an editor window only ever shows one working tree. The branch switcher cannot cross that boundary either, since git refuses to check out a branch that is already checked out in another worktree, so reviewing several agents' pull requests otherwise means one window per worktree.
+`scripts/review-workspace.sh` writes `jobadvaisor.code-workspace` (gitignored) next to the repository root: this checkout and every worktree under `worktrees/` as folders, plus the pull-request inbox. Re-run it after adding or removing a worktree, or use the task `0 - Review Workspace`.
 
-`scripts/review-workspace.sh` generates `jobadvaisor.code-workspace` next to the repository root: the main checkout as the first folder and every worktree under `worktrees/` as a further one, each path relative to the workspace file, with `prunable` worktrees skipped. It works from any folder of the clone, a worktree included, because it derives the main checkout from the common git dir. Re-run it after worktrees were added or removed, then open the file in VS Code; the script is also the first task in `.vscode/tasks.json` (`0 - Review Workspace`), so a refresh is one command. The pull-request view starts on an inbox rather than a URL: the repository's open pull requests, your own, and the ones where your review is requested.
-
-The generated file is gitignored. Checking out a pull request from the pull-request view fails while that branch is already checked out in a worktree; review it in the open worktree folder instead. Cursor keeps one window per worktree, and the agent flow there is unchanged ([#107](https://github.com/therealmodbom/jobadvaisor/issues/107)).
+A pull request whose branch is already checked out in a worktree cannot be checked out from the pull-request view. Review it in its worktree folder instead. Cursor keeps one window per worktree.
 
 ## Current state
 
