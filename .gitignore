@@ -29,6 +29,9 @@ chroma/
 worktrees/
 .claude/worktrees/
 
+# Generated editor workspace (scripts/review-workspace.sh)
+*.code-workspace
+
 # Superpowers brainstorming artefacts
 .superpowers/
 
