@@ -78,7 +78,7 @@ When any link matches, the mail is read by the rules: one entry per key, in orde
    - Entries are grouped by their cleaned link. A group whose titles are all the same, ignoring case and spaces, becomes one entry. A group with different titles means the cleaned link does not tell the postings apart. Each of its entries is kept and marked `ambiguous`; it is not selectable, and the view suggests pasting that posting's text.
    - `read_by` is `["model"]`.
 
-**Cleaning.** `clean_link(url)` returns the rule's canonical URL when a rule matches. Otherwise it keeps:
+**Cleaning.** `clean_link(url)` returns the rule's canonical URL when a rule matches. Otherwise it returns `strip_query(url)`, which keeps:
 
 - scheme, host and path, with opaque path segments left as they are (the link is fetched as it is);
 - the query parameters whose lowercased name is in `POSTING_PARAMETERS` (`id`, `jobid`, `job_id`, `job`, `jid`, `reqid`, `req_id`, `requisitionid`, `postingid`, `posting_id`, `vacancyid`, `positionid`);
@@ -90,7 +90,7 @@ A link no rule reads whose path has an opaque segment is not offered to the mode
 - *Redirects are checked before each request, not after the fetch.* `intake/fetch.py` gains `guarded_link`, a `contextvars.ContextVar` that the alert run sets to the entry's cleaned link around `add_from_url`.
   - When a fetch starts at that link (the ladder's plain and rendered steps, or an intake-loop tool fetching it again), every further address in its redirect chain is checked before it is requested.
   - `download_plain` checks through an httpx `request` event hook. `download_rendered` checks through a `page.route` handler on main-frame navigation requests.
-  - An address passes when `navigation_allowed(url)` holds: a rule reads it, or `clean_link` leaves it unchanged. Otherwise the request is not sent, and the fetch raises `FetchError("redirect with personal parameters")`. That is an ordinary failed ladder step: the intake loop may still find another source, and when it does not, the entry fails with that attempt and the text and PDF options.
+  - An address passes when `navigation_allowed(url)` holds: `strip_query(url) == url`, where `strip_query` is the allow-list step of `clean_link` (allowed parameters and hash route), applied to every address whether a rule reads it or not. A redirect to a LinkedIn job URL that carries `otpToken` therefore fails, while `/jobs/view/<id>/` without a query passes. Otherwise the request is not sent, and the fetch raises `FetchError("redirect with personal parameters")`. That is an ordinary failed ladder step: the intake loop may still find another source, and when it does not, the entry fails with that attempt and the text and PDF options.
   - Fetches of other addresses, such as the intake loop's search results, are not checked. Plain link intake sets no guard and behaves as today.
   - Every followed address of a guarded link passes the check, so the final address `posting_urls` stores is clean, and `posting_urls` itself does not change.
 - A spike on 2026-11-13 followed the cleaned sample links through both fetches. Every hop carried no query: at most a 301 to the same path with a trailing slash, on the career-site platform. The check therefore blocks none of them. (The same platform's plain fetch answered 403 in an earlier spike that day and 200 in this one; the ladder's rendered step covers both.)

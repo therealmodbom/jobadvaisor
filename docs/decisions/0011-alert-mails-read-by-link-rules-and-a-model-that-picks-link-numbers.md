@@ -17,7 +17,7 @@ A job alert mail lists several postings, each behind one or more links. Its link
   - Links to unsubscribe, settings, search, profile, privacy and help pages are removed before numbering, and so are links that are not http(s) or point to a private host.
   - The model reads a mail only when the content guard has screened it. With screening off, only the rules read mails.
 - **Allow-list cleaning for links no rule reads.** Such a link keeps only the query parameters whose name identifies a posting (`id`, `jobId` and a few spellings of those), and a fragment only when it is a hash route holding no `=`. It loses every other parameter.
-  - A redirect from a mail link is followed only to an address that cleaning would leave unchanged, or that a rule reads. Each address is checked before it is requested, in the plain and in the browser fetch, so a redirect target's token is never sent. Filtering only the stored address would come too late: the fetch would already have requested the target.
+  - A redirect from a mail link is followed only to an address that the allow-list cleaning would leave unchanged, also when a rule reads it, since a rule's own address can carry a token too. Each address is checked before it is requested, in the plain and in the browser fetch, so a redirect target's token is never sent. Filtering only the stored address would come too late: the fetch would already have requested the target.
   - When two postings the model found clean to the same link, both are listed and marked as not addable by their link, rather than merged.
 
 ## Alternatives considered
