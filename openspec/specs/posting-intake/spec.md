@@ -264,7 +264,7 @@ When the model reads a mail, it SHALL receive the mail's visible text with each 
 - **THEN** the model's input does not contain the token
 
 ### Requirement: Links from a mail carry no personal parameters
-Before a link from a mail is shown, fetched, stored or logged, the system SHALL remove its personal parameters. A link a fixed rule reads SHALL be rebuilt from the posting's ID, without a query. Any other link SHALL keep only the query parameters whose name identifies a posting, and a fragment only when it is a hash route holding no `=`. A redirect SHALL be followed only to an address this removal leaves unchanged or a fixed rule reads, checked before it is requested.
+Before a link from a mail is shown, fetched, stored or logged, the system SHALL remove its personal parameters. A link a fixed rule reads SHALL be rebuilt from the posting's ID, without a query. Any other link SHALL keep only the query parameters whose name identifies a posting, and a fragment only when it is a hash route holding no `=`. A redirect SHALL be followed only to an address with no query parameter beyond those, checked before it is requested, also when a fixed rule reads that address.
 
 #### Scenario: Link with a login token
 - **WHEN** a LinkedIn alert links a job through a tracking path with a one-time login token in its query
@@ -277,6 +277,10 @@ Before a link from a mail is shown, fetched, stored or logged, the system SHALL 
 #### Scenario: Redirect target with a token
 - **WHEN** an added entry's link redirects to an address that carries a token in its query
 - **THEN** that address is never requested, and unless another source of the posting is found, the entry is reported as failed with the refused redirect among its attempts
+
+#### Scenario: Redirect to a known sender's link with a token
+- **WHEN** an added entry's link redirects to a LinkedIn job page address that carries a login token in its query
+- **THEN** that address is never requested
 
 #### Scenario: Clean redirect
 - **WHEN** an added entry's link redirects to the same path with a trailing slash
