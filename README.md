@@ -95,7 +95,7 @@ The first two rows are the minimum. Everything below them is optional, and the i
 
 ## Editor setup
 
-VS Code and compatible editors pick up the shared configuration in `.vscode/`. Tasks cover installing, a fresh copy of the demo persona, tests, linting and the evals. "0 - setup worktree" prepares a new checkout in one step. Launch configurations start the backend, the frontend or both, and "Fresh demo: backend + frontend" runs the quick start above on a new demo copy.
+VS Code and compatible editors pick up the shared configuration in `.vscode/`. Tasks cover installing, a fresh copy of the demo persona, tests, linting and the evals. "1 - Setup Worktree" prepares a new checkout in one step, and "0 - Review Workspace" regenerates the gitignored `jobadvaisor.code-workspace` with this checkout and every worktree as folders (see `AGENTS.md`). Launch configurations start the backend, the frontend or both, and "Fresh demo: backend + frontend" runs the quick start above on a new demo copy.
 
 ## Use your own data
 
