@@ -87,8 +87,13 @@ When any link matches, the mail is read by the rules: one entry per key, in orde
 A link no rule reads whose path has an opaque segment is not offered to the model (it is dropped with the drop list), since its path may itself be a token.
 
 - The finder's entries carry cleaned links only, and `POST /alert-mails/runs` cleans every link again, so a client can never send a raw one.
-- The run calls `add_from_url(…, redirect=redirect_url)`, a new keyword that `posting_urls` applies to the page's final address. `redirect_url(final)` returns the rule's canonical URL when a rule matches, or `final` when `clean_link(final) == final`, and `None` otherwise. A `None` stores no second address, so a cleaned target can never make two postings share a URL.
-- Plain link intake passes no `redirect` and keeps storing the final address as today.
+- *Redirects are checked before each request, not after the fetch.* `intake/fetch.py` gains `guarded_link`, a `contextvars.ContextVar` that the alert run sets to the entry's cleaned link around `add_from_url`.
+  - When a fetch starts at that link (the ladder's plain and rendered steps, or an intake-loop tool fetching it again), every further address in its redirect chain is checked before it is requested.
+  - `download_plain` checks through an httpx `request` event hook. `download_rendered` checks through a `page.route` handler on main-frame navigation requests.
+  - An address passes when `navigation_allowed(url)` holds: a rule reads it, or `clean_link` leaves it unchanged. Otherwise the request is not sent, and the fetch raises `FetchError("redirect with personal parameters")`. That is an ordinary failed ladder step: the intake loop may still find another source, and when it does not, the entry fails with that attempt and the text and PDF options.
+  - Fetches of other addresses, such as the intake loop's search results, are not checked. Plain link intake sets no guard and behaves as today.
+  - Every followed address of a guarded link passes the check, so the final address `posting_urls` stores is clean, and `posting_urls` itself does not change.
+- A spike on 2026-11-13 followed the cleaned sample links through both fetches. Every hop carried no query: at most a 301 to the same path with a trailing slash, on the career-site platform. The check therefore blocks none of them. (The same platform's plain fetch answered 403 in an earlier spike that day and 200 in this one; the ladder's rendered step covers both.)
 
 **Duplicate key.** `normalize_url` keys a LinkedIn job page by its ID (`linkedin:<id>`), in the four forms the `linkedin` rule reads, like the Bundesagentur reference number. It changes no stored file, and it also applies to plain link intake and the list import:
 
@@ -102,7 +107,7 @@ The preview marks an entry as stored through `duplicate_of(postings, urls=[link]
 
 **Run.** `intake/alert_runs.py` has `AlertRuns`, built like `Imports`: a one-worker executor, a lock, in-memory state, and `AlertRunBusyError` carrying the computing run's ID.
 
-- Each entry calls `add_from_url(intake, link, redirect=redirect_url)` with the defaults of a single link, so a gone link is still looked for elsewhere.
+- Each entry sets `guarded_link` to its link and calls `add_from_url(intake, link)` with the defaults of a single link, so a gone link is still looked for elsewhere.
 - Errors map as in `import_entry`: `PostingNotFoundError` gives `failed` with its attempts; a `ValueError` gives `failed` with its text (`ValidationError` with its type name); anything else gives `failed` with its type name. One entry never stops the run.
 - State is `{run_id, status, error, total, done, entries: [{url, title, state, posting_id?, attempts?, reason?}]}`. `state` is one of `waiting`, `running`, `stored`, `duplicate`, `failed`. `status` is one of `running`, `done`, `failed`.
 
@@ -187,6 +192,7 @@ An alert run and a list import may compute at the same time. Both store through 
 - [A job site that names the posting in a parameter outside `POSTING_PARAMETERS`] → its postings clean to one link and show as `ambiguous`, or a single one is fetched without its ID and fails or stores the wrong page (ADR 0011, Consequences). A further name is a one-line addition.
 - [The opacity heuristic misses a token in a path segment, or blanks a real slug] → a missed token is fetched with the link, as the mail's own click would do, but never shown to the model. A blanked slug only shortens the model's view of that link.
 - [Login-walled hosts such as Xing] → their entries are marked and not preselected. When chosen, they go through the intake loop's search like any login-walled link.
+- [A site redirects a clean link through an address with tracking or session parameters] → that entry fails with "redirect with personal parameters" and keeps the text and PDF options. Nothing is sent to the redirect target. A posting parameter missing from the allow-list shows up here too, and is a one-line addition.
 - [Two rendered fetches at once while an import also runs] → slower, not wrong.
 - [A 30,000-character cap cuts a very long unknown mail] → the later postings are not found. The cap sits well above the samples' visible text.
 - [The run state is lost on restart] → stated in the view (404 while polling), as for the import. A new paste marks what was stored.

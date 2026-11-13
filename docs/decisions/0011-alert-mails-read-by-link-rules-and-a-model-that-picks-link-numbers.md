@@ -17,7 +17,7 @@ A job alert mail lists several postings, each behind one or more links. Its link
   - Links to unsubscribe, settings, search, profile, privacy and help pages are removed before numbering, and so are links that are not http(s) or point to a private host.
   - The model reads a mail only when the content guard has screened it. With screening off, only the rules read mails.
 - **Allow-list cleaning for links no rule reads.** Such a link keeps only the query parameters whose name identifies a posting (`id`, `jobId` and a few spellings of those), and a fragment only when it is a hash route holding no `=`. It loses every other parameter.
-  - The address a fetched link redirects to is stored only when cleaning would not change it, or when a rule reads it. A cleaned redirect target could make two postings share one address.
+  - A redirect from a mail link is followed only to an address that cleaning would leave unchanged, or that a rule reads. Each address is checked before it is requested, in the plain and in the browser fetch, so a redirect target's token is never sent. Filtering only the stored address would come too late: the fetch would already have requested the target.
   - When two postings the model found clean to the same link, both are listed and marked as not addable by their link, rather than merged.
 
 ## Alternatives considered
@@ -33,5 +33,6 @@ A job alert mail lists several postings, each behind one or more links. Its link
 - A job site that names the posting in a query parameter outside the allow-list loses that parameter. Its postings show as not addable, or a single one is fetched without its ID and fails or stores the wrong page. The pick list shows the cleaned link, so the user can deselect it.
 - A mail with at least one link a rule reads is read by the rules alone. A mail from an unknown sender that also holds one LinkedIn job link lists only that job. Alert mails come from one sender each, so this is accepted.
 - With screening off, mails from unknown senders are not read at all.
+- A site that redirects a clean job link through an address with tracking or session parameters fails that entry, which then falls back to text or PDF.
 - Adding a sender is code: a rule, a fictional fixture and an eval case.
 - The finder records which rule read each mail, or that the model did, with the hosts of its links, so a sender that keeps needing the model becomes visible (#109).

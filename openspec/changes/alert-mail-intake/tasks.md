@@ -19,14 +19,14 @@ TDD per task: a failing test first, then the code. Fixtures are fictional and wr
   - only absolute http(s) links on public hosts are kept.
 
   Verify with tests on the LinkedIn fixture (three links per job, in order) and the plain-text fixture, and with links to `mailto:`, `javascript:`, a relative path, `localhost`, `192.168.1.10`, `10.0.0.1`, `[::1]` and a single-label host, none of them kept.
-- [ ] 2.2 `clean_link` and `redirect_url`: the rule's canonical URL, or the allow-listed query parameters plus a hash route without `=`. `redirect_url` answers `None` when cleaning would change a non-rule address. Verify with tests for:
+- [ ] 2.2 `clean_link` and `navigation_allowed`: the rule's canonical URL, or the allow-listed query parameters plus a hash route without `=`. `navigation_allowed` holds when a rule reads the address or cleaning leaves it unchanged. Verify with tests for:
   - a LinkedIn `/comm/` link with `otpToken`;
   - a Bundesagentur link with search parameters;
   - a career-site link with `refid` and `eid`;
   - an unknown link with `jobId`, `sessionToken` and `utm_source`;
   - a `#/job/1` route and a `#access_token=…` fragment;
   - idempotence (cleaning a cleaned link changes nothing);
-  - `redirect_url` on a clean address, on a tokenised address, and on a LinkedIn address.
+  - `navigation_allowed` on a clean address, on a tokenised address, on the same path with a trailing slash, and on a LinkedIn address.
 - [ ] 2.3 The three rules with their title pickers (image-only links and URL texts skipped), and the rule path of `find_postings`: one entry per key, in mail order, with `read_by`, at most 100 entries with `truncated`. Verify with tests on the rule fixtures:
   - the expected entries and titles for each, and the four LinkedIn forms;
   - footer, unsubscribe and search links not returned;
@@ -48,14 +48,18 @@ TDD per task: a failing test first, then the code. Fixtures are fictional and wr
 
   Verify with tests that a stored posting is named, that a `xing.com` link is `login_walled`, and that the record holds no path, query or title.
 
-## 3. Duplicates and redirect target
+## 3. Duplicates and redirect guard
 
 - [ ] 3.1 `normalize_url` keys LinkedIn job pages by ID in the four forms. Verify with `test_intake_duplicates.py` tests for each form against a stored `https://www.linkedin.com/jobs/view/<id>`, and that a LinkedIn company page keeps its old key. Add a regression test that `posting_urls` stores one URL when the final address is another LinkedIn form of the same job.
-- [ ] 3.2 `add_from_url(…, redirect=None)` passes the callable to `posting_urls`, which stores the final address only when the callable returns one. Verify with tests that a tokenised redirect target is not stored when `redirect=redirect_url` is given, that a clean one is, and that without `redirect` the final address is stored as today.
+- [ ] 3.2 `guarded_link` in `intake/fetch.py`: while it names the URL a fetch starts at, `download_plain` (httpx `request` event hook) and `download_rendered` (`page.route` on main-frame navigations) check every redirect hop with `navigation_allowed` before requesting it, and raise `FetchError("redirect with personal parameters")` on a failing hop. Verify with:
+  - an httpx `MockTransport` test: a 302 to a tokenised address raises, and the transport never receives that request; a 301 to the same path with a trailing slash is followed;
+  - a rendered test against a local server (the eval's `serve_pages` pattern): a 302 to a tokenised local address raises, and the server's log shows the target was never requested;
+  - a test that a fetch of another URL while the guard is set, and any fetch without the guard, follows redirects as today.
 
 ## 4. Background run (`intake/alert_runs.py`)
 
-- [ ] 4.1 `AlertRuns` (`start`, `read`, `AlertRunBusyError` with the computing run's ID), built like `Imports`: per-entry state `waiting → running → stored | duplicate | failed`, with attempts or a reason, and one entry's error never stops the run. Verify with tests using fake fetchers:
+- [ ] 4.1 `AlertRuns` (`start`, `read`, `AlertRunBusyError` with the computing run's ID), built like `Imports`: per-entry state `waiting → running → stored | duplicate | failed`, with attempts or a reason, `guarded_link` set around each entry, and one entry's error never stops the run. Verify with tests using fake fetchers:
+  - the guard holds the entry's link while it runs and is cleared after;
   - three entries where the second fails;
   - an entry stored meanwhile reported as a duplicate;
   - a second start refused while the first computes (a test holding the first entry), naming the first run's ID;

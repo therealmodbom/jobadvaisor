@@ -141,7 +141,7 @@ When the model reads a mail, it SHALL receive the mail's visible text with each 
 - **THEN** the model's input does not contain the token
 
 ### Requirement: Links from a mail carry no personal parameters
-Before a link from a mail is shown, fetched, stored or logged, the system SHALL remove its personal parameters. A link a fixed rule reads SHALL be rebuilt from the posting's ID, without a query. Any other link SHALL keep only the query parameters whose name identifies a posting, and a fragment only when it is a hash route holding no `=`. The address a link redirects to SHALL be stored only when it carries no such parameter, or when a fixed rule reads it.
+Before a link from a mail is shown, fetched, stored or logged, the system SHALL remove its personal parameters. A link a fixed rule reads SHALL be rebuilt from the posting's ID, without a query. Any other link SHALL keep only the query parameters whose name identifies a posting, and a fragment only when it is a hash route holding no `=`. A redirect SHALL be followed only to an address this removal leaves unchanged or a fixed rule reads, checked before it is requested.
 
 #### Scenario: Link with a login token
 - **WHEN** a LinkedIn alert links a job through a tracking path with a one-time login token in its query
@@ -153,7 +153,11 @@ Before a link from a mail is shown, fetched, stored or logged, the system SHALL 
 
 #### Scenario: Redirect target with a token
 - **WHEN** an added entry's link redirects to an address that carries a token in its query
-- **THEN** the stored posting keeps the entry's link and not the redirect address
+- **THEN** that address is never requested, and unless another source of the posting is found, the entry is reported as failed with the refused redirect among its attempts
+
+#### Scenario: Clean redirect
+- **WHEN** an added entry's link redirects to the same path with a trailing slash
+- **THEN** the redirect is followed and the posting is stored
 
 ### Requirement: Links that do not tell postings apart
 When two postings the model found have the same link after the removal of personal parameters, the system SHALL return both, mark them as not addable by their link, and SHALL NOT merge them or store either as the other's duplicate. Entries of one posting, with the same title and the same cleaned link, SHALL become one entry.
