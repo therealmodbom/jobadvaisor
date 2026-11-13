@@ -1,14 +1,15 @@
 # Tasks
 
-TDD per task: a failing test first, then the code. Fixtures are fictional and written from scratch (design.md → Eval): invented employers, search terms, places, IDs and `example` hosts, no recipient greeting, name or address, and the placeholder `TOKEN` for tokens. Nothing from a real mail goes into the repository. Commands from `backend/`: `uv run ruff check`, `uv run pytest`. From `frontend/`: `npm run lint`, `npm test`, `npm run build`.
+TDD per task: a failing test first, then the code. Fixtures are anonymized real alert mails (design.md → Eval). The markup, the job board's hosts and paths, and the parameter names are kept. Every personal or search-specific value is replaced: names, addresses, search terms, place, employers, titles, IDs, employer and asset hosts. Token values become invalid `TOKEN-<n>` placeholders. No personal value goes into the repository. Commands from `backend/`: `uv run ruff check`, `uv run pytest`. From `frontend/`: `npm run lint`, `npm test`, `npm run build`.
 
 ## 1. Fixtures
 
-- [ ] 1.1 Write the fictional alert mails under `fixtures/intake/alert-mails/`, each `<case>.html` or `<case>.txt` with `<case>.json` (expected `[{url, title}]` after cleaning, or `"held": true`). The cases are listed in design.md → Eval. Verify with a test that:
-  - every case loads and has its `.json`;
-  - every query value is `TOKEN` or an ID from the fixture allow-list;
-  - no `@` address appears outside `example.*`;
-  - no host appears other than `linkedin.com`, `arbeitsagentur.de` and `example.*`.
+- [ ] 1.1 Derive the fixtures under `fixtures/intake/alert-mails/` from the sample mails in the worktree's `tmp/`, each `<case>.html` or `<case>.txt` with `<case>.json` (expected `[{url, title}]` after cleaning, or `"held": true`). Take the HTML part as a mail client pastes it. The cases are listed in design.md → Eval. The anonymizing script, its mapping and the deny-list stay outside the repository. Verify:
+  - the local deny-list check finds no replaced value in any fixture (run before the commit, result named in the PR without the values);
+  - a test that every case loads and has its `.json`;
+  - that every query value is `TOKEN-<n>` or an ID from the fixture allow-list;
+  - that no `@` address appears outside `example.*`;
+  - that no host appears other than `linkedin.com`, `arbeitsagentur.de` and `example.*`.
 
 ## 2. Finder (`intake/alert_mail.py`)
 
@@ -128,7 +129,7 @@ TDD per task: a failing test first, then the code. Fixtures are fictional and wr
 ## 10. Before the PR leaves draft
 
 - [ ] 10.1 Full suite: backend `uv run ruff check`, `uv run pytest`, `uv run pytest -m e2e`; frontend `npm run lint`, `npm test`, `npm run build`. Add one e2e walkthrough first: paste a rule fixture's HTML (a synthetic paste event carrying `text/html`), see the pick list with one stored entry marked, add the rest with fake fetchers, and see them stored. Verify that all pass.
-- [ ] 10.2 Browser click test at desktop and phone width on the demo persona, with a pasted fictional mail, including one failing entry. Verify by screenshots in the PR, and name what the test cannot show: a real mail client's clipboard and real alert senders.
+- [ ] 10.2 Browser click test at desktop and phone width on the demo persona, with a pasted anonymized fixture mail, including one failing entry. Verify by screenshots in the PR, and name what the test cannot show: a real mail client's clipboard and real alert senders.
 - [ ] 10.3 Paid eval run of `alert_mail` (model cases, with the configured classifier), on request, with its cost measured and named first. Verify that the report is quoted in the PR.
 - [ ] 10.4 Review:
   - a fresh review agent without history checks the diff against the specs and tasks;

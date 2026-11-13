@@ -12,7 +12,7 @@ Every LLM-backed behavior in this capability set — feature extraction, scoring
 ## ADDED Requirements
 
 ### Requirement: Alert mail finder eval
-The harness SHALL measure the alert-mail finder on fictional alert mails, as pasted HTML and as plain text. It SHALL report the share of listed postings found, and the share of returned links that are correct after the personal parameters are removed, per fixed rule and for the model fallback. Mails a fixed rule reads SHALL be measured without a model call. The data SHALL include mails with footer and unsubscribe links, and a mail with an instruction addressed to an AI system.
+The harness SHALL measure the alert-mail finder on anonymized real alert mails, as pasted HTML and as plain text, with every personal or search-specific value replaced and tokens replaced by invalid ones. It SHALL report the share of listed postings found, and the share of returned links that are correct after the personal parameters are removed, per fixed rule and for the model fallback. Mails a fixed rule reads SHALL be measured without a model call. The data SHALL include mails with footer and unsubscribe links, and a mail with an instruction addressed to an AI system.
 
 #### Scenario: Report
 - **WHEN** the finder eval runs

@@ -17,7 +17,7 @@ Job boards and career sites send job alert mails that list several new postings 
 - The chosen entries are added in a background run, one after the other, through the existing intake (fetch ladder, intake loop, duplicate check, content guard, field filling). The view shows each entry's progress and outcome. A failed entry keeps the text and PDF options and does not stop the others.
 - The content guard screens the mail text before the model sees it. A flagged mail reaches no model, and the view says the content guard held it. A failing classifier stops the reading, with a retry.
 - The finder records, per mail, which pattern read it, or that the model did, with the hosts of its links. This is the groundwork for #109.
-- A new eval reports postings found and links correct, per pattern and for the model fallback, on fictional alert mails.
+- A new eval reports postings found and links correct, per pattern and for the model fallback, on anonymized real alert mails.
 
 ## Capabilities
 
@@ -54,7 +54,7 @@ None.
   - `intake/fetch.py`: for a mail entry's link, each redirect is checked before it is requested, in the plain and the browser fetch;
   - `api/app.py`: `POST /alert-mails/preview`, `POST /alert-mails/runs`, `GET /alert-mails/runs/{id}`;
   - `evals/alert_mail.py` and its entry in `evals/__main__.py`.
-- Fixtures: fictional alert mails as pasted HTML and plain text under `fixtures/intake/alert-mails/`, with expected entries.
+- Fixtures: anonymized real alert mails as pasted HTML and plain text under `fixtures/intake/alert-mails/`, with expected entries. Every personal or search-specific value is replaced, and tokens become invalid placeholders.
 - Frontend:
   - `views/IntakeView.tsx` gains the source;
   - a new `views/AlertMailView.tsx` holds the paste, the pick list and the run;
