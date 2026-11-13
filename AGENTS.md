@@ -45,6 +45,12 @@ test -x .githooks/pre-commit && echo executable
 
 Worktrees live under `worktrees/` (gitignored), one per branch: `git worktree add worktrees/<kebab-name> -b <branch> origin/main`.
 
+### Review workspace
+
+`scripts/review-workspace.sh` writes `jobadvaisor.code-workspace` (gitignored) next to the repository root: this checkout and every worktree under `worktrees/` as folders, plus the pull-request inbox. Re-run it after adding or removing a worktree, or use the task `0 - Review Workspace`.
+
+A pull request whose branch is already checked out in a worktree cannot be checked out from the pull-request view. Review it in its worktree folder instead. Cursor keeps one window per worktree.
+
 ## Current state
 
 The history lives in OpenSpec, not here: `openspec/specs/` is the baseline (one folder per capability) and `openspec/changes/archive/` holds every finished change with its proposal, design and tasks. Open work is in the GitHub issues. Keep this section to a pointer plus the last two archived changes; when archiving a change, drop the oldest entry.
