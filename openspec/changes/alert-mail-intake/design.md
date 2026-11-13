@@ -156,14 +156,17 @@ An alert run and a list import may compute at the same time. Both store through 
 **Eval.**
 
 - Behavior: the finder, both paths.
-- Data: fictional alert mails under `fixtures/intake/alert-mails/`, one `<case>.html` or `<case>.txt` each, plus `<case>.json` with the expected `[{url, title}]` (or `"held": true`).
-  - The fixtures are written from scratch in the layout of each sender's mail. Search terms, places, employers, IDs and hosts are invented (`example` domains for the career site). They hold no greeting, name or address of a recipient.
-  - Tokens appear only as the placeholder `TOKEN`, so the cleaning is exercised.
-  - A test enforces this. Query values are `TOKEN` or an invented ID from the fixture allow-list. No `@` address appears outside `example.*`. No host appears other than `linkedin.com`, `arbeitsagentur.de` and `example.*`.
+- Data: anonymized alert mails under `fixtures/intake/alert-mails/`, one `<case>.html` or `<case>.txt` each, plus `<case>.json` with the expected `[{url, title}]` (or `"held": true`).
+  - Each fixture is derived from a real alert mail: its pasted HTML part, or its plain text, keeps the sender's markup, the hosts and paths of the job board, and the parameter names. Real mails exercise the rules on the layouts the senders actually send.
+  - Everything personal or search-specific is replaced. The replacement covers recipient names, greetings, addresses and profile links; e-mail addresses; the saved search's terms and place; employers and job titles (both reflect the search, an indirect trace under AGENTS.md → Privacy); job IDs, reference numbers and tracking IDs, which become invented numbers; the career site's employer hosts and every image or asset URL, which become `example` hosts; and every token value.
+  - Token values become invalid placeholders (`TOKEN-1`, `TOKEN-2`, …) in their real parameter positions, so the cleaning is tested on the real token layout.
+  - The replacement runs as a local script outside the repository, with the mapping kept local too. A private deny-list holds the replaced values (name, e-mail address, place, search terms, the real employers, titles and IDs) and lives outside the repository as well. Before any fixture is committed, a check finds none of them in any fixture.
+  - Some cases need a shape no sample mail has: a `?jobId=` link, a printed tokenised URL, two postings behind one redirect address, or an injected instruction. These are added by hand to an anonymized mail, and its `.json` names what was added.
+  - A test in the repository enforces the public side. Query values are `TOKEN-<n>` or an invented ID from the fixture allow-list. No `@` address appears outside `example.*`. No host appears other than `linkedin.com`, `arbeitsagentur.de` and `example.*`.
 - The cases:
   - LinkedIn digest and single job, with three links per job and footer links;
   - Bundesagentur numbered list;
-  - career-site platform on two fictional employer hosts;
+  - career-site platform on two anonymized employer hosts;
   - Bundesagentur alert as plain text with printed URLs;
   - two unknown senders for the model. One has `?jobId=` links, a session token, a tokenised URL printed in its text and in a link text, and a link with a token in its path. The other has job paths and two different postings behind one click-redirect address;
   - a mail without postings, whose links all fall to the drop list;
