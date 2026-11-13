@@ -32,7 +32,8 @@ relpath() {
 }
 
 # owner/repo for the query prefix, from an ssh or https remote; empty when the
-# remote is not a supported host.
+# remote path is not exactly two segments. The host is not checked, so a
+# non-GitHub remote still gets the queries, which are inert there.
 slug=$(git -C "$main_checkout" remote get-url origin 2>/dev/null |
   sed -E 's#^[a-z+]+://[^/]+/##; s#^[^@/]+@[^:/]+:##; s#\.git$##; s#/$##' || true)
 case "$slug" in
