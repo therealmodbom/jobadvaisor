@@ -45,6 +45,14 @@ test -x .githooks/pre-commit && echo executable
 
 Worktrees live under `worktrees/` (gitignored), one per branch: `git worktree add worktrees/<kebab-name> -b <branch> origin/main`.
 
+### Review workspace
+
+Agents work in `worktrees/`, one per branch, and an editor window only ever shows one working tree. The branch switcher cannot cross that boundary either, since git refuses to check out a branch that is already checked out in another worktree, so reviewing several agents' pull requests otherwise means one window per worktree.
+
+`scripts/review-workspace.sh` generates `jobadvaisor.code-workspace` next to the repository root: the main checkout as the first folder and every worktree under `worktrees/` as a further one, each path relative to the workspace file, with `prunable` worktrees skipped. It works from any folder of the clone, a worktree included, because it derives the main checkout from the common git dir. Re-run it after worktrees were added or removed, then open the file in VS Code; the script is also the first task in `.vscode/tasks.json` (`0 - Review Workspace`), so a refresh is one command. The pull-request view starts on an inbox rather than a URL: the repository's open pull requests, your own, and the ones where your review is requested.
+
+The generated file is gitignored. Checking out a pull request from the pull-request view fails while that branch is already checked out in a worktree; review it in the open worktree folder instead. Cursor keeps one window per worktree, and the agent flow there is unchanged ([#107](https://github.com/therealmodbom/jobadvaisor/issues/107)).
+
 ## Current state
 
 The history lives in OpenSpec, not here: `openspec/specs/` is the baseline (one folder per capability) and `openspec/changes/archive/` holds every finished change with its proposal, design and tasks. Open work is in the GitHub issues. Keep this section to a pointer plus the last two archived changes; when archiving a change, drop the oldest entry.
