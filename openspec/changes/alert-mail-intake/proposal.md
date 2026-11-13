@@ -51,7 +51,7 @@ None.
   - new `intake/alert_mail.py`: link extraction from HTML or plain text, patterns, link cleaning, model fallback and the finder's record;
   - new `intake/alert_runs.py`: the background run, on the pattern of `Imports`;
   - `intake/duplicates.py`: LinkedIn job ID key, which also applies to plain link intake and the list import;
-  - `intake/postings.py`: a redirect target in `posting_urls` stored for mail entries only when cleaning would not change it;
+  - `intake/fetch.py`: for a mail entry's link, each redirect is checked before it is requested, in the plain and the browser fetch;
   - `api/app.py`: `POST /alert-mails/preview`, `POST /alert-mails/runs`, `GET /alert-mails/runs/{id}`;
   - `evals/alert_mail.py` and its entry in `evals/__main__.py`.
 - Fixtures: fictional alert mails as pasted HTML and plain text under `fixtures/intake/alert-mails/`, with expected entries.
