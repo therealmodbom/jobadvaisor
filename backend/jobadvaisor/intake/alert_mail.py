@@ -1,4 +1,5 @@
-"""The alert-mail finder (`openspec/changes/alert-mail-intake/design.md`): the postings a pasted
+"""The alert-mail finder
+(`openspec/changes/archive/2026-11-16-alert-mail-intake/design.md`): the postings a pasted
 job alert mail lists, as title and cleaned link, read by fixed link rules or, for other senders,
 by the intake model choosing link numbers. Nothing is fetched here."""
 

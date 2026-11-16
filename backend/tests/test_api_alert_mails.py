@@ -1,4 +1,5 @@
-"""`/alert-mails` endpoints (`openspec/changes/alert-mail-intake/design.md` → API)."""
+"""`/alert-mails` endpoints
+(`openspec/changes/archive/2026-11-16-alert-mail-intake/design.md` → API)."""
 
 import re
 import time

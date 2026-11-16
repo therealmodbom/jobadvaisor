@@ -1,6 +1,7 @@
 """The background run of the entries chosen from an alert mail
-(`openspec/changes/alert-mail-intake/design.md` → Run): one entry after the other through the
-normal intake of a link, one run at a time, state in memory only (a restart forgets it)."""
+(`openspec/changes/archive/2026-11-16-alert-mail-intake/design.md` → Run): one entry after the
+other through the normal intake of a link, one run at a time, state in memory only (a restart
+forgets it)."""
 
 import threading
 import uuid

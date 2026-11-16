@@ -1,4 +1,5 @@
-"""The alert-mail eval (`openspec/changes/alert-mail-intake/design.md` → Eval): how well a model
+"""The alert-mail eval
+(`openspec/changes/archive/2026-11-16-alert-mail-intake/design.md` → Eval): how well a model
 picks the postings of an anonymized alert mail that no rule reads, scored as *postings found*
 and *links correct* with two DeepEval metrics without a judge. It measures the model, so it
 runs once per model and its figures are compared between models; the mails the rules read are

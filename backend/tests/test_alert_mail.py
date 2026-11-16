@@ -1,5 +1,6 @@
-"""The alert-mail finder (`openspec/changes/alert-mail-intake/design.md` → Link extraction,
-Rules, Model fallback, Cleaning)."""
+"""The alert-mail finder
+(`openspec/changes/archive/2026-11-16-alert-mail-intake/design.md` → Link extraction, Rules,
+Model fallback, Cleaning)."""
 
 import json
 

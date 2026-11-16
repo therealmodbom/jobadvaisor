@@ -143,8 +143,8 @@ TDD per task: a failing test first, then the code. Fixtures are anonymized real 
 
 - [x] 10.1 Full suite: backend `uv run ruff check`, `uv run pytest`, `uv run pytest -m e2e`; frontend `npm run lint`, `npm test`, `npm run build`. Add one e2e walkthrough first: paste a rule fixture's HTML (a synthetic paste event carrying `text/html`), see the pick list with one stored entry marked, add the rest with fake fetchers, and see them stored. Verify that all pass.
 - [x] 10.2 Browser click test at desktop and phone width on the demo persona, with a pasted anonymized fixture mail, including one failing entry. Verify by screenshots in the PR, and name what the test cannot show: a real mail client's clipboard and real alert senders.
-- [ ] 10.3 Paid eval run of `alert_mail` (the model cases, with the configured classifier), once per model to compare, on request, with its cost measured and named first. Verify that the report is quoted in the PR.
-- [ ] 10.4 Review:
+- [ ] 10.3 Paid eval run of `alert_mail` (the model cases, with the configured classifier), once per model to compare, on request, with its cost measured and named first. Verify that the report is quoted in the PR. Not run when the change was archived: no cost was agreed, and the model fallback's figures stay unmeasured.
+- [x] 10.4 Review:
   - a fresh review agent without history checks the diff against the specs and tasks;
   - `/code-review high` runs on the diff;
   - real findings from both are fixed in the same turn.
