@@ -56,7 +56,7 @@ TDD per task: a failing test first, then the code. Fixtures are anonymized real 
 ## 3. Duplicates and redirect guard
 
 - [x] 3.1 `normalize_url` keys LinkedIn job pages by ID in the four forms. Verify with `test_intake_duplicates.py` tests for each form against a stored `https://www.linkedin.com/jobs/view/<id>`, and that a LinkedIn company page keeps its old key. Add a regression test that `posting_urls` stores one URL when the final address is another LinkedIn form of the same job.
-- [ ] 3.2 `guarded_link` in `intake/fetch.py`: while it names the URL a fetch starts at, `download_plain` (httpx `request` event hook) and `download_rendered` (`page.route` on main-frame navigations) check every redirect hop with `navigation_allowed` before requesting it, and raise `FetchError("redirect with personal parameters")` on a failing hop. Verify with:
+- [x] 3.2 `guarded_link` in `intake/fetch.py`: while it names the URL a fetch starts at, `download_plain` (httpx `request` event hook) and `download_rendered` (`page.route` on main-frame navigations) check every redirect hop with `navigation_allowed` before requesting it, and raise `FetchError("redirect with personal parameters")` on a failing hop. Verify with:
   - an httpx `MockTransport` test: a 302 to a tokenised address raises, and the transport never receives that request; a 301 to the same path with a trailing slash is followed;
   - a rendered test against a local server (the eval's `serve_pages` pattern): a 302 to a tokenised local address raises, and the server's log shows the target was never requested;
   - a test that a fetch of another URL while the guard is set, and any fetch without the guard, follows redirects as today.
