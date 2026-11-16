@@ -62,7 +62,7 @@ Title pickers skip image-only links. A link text that is a URL is never a title.
 
 When any link matches, the mail is read by the rules: one entry per key, in order of first appearance, and links no rule matches are not read (Risks). `read_by` lists the rules that matched.
 
-`unread_hosts` tells the user what the rules left out, since a paste may hold mails of several senders. After the drop list, it names every host of a kept link that no rule read, except a host that a rule read a link on, or a subdomain of one. It is sorted and has no path or query. It is empty on the model path, which reads every kept link, and on a mail the rules read completely. The answer lists at most 10 hosts.
+`unread_hosts` tells the user what the rules left out, since a paste may hold mails of several senders, and a sender's other postings may sit on a host a rule read in the same mail. After the drop list, it lists every host of a kept link that no rule read, as `{host, links}`: `links` is the number of distinct links on that host, counted by `strip_query`. A host a rule read a link on is listed too, when it has further kept links, since a posting the rule's path does not match would otherwise go missing without notice. The list is sorted by host and has no path or query. It is empty on the model path, which reads every kept link, and on a mail the rules read completely. The answer lists at most 10 hosts.
 
 **Model fallback.** It runs only when no link matches a rule.
 
@@ -123,7 +123,7 @@ An alert run and a list import may compute at the same time. Both store through 
 
 - `POST /alert-mails/preview`:
   - Body: JSON `{html: string | null, text: string}`, each at most 2,000,000 characters; 422 `invalid request` for more, or when both are empty.
-  - 200: `{entries: [{url, title, duplicate: {posting_id, title} | null, login_walled, ambiguous}], read_by: [string], unread_hosts: [string], held, model_skipped: string | null, screening, truncated}`.
+  - 200: `{entries: [{url, title, duplicate: {posting_id, title} | null, login_walled, ambiguous}], read_by: [string], unread_hosts: [{host, links}], held, model_skipped: string | null, screening, truncated}`.
   - At most 100 entries are answered, the run's limit. `truncated` is true when the mail held more.
   - 502 `screening failed` when the classifier fails, and 502 `finder failed` when the model call fails. Both offer a retry.
 - `POST /alert-mails/runs`:
@@ -145,7 +145,7 @@ An alert run and a list import may compute at the same time. Both store through 
   - an `ambiguous` entry is disabled, with its reason and the text option;
   - a `login_walled` entry shows "Seite mit Login-Pflicht" and is not preselected;
   - `truncated` says that only the first 100 are listed;
-  - a non-empty `unread_hosts` shows a note above the list: "Links von <hosts> wurden nicht gelesen. Füge diese Mail einzeln ein.";
+  - a non-empty `unread_hosts` shows a note above the list: "Nicht gelesen: <host> (<n> Links), … Füge diese Mail einzeln ein.";
   - the action is "N Anzeigen hinzufügen", and "Andere Mail einfügen" starts over.
 - The view's states beyond the pick list:
   - screening on or off, as in the rest of the intake view;
@@ -199,7 +199,7 @@ An alert run and a list import may compute at the same time. Both store through 
 
 - [A sender changes its link shape] → that mail falls to the model, `read_by` shows it, and the rule's fixture still passes. A drift shows when the finder runs on a fresh real mail, outside the repository; #109 automates that later.
 - [A mail from an unknown sender that also holds one link a rule reads, or a paste of several senders' mails] → only the rules' postings are listed, and `read_by` names the rules. `unread_hosts` names the other hosts, and the view says to paste that mail alone, so nothing is dropped silently. Accepted: alert mails come from one sender each, and the model does not run beside the rules.
-- [`unread_hosts` names a host of no interest, such as an image or tracking host] → the note is informational and the pick list is unaffected. The rule fixtures expect an empty `unread_hosts`, so a noisy sender shows up when its rule's fixture is made.
+- [`unread_hosts` names a host of no interest, such as an image host, or leftover links of a read host such as a company page] → the note is informational, shows the number of links so the user can judge, and the pick list is unaffected. The rule fixtures expect an empty `unread_hosts`, so a noisy sender shows up when its rule's fixture is made, and its non-posting links are added to the drop list then.
 - [The career-site rule matches an unrelated `/job/<title>/<number>` link with a `refid` parameter] → it would only list a link that is shown in the pick list and can be deselected. The rule is checked against the fixtures of the other senders.
 - [The model picks an action link the drop list does not name] → the cleaned link has no token for an action, the pick list shows every link before anything is fetched, and only public http(s) hosts are kept.
 - [A job site that names the posting in a parameter outside `POSTING_PARAMETERS`] → its postings clean to one link and show as `ambiguous`, or a single one is fetched without its ID and fails or stores the wrong page (ADR 0012, Consequences). A further name is a one-line addition.

@@ -237,6 +237,10 @@ The system SHALL read three kinds of alert mail by fixed rules on the shape of t
 - **WHEN** the user submits one paste holding a LinkedIn alert and the alert of a sender no rule reads
 - **THEN** the LinkedIn postings are returned, no model is called, and the answer names the other sender's host as not read
 
+#### Scenario: Unread link on a host a rule read
+- **WHEN** a mail holds a career-site job link a rule reads and a link to a second posting on the same host under a path no rule reads
+- **THEN** the first posting is returned, and the answer names that host with the number of links it did not read
+
 #### Scenario: Other sender
 - **WHEN** a classifier is configured, and the user submits an alert mail whose links no fixed rule reads
 - **THEN** the intake model finds its postings

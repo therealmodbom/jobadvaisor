@@ -33,7 +33,9 @@ TDD per task: a failing test first, then the code. Fixtures are anonymized real 
   - footer, unsubscribe and search links not returned;
   - an unrelated `/job/<title>/<number>` link without `refid` not read by `career_site`;
   - a 120-job fixture built in the test giving 100 entries and `truncated`;
-  - `unread_hosts` empty for each rule fixture, and holding the other sender's host (sorted, no path or query, at most 10) for a LinkedIn fixture pasted together with another sender's mail, with a host that is a subdomain of a read host left out;
+  - `unread_hosts` empty for each rule fixture;
+  - `unread_hosts` as `{host, links}` (sorted, no path or query, at most 10, links counted after `strip_query`) for a LinkedIn fixture pasted together with another sender's mail;
+  - a read host with a further kept link no rule reads (a career-site job plus a second posting on the same host under another path) listed with its count;
   - no model or classifier call (fakes that fail when called).
 - [ ] 2.4 Model fallback (design.md → Model fallback, steps 1 to 6). Verify with tests using a fake model and a fake classifier:
   - screening off gives `model_skipped: "screening off"` and calls no model;
@@ -104,7 +106,7 @@ TDD per task: a failing test first, then the code. Fixtures are anonymized real 
 - [ ] 7.1 API types in `api.ts` and the paste handling: `onPaste` keeps `text/html` and shows `text/plain`, a new paste replaces both, and clearing drops both. Verify with Vitest tests that dispatch a paste with both flavors, with plain text only, and a second paste.
 - [ ] 7.2 `AlertMailView` as designed in 6.1:
   - the preview call with its states (found, nothing found, screening off, held, 502 with retry and the mail kept);
-  - the pick list (new preselected; stored marked, linked and disabled; login-walled not preselected; not-addable disabled with the text option; the count in the action; the truncation note; the note naming the hosts of links that were not read);
+  - the pick list (new preselected; stored marked, linked and disabled; login-walled not preselected; not-addable disabled with the text option; the count in the action; the truncation note; the note naming the hosts of links that were not read, with their counts);
   - the run, polled every second, with per-row states, attempts and the text and PDF buttons;
   - a `duplicate` row with a link to the stored posting, and for `duplicate_by` `text` or `similar_text` the action "Trotzdem als neue Anzeige speichern" with a confirmation naming that posting, which starts a run of that entry with `force: true`; none for `url`;
   - the run's ID in `sessionStorage`, attaching after a reload, attaching on 409 to the named run, and "run no longer known" on 404;
