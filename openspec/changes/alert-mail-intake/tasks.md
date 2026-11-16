@@ -4,7 +4,7 @@ TDD per task: a failing test first, then the code. Fixtures are anonymized real 
 
 ## 1. Fixtures
 
-- [ ] 1.1 Derive the fixtures under `fixtures/intake/alert-mails/` from the sample mails in the worktree's `tmp/`, each `<case>.html` or `<case>.txt` with `<case>.json` (expected `[{url, title}]` after cleaning, or `"held": true`). Take the HTML part as a mail client pastes it. The cases are listed in design.md → Eval. The anonymizing script, its mapping and the deny-list stay outside the repository. Verify:
+- [x] 1.1 Derive the fixtures under `fixtures/intake/alert-mails/` from the sample mails in the worktree's `tmp/`, each `<case>.html` or `<case>.txt` with `<case>.json` (expected `[{url, title}]` after cleaning, or `"held": true`). Take the HTML part as a mail client pastes it. The cases are listed in design.md → Eval. The anonymizing script, its mapping and the deny-list stay outside the repository. Verify:
   - the local deny-list check finds no replaced value in any fixture (run before the commit, result named in the PR without the values);
   - a test that every case loads and has its `.json`;
   - that every query value is `TOKEN-<n>` or an ID from the fixture allow-list;
@@ -13,9 +13,9 @@ TDD per task: a failing test first, then the code. Fixtures are anonymized real 
 
 ## 2. Finder (`intake/alert_mail.py`)
 
-- [ ] 2.1 Link stream from HTML and from plain text:
+- [x] 2.1 Link stream from HTML and from plain text:
   - HTML gives text blocks and links, with an image's `alt` only for a link without text, and no `script` or `style`;
-  - plain text gives URLs, each with the nearest non-empty line before it that is not a URL as its text;
+  - plain text gives URLs, each with the text before it on its line, or else the first line of its block (after the previous URL, restarted after a line ending in `:` or `,`) as its text;
   - `html` wins when it is not null;
   - only absolute http(s) links on public hosts are kept.
 

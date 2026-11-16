@@ -45,7 +45,9 @@ Sample mails show where the titles sit:
 
 **Link extraction.** `intake/alert_mail.py` has one small `HTMLParser` subclass, on stdlib like `fetch._PageParser`. It turns the HTML into an ordered stream of text blocks and links (`href` and link text), and drops `script` and `style`. An image's `alt` is the link text only when the link has no text of its own. `fetch.page_links` is not reused: it keeps the first occurrence of each URL only, and the rules need every anchor of a job to pick its title.
 
-For plain text, a URL regex yields the links. Each link's text is the nearest non-empty line before it that is not itself a URL.
+For plain text, a URL regex yields the links. A link's text is the text before it on its own line. Otherwise it is the first line of its block: the non-empty lines after the previous URL, restarted after a line ending in `:` or `,` (an intro or a greeting). Real alert mails put the title first and further details (employer, place, hours) between it and the URL, so the nearest line before the URL is a detail, not the title.
+
+In HTML, text inside a link belongs to that link and to every link around it, since some senders nest a title link inside a card link.
 
 Only absolute `http`/`https` links with a public host are kept. These are dropped:
 

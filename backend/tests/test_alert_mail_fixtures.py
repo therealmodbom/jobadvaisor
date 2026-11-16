@@ -12,7 +12,7 @@ import pytest
 from jobadvaisor.settings import REPOSITORY_ROOT
 
 FIXTURES = REPOSITORY_ROOT / "fixtures" / "intake" / "alert-mails"
-ALLOWED_IDS = {"700001", "700002", "700003", "700004", "799999"}  # invented, see the fixtures' .json
+ALLOWED_IDS = {"700001", "700002", "700003", "700004", "799999"}  # invented job IDs
 URL = re.compile(r"https?://[^\s\"'<>]+")
 ADDRESS = re.compile(r"[\w.+-]+@([\w-]+(?:\.[\w-]+)+)")
 EXAMPLE = re.compile(r"(^|\.)example\.(com|org|net)$")
