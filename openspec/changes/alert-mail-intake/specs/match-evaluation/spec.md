@@ -26,19 +26,19 @@ The finder eval's data SHALL include mails with footer and unsubscribe links, an
 - **THEN** they include a mail whose links all lead to footer, settings or unsubscribe pages, and a mail with an instruction addressed to an AI system
 
 ### Requirement: Alert mail finder eval metrics
-The harness SHALL report the share of listed postings found, and the share of returned links that are correct after the personal parameters are removed, per fixed rule and for the model fallback.
+The harness SHALL report, for the model fallback, the share of listed postings found and the share of returned links that are correct after the personal parameters are removed, so that models can be compared.
 
 #### Scenario: Report
 - **WHEN** the finder eval runs
-- **THEN** it reports postings found and links correct for each fixed rule and for the model fallback, with the cases behind each figure
+- **THEN** it reports postings found and links correct for the model fallback, with the cases behind each figure
 
 #### Scenario: Case without postings
 - **WHEN** a case expects no posting and the finder returns none
 - **THEN** the case scores full marks on both figures
 
-### Requirement: Alert mail finder eval rules without a model
-The harness SHALL measure the mails a fixed rule reads without a model call, so the fixed rules are measured also when no model or classifier is configured.
+### Requirement: Alert mail finder rules regression test
+The default test run SHALL check the mails a fixed rule reads, and the mail without postings, against their expected links and titles without a model call, apart from the finder eval, which measures only the model fallback.
 
 #### Scenario: No model or no classifier
-- **WHEN** the finder eval runs without an intake model, or without a screening classifier
-- **THEN** the fixed rules are still measured, and the model fallback is reported as skipped with the reason
+- **WHEN** the default tests run without an intake model, or without a screening classifier
+- **THEN** the fixed rules' mails are still checked and a changed rule or expected title fails the run, while the finder eval reports its model cases as skipped with the reason
