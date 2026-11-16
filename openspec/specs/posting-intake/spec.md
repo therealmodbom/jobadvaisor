@@ -227,11 +227,15 @@ The system SHALL offer only absolute http(s) links on public hosts from a mail: 
 - **THEN** neither link is offered
 
 ### Requirement: Known senders read without a model
-The system SHALL read three kinds of alert mail by fixed rules on the shape of their links, without a model call: LinkedIn job links, Bundesagentur für Arbeit job-detail links, and career-site links with the path `/job/<title>/<number>` and a `refid` parameter on any host. A mail with no link a rule reads SHALL be read by the intake model, unless the content guard holds it or no screening classifier is configured.
+The system SHALL read three kinds of alert mail by fixed rules on the shape of their links, without a model call: LinkedIn job links, Bundesagentur für Arbeit job-detail links, and career-site links with the path `/job/<title>/<number>` and a `refid` parameter on any host. A mail with no link a rule reads SHALL be read by the intake model, unless the content guard holds it or no screening classifier is configured. When a rule reads a mail, the system SHALL name the hosts of the other links it kept and did not read, so a paste of several senders' mails does not lose postings without notice.
 
 #### Scenario: Known sender
 - **WHEN** the user submits a LinkedIn job alert mail
 - **THEN** its postings are returned and no model is called
+
+#### Scenario: Two senders in one paste
+- **WHEN** the user submits one paste holding a LinkedIn alert and the alert of a sender no rule reads
+- **THEN** the LinkedIn postings are returned, no model is called, and the answer names the other sender's host as not read
 
 #### Scenario: Other sender
 - **WHEN** a classifier is configured, and the user submits an alert mail whose links no fixed rule reads

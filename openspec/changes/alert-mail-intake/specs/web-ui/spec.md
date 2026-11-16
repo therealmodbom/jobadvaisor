@@ -24,7 +24,11 @@ The UI SHALL let the user submit a posting as a URL, pasted text, a PDF upload o
 ## ADDED Requirements
 
 ### Requirement: Pasting an alert mail keeps its links
-The alert-mail input SHALL take the HTML of a pasted mail, so the links behind titles and buttons are kept, and SHALL show the pasted text. A paste without HTML SHALL be read as plain text. When the mail yields no posting, the view SHALL say so and point to the link and text inputs. While screening is off, the view SHALL say that only known senders' mails can be read.
+The alert-mail input SHALL take the HTML of a pasted mail, so the links behind titles and buttons are kept, and SHALL show the pasted text. A paste without HTML SHALL be read as plain text. When the mail yields no posting, the view SHALL say so and point to the link and text inputs. While screening is off, the view SHALL say that only known senders' mails can be read. When some links of the mail were not read, the view SHALL name their hosts and say to paste that mail alone.
+
+#### Scenario: Links not read
+- **WHEN** a pasted mail holds LinkedIn postings and links on another host that no fixed rule reads
+- **THEN** the view lists the LinkedIn postings and says that the links of that host were not read, and that the mail should be pasted alone
 
 #### Scenario: Paste from a mail client
 - **WHEN** the user copies a whole alert mail in a mail client, whose plain-text copy holds no URL, and pastes it into the alert-mail input

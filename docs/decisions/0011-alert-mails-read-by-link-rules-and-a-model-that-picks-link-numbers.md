@@ -30,7 +30,7 @@ There are two ways to find the posting links. A *rule* is code for one known sen
 ## Consequences
 
 - The worst a wrong model answer can do is pick the wrong link number. The pick list shows every entry before anything is fetched, so the user can deselect it.
-- A mail with at least one link a rule reads lists only the postings the rules read. A mail from an unknown sender that also holds one LinkedIn job link lists only that job. Alert mails come from one sender each, so this is accepted.
+- A mail with at least one link a rule reads lists only the postings the rules read. A mail from an unknown sender that also holds one LinkedIn job link lists only that job. Alert mails come from one sender each, so this is accepted. The finder names the hosts of the links it did not read, and the view tells the user to paste that mail alone.
 - With screening off, mails from unknown senders are not read at all.
 - Adding a sender is code: a rule, a fictional fixture and an eval case.
 - The finder records which rule read each mail, or that the model did, so a sender that keeps needing the model becomes visible (#109).
