@@ -1,6 +1,8 @@
 """`/alert-mails` endpoints (`openspec/changes/alert-mail-intake/design.md` → API)."""
 
+import re
 import time
+from pathlib import Path
 
 import pytest
 from conftest import FakeStructuredModel, write_json
@@ -15,6 +17,8 @@ from jobadvaisor.api.app import create_app
 from jobadvaisor.intake.postings import Intake
 from jobadvaisor.tools.guard import ContentGuard
 from jobadvaisor.triage.runs import Runs
+
+DOCS = {"/openapi.json", "/docs", "/docs/oauth2-redirect", "/redoc"}  # FastAPI's own pages
 
 
 @pytest.fixture
@@ -204,3 +208,15 @@ def test_a_raw_link_is_cleaned_on_start(tmp_path, root, monkeypatch):
 def test_a_run_rejects_invalid_entries(tmp_path, root, body):
     answer = client(tmp_path, root).post("/alert-mails/runs", json=body)
     assert answer.status_code == 422 and answer.json()["error"] == "invalid request"
+
+
+def test_the_dev_proxy_forwards_every_route_of_the_api(tmp_path, root):
+    """`npm run dev` serves the pages itself and forwards only the prefixes in vite.config.ts'
+    `API_ROUTES`; a prefix missing there answers 404 in dev while the built app (served by the
+    backend) works, which no browser test against the build can see."""
+    config = (Path(__file__).parents[2] / "frontend" / "vite.config.ts").read_text()
+    routes = re.search(r"API_ROUTES = \[(.*?)\]", config).group(1)
+    forwarded = set(re.findall(r"'(/[^']+)'", routes))
+    served = {"/" + route.path.split("/")[1] for route in client(tmp_path, root).app.routes
+              if route.path.count("/") and route.path not in DOCS}
+    assert served - forwarded == set()
