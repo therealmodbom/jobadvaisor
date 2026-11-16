@@ -31,12 +31,12 @@ None.
 
 - `posting-intake`:
   - the input forms gain the alert mail;
-  - new requirements cover the finder, the links it offers, the record of how a mail was read, the removal of personal link parameters, links that do not tell postings apart and the background run of the chosen entries;
+  - new requirements cover the finder, the links it offers, the links a rule did not read, the record of how a mail was read, the removal of personal link parameters, links that do not tell postings apart and the background run of the chosen entries;
   - duplicate detection recognises a LinkedIn job by its ID;
   - an entry whose text duplicates a stored posting can be stored anyway on request;
   - the content guard covers the mail text.
 - `web-ui`: the intake view gains the alert-mail input; new requirements cover the paste that keeps links, the pick list, a held or failed reading, the progress and outcome of each entry, a duplicate by text that can be stored anyway, and a refused or lost run.
-- `match-evaluation`: the list of LLM-backed behaviors that need an eval gains the finder's model fallback, and a new requirement names the finder's eval.
+- `match-evaluation`: the list of LLM-backed behaviors that need an eval gains the finder's model fallback, and new requirements name the finder's eval: its data, coverage, metrics, and the fixed rules measured without a model.
 
 ## Non-goals
 
