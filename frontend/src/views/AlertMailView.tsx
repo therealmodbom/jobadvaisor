@@ -63,6 +63,9 @@ const preselected = (entry: AlertEntry) => !entry.duplicate && !entry.login_wall
 
 const PANEL = 'flex flex-col gap-3.5 rounded-xl border bg-card p-5 shadow-card'
 const ROW = 'flex items-start gap-3 rounded-[10px] border px-4 py-3'
+/** For a small button inside a row: its label wraps instead of overflowing the row, and on a
+ * phone it is as wide as the row and 44px high. */
+const ROW_BUTTON = 'h-auto min-h-8 whitespace-normal text-center max-sm:min-h-11 max-sm:w-full'
 
 /** The source "Alert-Mail" of the intake view: paste a job alert mail (the clipboard's HTML part
  * is kept, so the links behind titles survive), pick from the postings found in it
@@ -452,7 +455,8 @@ function PickRow({ entry, index, checked, onToggle, onText }: {
               Mehrere Stellen der Mail führen über dieselbe Adresse. Über diesen Link lässt sich die Anzeige nicht
               hinzufügen. Füge ihren Text ein.
             </span>
-            <Button type="button" size="sm" variant="outline" onClick={onText} className="self-start">Text einfügen</Button>
+            <Button type="button" size="sm" variant="outline" onClick={onText}
+                    className={cn(ROW_BUTTON, 'sm:self-start')}>Text einfügen</Button>
           </>
         )}
       </div>
@@ -604,7 +608,8 @@ function RunRow({ entry, ended, onText, onPdf, onForce }: {
               <a href={postingHref} className="text-primary underline">{matchName}</a>. Es wurde nichts Neues angelegt.
             </p>
             {ended && !confirming && (
-              <Button type="button" size="sm" variant="outline" onClick={() => setConfirming(true)} className="self-start">
+              <Button type="button" size="sm" variant="outline" onClick={() => setConfirming(true)}
+                      className={cn(ROW_BUTTON, 'sm:self-start')}>
                 Trotzdem als neue Anzeige speichern
               </Button>
             )}
@@ -616,8 +621,9 @@ function RunRow({ entry, ended, onText, onPdf, onForce }: {
                   Die gespeicherte Anzeige bleibt, wie sie ist, und die Seite wird noch einmal abgerufen.
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  <Button type="button" size="sm" onClick={onForce}>Ja, als neue Anzeige speichern</Button>
-                  <Button type="button" size="sm" variant="outline" onClick={() => setConfirming(false)}>Abbrechen</Button>
+                  <Button type="button" size="sm" onClick={onForce} className={ROW_BUTTON}>Ja, als neue Anzeige speichern</Button>
+                  <Button type="button" size="sm" variant="outline" onClick={() => setConfirming(false)}
+                          className={ROW_BUTTON}>Abbrechen</Button>
                 </div>
               </div>
             )}
@@ -635,8 +641,8 @@ function RunRow({ entry, ended, onText, onPdf, onForce }: {
             )}
             <p className="text-[15px]">Füge stattdessen den Text ein oder lade ein PDF hoch.</p>
             <div className="flex flex-wrap gap-2">
-              <Button type="button" size="sm" onClick={onText}>Text einfügen</Button>
-              <Button type="button" size="sm" variant="outline" onClick={onPdf}>PDF hochladen</Button>
+              <Button type="button" size="sm" onClick={onText} className={ROW_BUTTON}>Text einfügen</Button>
+              <Button type="button" size="sm" variant="outline" onClick={onPdf} className={ROW_BUTTON}>PDF hochladen</Button>
             </div>
           </>
         )}

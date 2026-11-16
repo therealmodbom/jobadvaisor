@@ -136,13 +136,13 @@ TDD per task: a failing test first, then the code. Fixtures are anonymized real 
 
   Verify by reading it against the web-ui delta.
 - [x] 9.2 `AGENTS.md` "Current state": add this change and drop the oldest entry. Verify that it lists two changes.
-- [ ] 9.3 Update #56's open question on LinkedIn: LinkedIn serves a guest view that the fetch cuts to the posting, and only `xing.com` is login-walled by default. Verify by reading the issue.
-- [ ] 9.4 Run `/opsx:sync` after the last delta edit, and `openspec validate alert-mail-intake --strict`. Verify that both pass and the baseline specs in the diff show the target text.
+- [x] 9.3 Update #56's open question on LinkedIn: LinkedIn serves a guest view that the fetch cuts to the posting, and only `xing.com` is login-walled by default. Verify by reading the issue.
+- [x] 9.4 Run `/opsx:sync` after the last delta edit, and `openspec validate alert-mail-intake --strict`. Verify that both pass and the baseline specs in the diff show the target text.
 
 ## 10. Before the PR leaves draft
 
-- [ ] 10.1 Full suite: backend `uv run ruff check`, `uv run pytest`, `uv run pytest -m e2e`; frontend `npm run lint`, `npm test`, `npm run build`. Add one e2e walkthrough first: paste a rule fixture's HTML (a synthetic paste event carrying `text/html`), see the pick list with one stored entry marked, add the rest with fake fetchers, and see them stored. Verify that all pass.
-- [ ] 10.2 Browser click test at desktop and phone width on the demo persona, with a pasted anonymized fixture mail, including one failing entry. Verify by screenshots in the PR, and name what the test cannot show: a real mail client's clipboard and real alert senders.
+- [x] 10.1 Full suite: backend `uv run ruff check`, `uv run pytest`, `uv run pytest -m e2e`; frontend `npm run lint`, `npm test`, `npm run build`. Add one e2e walkthrough first: paste a rule fixture's HTML (a synthetic paste event carrying `text/html`), see the pick list with one stored entry marked, add the rest with fake fetchers, and see them stored. Verify that all pass.
+- [x] 10.2 Browser click test at desktop and phone width on the demo persona, with a pasted anonymized fixture mail, including one failing entry. Verify by screenshots in the PR, and name what the test cannot show: a real mail client's clipboard and real alert senders.
 - [ ] 10.3 Paid eval run of `alert_mail` (model cases, with the configured classifier), on request, with its cost measured and named first. Verify that the report is quoted in the PR.
 - [ ] 10.4 Review:
   - a fresh review agent without history checks the diff against the specs and tasks;
