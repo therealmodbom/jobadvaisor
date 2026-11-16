@@ -130,12 +130,12 @@ TDD per task: a failing test first, then the code. Fixtures are anonymized real 
 
 ## 9. Documentation and issues
 
-- [ ] 9.1 README:
+- [x] 9.1 README:
   - the intake section names the alert mail as a fourth input, with the paste, the pick list, the background run, and that unknown senders need screening on;
   - the eval section gains `alert_mail`.
 
   Verify by reading it against the web-ui delta.
-- [ ] 9.2 `AGENTS.md` "Current state": add this change and drop the oldest entry. Verify that it lists two changes.
+- [x] 9.2 `AGENTS.md` "Current state": add this change and drop the oldest entry. Verify that it lists two changes.
 - [ ] 9.3 Update #56's open question on LinkedIn: LinkedIn serves a guest view that the fetch cuts to the posting, and only `xing.com` is login-walled by default. Verify by reading the issue.
 - [ ] 9.4 Run `/opsx:sync` after the last delta edit, and `openspec validate alert-mail-intake --strict`. Verify that both pass and the baseline specs in the diff show the target text.
 
