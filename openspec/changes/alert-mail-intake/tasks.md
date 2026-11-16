@@ -118,7 +118,7 @@ TDD per task: a failing test first, then the code. Fixtures are anonymized real 
 
 ## 8. Eval
 
-- [ ] 8.1 `evals/alert_mail.py`:
+- [x] 8.1 `evals/alert_mail.py`:
   - *postings found* and *links correct* as DeepEval custom metrics without a judge, loaded through `load_deepeval(state_path(…))`;
   - the empty-case and `held` scoring from design.md;
   - figures per rule and for the model, with each case's figures and the guard's name;
@@ -126,7 +126,7 @@ TDD per task: a failing test first, then the code. Fixtures are anonymized real 
   - registered as `alert_mail` in `evals/__main__.py`.
 
   Verify with `test_eval_alert_mail.py` using the `deepeval` fixture and a fake model: rule cases at 1.0 for both metrics, the no-postings case at 1.0, the report's shape, and the skipped model cases.
-- [ ] 8.2 A default-run `pytest` test runs the rule cases and the no-postings case of the eval without DeepEval. Verify that it is collected by `uv run pytest` and fails when a fixture's expected title is changed.
+- [x] 8.2 A default-run `pytest` test runs the rule cases and the no-postings case of the eval without DeepEval. Verify that it is collected by `uv run pytest` and fails when a fixture's expected title is changed.
 
 ## 9. Documentation and issues
 

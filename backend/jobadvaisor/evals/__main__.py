@@ -20,6 +20,7 @@ from jobadvaisor.data.demo_persona import FIXTURE_DIRECTORY
 from jobadvaisor.data.loader import DataRepository, load
 from jobadvaisor.evals import (
     agent,
+    alert_mail,
     baseline,
     company_facts,
     content_guard,
@@ -31,6 +32,7 @@ from jobadvaisor.evals import (
     scoring,
 )
 from jobadvaisor.evals import decider as decider_competitor
+from jobadvaisor.evals.deepeval_runtime import load_deepeval
 from jobadvaisor.guard import MISTRAL_MODEL, DeciderClassifier, MistralModeration
 from jobadvaisor.index import LabelIndex, PostingIndex, state_path
 from jobadvaisor.llm import Decider, ModelNotConfiguredError, chat_model, decider_client, embeddings
@@ -120,6 +122,10 @@ EVALS: dict[str, Eval] = {
     "intake": lambda repository, settings: intake.run(
         lambda target: chat_model("intake", settings), configured_guard(settings),
         settings.intake_model or settings.llm_model),
+    "alert_mail": lambda repository, settings: alert_mail.run(
+        lambda: chat_model("intake", settings), configured_guard(settings),
+        settings.intake_model or settings.llm_model,
+        load_deepeval(state_path(settings, repository.root))),
     "field_filling": lambda repository, settings: field_filling.run(
         repository, chat_model("intake", settings), settings.intake_model or settings.llm_model),
     "logistic_regression": lambda repository, settings: logistic.run(
