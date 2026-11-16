@@ -113,7 +113,7 @@ class PostingNotFoundError(Exception):
 
 def add_from_url(
     intake: Intake, url: str, supplied: dict[str, str] | None = None, *,
-    search_if_gone: bool = True,
+    search_if_gone: bool = True, allow_text_duplicate: bool = False,
 ) -> tuple[str, Posting, Reason | None, list]:
     """Store the posting behind `url` (an http(s) address) unless a stored one has that URL.
 
@@ -121,9 +121,10 @@ def add_from_url(
     posting was returned instead (`None` for a new one), `attempts` are the fetch ladder's steps
     as dicts (empty when the URL was already stored, so nothing was fetched). A new posting
     whose company has no record gets its facts looked up (`look_up`, best effort). Without
-    `search_if_gone`, a gone `url` is not looked for elsewhere (`find_posting`). Raises
-    `PostingNotFoundError` when no attempt yielded the posting, `NoPostingTextError` for empty
-    posting text.
+    `search_if_gone`, a gone `url` is not looked for elsewhere (`find_posting`). With
+    `allow_text_duplicate`, a stored posting with the same or a similar text is no duplicate
+    (`add_submission`). Raises `PostingNotFoundError` when no attempt yielded the posting,
+    `NoPostingTextError` for empty posting text.
     """
     supplied = supplied or {}
     if found := duplicate_of(intake.postings(), urls=[url]):
@@ -134,7 +135,8 @@ def add_from_url(
         raise PostingNotFoundError(attempts)
     submission = Submission(result.page.text, "url", posting_urls(url, result.page.url),
                             result.page.supplied | supplied)
-    posting_id, posting, duplicate = add_submission(intake, submission)
+    posting_id, posting, duplicate = add_submission(
+        intake, submission, allow_text_duplicate=allow_text_duplicate)
     if duplicate is None:  # after the write: a lookup never sits between a posting and its file
         look_up(intake.root, posting.company, result.page.company_url)
     return posting_id, posting, duplicate, attempts
@@ -148,18 +150,20 @@ def posting_urls(submitted: str, page_url: str) -> list[str]:
                           else [])
 
 
-def add_submission(intake: Intake,
-                   submission: Submission) -> tuple[str, Posting, Reason | None]:
+def add_submission(intake: Intake, submission: Submission, *,
+                   allow_text_duplicate: bool = False) -> tuple[str, Posting, Reason | None]:
     """The stored posting `submission` duplicates (`duplicate_of`) with the reason, or the
     newly stored one (`store_posting`) with `None`. Duplicates are checked again right before
-    the write, under a lock, so concurrent identical submissions store one posting."""
+    the write, under a lock, so concurrent identical submissions store one posting. With
+    `allow_text_duplicate` (the user's explicit request), only a shared URL is a duplicate."""
+    text = None if allow_text_duplicate else submission.text
     postings = intake.postings()
-    if found := duplicate_of(postings, urls=submission.urls, text=submission.text):
+    if found := duplicate_of(postings, urls=submission.urls, text=text):
         return found[0], postings[found[0]], found[1]
     posting, base_id = _prepare(intake, submission)
     with _STORE_LOCK:  # ponytail: one process; a second app process would need a file lock
         postings = intake.postings()
-        if found := duplicate_of(postings, urls=submission.urls, text=submission.text):
+        if found := duplicate_of(postings, urls=submission.urls, text=text):
             return found[0], postings[found[0]], found[1]
         return create_posting(intake.root, base_id, posting), posting, None
 

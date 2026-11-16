@@ -61,7 +61,7 @@ TDD per task: a failing test first, then the code. Fixtures are anonymized real 
   - a rendered test against a local server (the eval's `serve_pages` pattern): a 302 to a tokenised local address raises, and the server's log shows the target was never requested;
   - a test that a fetch of another URL while the guard is set, and any fetch without the guard, follows redirects as today.
 
-- [ ] 3.3 `allow_text_duplicate` (default `False`) on `add_from_url` and `add_submission`: when set, the `text` and `similar_text` match is skipped, before and under the lock, and the URL match stays. Verify with tests that:
+- [x] 3.3 `allow_text_duplicate` (default `False`) on `add_from_url` and `add_submission`: when set, the `text` and `similar_text` match is skipped, before and under the lock, and the URL match stays. Verify with tests that:
   - a stored posting with the same text under another link is returned as a duplicate by default, and a second posting is stored with the flag;
   - a stored posting with the same link is returned as a duplicate by `url` with the flag too;
   - the default behavior of every other caller is unchanged.

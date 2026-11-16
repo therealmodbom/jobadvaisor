@@ -21,7 +21,14 @@ from jobadvaisor.intake.duplicates import (
     shingles,
     text_hash,
 )
-from jobadvaisor.intake.postings import Intake, Submission, add_submission, posting_urls
+from jobadvaisor.intake.fetch import fetch_plain
+from jobadvaisor.intake.postings import (
+    Intake,
+    Submission,
+    add_from_url,
+    add_submission,
+    posting_urls,
+)
 from jobadvaisor.tools.guard import ContentGuard
 from jobadvaisor.triage.runs import Runs
 
@@ -156,6 +163,37 @@ def test_linkedin_job_forms_normalize_to_the_job_id(form):
 def test_linkedin_company_page_keeps_its_old_key():
     assert normalize_url("https://www.linkedin.com/company/example-group/") == \
         "linkedin.com/company/example-group"
+
+
+@pytest.fixture
+def intake(tmp_path):
+    (tmp_path / "postings").mkdir()
+    write_json(tmp_path / "profile.json", {"schema_version": "1", "summary": "Developer"})
+    write_json(tmp_path / "policy-pack.json", POLICY_PACK)
+    return Intake(tmp_path, FakeStructuredModel(*[FIELDS] * 4), ContentGuard(None, {}))
+
+
+def test_a_text_duplicate_is_stored_on_request(intake):
+    first, _, _ = add_submission(intake, Submission(TEXT, "url", ["https://a.example/job/1"]))
+    again = Submission(TEXT, "url", ["https://b.example/job/2"])
+    assert add_submission(intake, again)[0::2] == (first, "text")
+    second, _, duplicate = add_submission(intake, again, allow_text_duplicate=True)
+    assert duplicate is None and second != first and len(stored(intake.root)) == 2
+
+
+def test_a_url_duplicate_is_never_stored_on_request(intake):
+    first, _, _ = add_submission(intake, Submission(TEXT, "url", ["https://a.example/job/1"]))
+    again = Submission(OTHER, "url", ["https://a.example/job/1?utm_source=x"])
+    assert add_submission(intake, again, allow_text_duplicate=True)[0::2] == (first, "url")
+    assert len(stored(intake.root)) == 1
+
+
+def test_add_from_url_passes_the_request_on(intake, site):
+    page = f"{site}/static.html"
+    first, _, _ = add_submission(intake, Submission(fetch_plain(page).text, "text"))
+    assert add_from_url(intake, page)[0::2] == (first, "text")
+    new, _, duplicate, _ = add_from_url(intake, page, allow_text_duplicate=True)
+    assert duplicate is None and new != first
 
 
 def test_another_linkedin_form_of_the_job_is_not_stored_twice():
