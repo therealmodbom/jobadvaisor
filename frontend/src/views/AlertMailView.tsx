@@ -14,6 +14,8 @@ import { POLL_FAILURES, POLL_MS } from '@/views/PoolView'
 const RUN_KEY = 'jobadvaisor.alert-run'
 const BASE_KEY = 'jobadvaisor.alert-run-base'
 
+type RunBase = { id: string; overlays: { run: string; index: number }[] }
+
 /** The alert run's ID kept across a reload, so the view attaches to the run again. Storage may
  * be blocked, so every access is guarded. */
 const storedRun = {
@@ -24,16 +26,17 @@ const storedRun = {
       return null
     }
   },
-  /** For a run of one stored-anyway entry: the original run and the row it replaces. */
-  getBase: (): { id: string; index: number } | null => {
+  /** For the run of a stored-anyway entry: the original run, and each stored-anyway run with the row it replaces, oldest first. */
+  getBase: (): RunBase | null => {
     try {
-      return JSON.parse(sessionStorage.getItem(BASE_KEY) ?? 'null')
+      const base = JSON.parse(sessionStorage.getItem(BASE_KEY) ?? 'null')
+      return base && Array.isArray(base.overlays) ? base : null
     } catch {
       return null
     }
   },
-  /** Keeps run `id` (`null` drops it), and with `base` the original run its single row belongs to. */
-  set: (id: string | null, base?: { id: string; index: number }) => {
+  /** Keeps run `id` (`null` drops it), and with `base` the report its single row belongs to. */
+  set: (id: string | null, base?: RunBase) => {
     try {
       if (id) sessionStorage.setItem(RUN_KEY, id)
       else sessionStorage.removeItem(RUN_KEY)
@@ -90,6 +93,8 @@ export function AlertMailView({ onUrl, onText, onPdf }: { onUrl: () => void; onT
   const [text, setText] = useState('')
   /** The clipboard's HTML part of the last paste; null after typing into an empty field, a plain paste or a clear. */
   const [html, setHtml] = useState<string | null>(null)
+  /** The plain text of the last paste, to tell an edit of it. */
+  const [pasted, setPasted] = useState('')
   const [finding, setFinding] = useState(false)
   const [readError, setReadError] = useState('')
   const [answer, setAnswer] = useState<AlertPreview | null>(null)
@@ -109,12 +114,18 @@ export function AlertMailView({ onUrl, onText, onPdf }: { onUrl: () => void; onT
   const running = runId !== null && (progress === null || progress.status === 'running')
 
   useEffect(() => {
-    // After a reload: put the single row of a stored-anyway run back into its original report.
+    // After a reload: rebuild the original report and put each stored-anyway run's row back into it.
     const base = storedRun.getBase()
-    if (!base) return
+    if (!base || base.overlays.length === 0) return
     let stale = false
-    api<AlertRunState>(`/alert-mails/runs/${base.id}`).then((original) => {
-      if (!stale) setForced({ index: base.index, base: original.entries })
+    Promise.all([base.id, ...base.overlays.map((overlay) => overlay.run)]
+      .map((id) => api<AlertRunState>(`/alert-mails/runs/${id}`))).then(([original, ...forcedRuns]) => {
+      if (stale) return
+      const entries = [...original.entries]
+      base.overlays.forEach((overlay, i) => {
+        if (forcedRuns[i].entries[0]) entries[overlay.index] = forcedRuns[i].entries[0]
+      })
+      setForced({ index: base.overlays[base.overlays.length - 1].index, base: entries })
     }, () => {})
     return () => { stale = true }
   }, [])
@@ -168,6 +179,7 @@ export function AlertMailView({ onUrl, onText, onPdf }: { onUrl: () => void; onT
     if (!plain && !markup) return
     event.preventDefault() // a paste replaces both parts, it does not insert at the caret
     setText(plain)
+    setPasted(plain)
     setHtml(markup || null)
   }
 
@@ -194,7 +206,9 @@ export function AlertMailView({ onUrl, onText, onPdf }: { onUrl: () => void; onT
     setStartError(false)
     try {
       const { run_id: id } = await api<{ run_id: string }>('/alert-mails/runs', { method: 'POST', json: { entries } })
-      storedRun.set(id, row && runId ? { id: storedRun.getBase()?.id ?? runId, index: row.index } : undefined)
+      const prior = row ? storedRun.getBase() : null
+      storedRun.set(id, row && runId ? { id: prior?.id ?? runId,
+                                         overlays: [...(prior?.overlays ?? []), { run: id, index: row.index }] } : undefined)
       setForced(row ?? null)
       setPollFailed(false)
       setProgress({ run_id: id, status: 'running', error: null, total: entries.length, done: 0,
@@ -351,6 +365,10 @@ export function AlertMailView({ onUrl, onText, onPdf }: { onUrl: () => void; onT
           <span id="alert-mail-hint" className="text-[13px] text-muted-foreground">
             Die Links hinter Titeln und Buttons bleiben beim Einfügen erhalten. Es wird noch nichts abgerufen: Du siehst
             zuerst, welche Stellen in der Mail stehen.
+            {html !== null && text !== pasted && (
+              <> Änderungen am Text wirken sich nicht aus: Gefunden wird, was du eingefügt hast. Leere das Feld, um
+              eine andere Mail einzufügen.</>
+            )}
           </span>
         </div>
         <Button type="button" disabled={finding} onClick={find} className="self-start">

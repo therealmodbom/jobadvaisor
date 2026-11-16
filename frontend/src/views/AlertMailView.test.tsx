@@ -540,6 +540,19 @@ test('after a second stored-anyway run and a reload the report still comes from 
   stubApi(routes)
   view()
   await waitFor(() => expect(rowsOf(screen.getByRole('list', { name: 'Stand je Anzeige' }))).toHaveLength(3))
+  const rows = rowsOf(screen.getByRole('list', { name: 'Stand je Anzeige' }))
+  await waitFor(() => expect(within(rows[0]).getByRole('link', { name: 'Anzeige ansehen' })).toHaveAttribute('href', '#/anzeigen/p-10'))
+  expect(within(rows[1]).getByRole('link', { name: 'Anzeige ansehen' })).toHaveAttribute('href', '#/anzeigen/p-11')
+})
+
+test('editing a pasted mail says the edit does not change what is found', async () => {
+  view()
+  paste(field(), PLAIN, HTML)
+  expect(screen.queryByText(/Änderungen am Text/)).not.toBeInTheDocument()
+  await userEvent.type(field(), '!')
+  expect(screen.getByText(/Änderungen am Text wirken sich nicht aus/)).toBeVisible()
+  await userEvent.clear(field())
+  expect(screen.queryByText(/Änderungen am Text/)).not.toBeInTheDocument()
 })
 
 test('two open confirmations do not share an id', async () => {

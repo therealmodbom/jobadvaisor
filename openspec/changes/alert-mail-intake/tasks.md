@@ -47,8 +47,8 @@ TDD per task: a failing test first, then the code. Fixtures are anonymized real 
   - a flagged mail is `held` and calls no model;
   - a raising classifier gives the `screening failed` error and calls no model.
 - [x] 2.5 Duplicate and login-wall marks, and the record:
-  - each entry gets `duplicate` from `duplicate_of(postings, urls=[link])` and `login_walled` from the policy pack's hosts;
-  - the preview loads the stored postings once (`intake.postings()` reads every file), not once per entry, and builds the set of their normalized URLs once, so each entry costs one lookup;
+  - each entry gets `duplicate` (the stored posting's ID and title) from an index of normalized URL to posting ID, and `login_walled` from the policy pack's hosts;
+  - the preview loads the stored postings once (`intake.postings()` reads every file), not once per entry, and builds that index once, so each entry costs one dictionary lookup;
   - each preview appends `{at, read_by, hosts, entries, held, model_skipped}` to `alert-mails.jsonl` in the state directory, ignoring a failed write.
 
   Verify with tests that a stored posting is named, that a `xing.com` link is `login_walled`, that the record holds no path, query or title, and that a preview of many entries calls `intake.postings()` once (a counting fake).
