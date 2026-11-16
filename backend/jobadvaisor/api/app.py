@@ -125,9 +125,9 @@ class AlertRunEntryBody(BaseModel):
 
     @model_validator(mode="after")
     def http_url(self) -> Self:
-        """Reject a link that is no http(s) address."""
-        if not HTTP_URL.fullmatch(self.url.strip()):
-            raise ValueError("url must be an http or https address")
+        """Reject a link that is no http(s) address on a public host."""
+        if not HTTP_URL.fullmatch(self.url.strip()) or not alert_mail.public_link(self.url.strip()):
+            raise ValueError("url must be an http or https address on a public host")
         return self
 
 

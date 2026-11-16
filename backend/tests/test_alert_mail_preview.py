@@ -7,11 +7,14 @@ from datetime import UTC, datetime
 import pytest
 from conftest import write_json
 from test_alert_mail import NoGuard, Untouchable, fixture
+from test_alert_mail_model import Broken
+from test_guard import THRESHOLDS
 from test_triage_graph import POLICY_PACK
 
 from jobadvaisor.data.models import Posting
-from jobadvaisor.intake.alert_mail import preview
+from jobadvaisor.intake.alert_mail import FinderError, preview
 from jobadvaisor.intake.postings import Intake
+from jobadvaisor.tools.guard import ContentGuard
 
 
 class CountingIntake(Intake):
@@ -66,6 +69,17 @@ def test_the_record_holds_no_path_query_or_title(intake, tmp_path):
     assert set(lines[0]) == {"at", "read_by", "hosts", "entries", "held", "model_skipped"}
     text = record.read_text()
     assert "/job/" not in text and "TOKEN" not in text and "Berater" not in text
+
+
+def test_a_failed_preview_still_writes_a_record_line(tmp_path):
+    write_json(tmp_path / "policy-pack.json", POLICY_PACK)
+    failing = CountingIntake(tmp_path, Untouchable(), ContentGuard(Broken(), THRESHOLDS))
+    object.__setattr__(failing, "stored", {})
+    record = tmp_path / "alert-mails.jsonl"
+    with pytest.raises(FinderError, match="screening failed"):
+        preview(failing, fixture("unknown-jobid.html"), "", record)
+    line = json.loads(record.read_text())
+    assert line["failed"] == "screening failed" and set(line) == {"at", "failed"}
 
 
 def test_a_failed_record_write_is_ignored(intake, tmp_path):

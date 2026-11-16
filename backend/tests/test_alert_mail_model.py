@@ -117,3 +117,21 @@ def test_failing_model_is_a_finder_error():
 
     with pytest.raises(FinderError, match="finder failed"):
         run(fixture("unknown-jobid.html"), Failing())
+
+
+JOB_LINK = ('<a href="https://jobs.example.net/de_DE/externaljobs/JobDetail?jobId=700001">'
+            "Produktmanager</a>")
+
+
+def test_model_input_holds_no_query_of_a_url_written_without_scheme():
+    html = (f"<p>{JOB_LINK}</p><p>Link kaputt? www.jobs.example.org/a?sessionToken=SECRET1</p>"
+            '<a href="https://jobs.example.org/job/9">jobs.example.org/x?sid=SECRET2</a>')
+    text, _ = model_view(read_mail(html, ""))
+    assert "SECRET" not in text and "sessionToken" not in text and "sid=" not in text
+
+
+def test_model_input_holds_no_dotted_path_token():
+    token = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dBjftJeZ4CVPmB92K27uhbUJU1p1r"
+    html = f'<a href="https://jobs.example.org/job/{token}">Produktmanager</a>'
+    text, _ = model_view(read_mail(html, ""))
+    assert "eyJ" not in text and "dBjft" not in text

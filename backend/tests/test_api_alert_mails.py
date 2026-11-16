@@ -190,6 +190,8 @@ def test_a_raw_link_is_cleaned_on_start(tmp_path, root, monkeypatch):
 
 @pytest.mark.parametrize("body", [
     {"entries": []}, {"entries": [{"url": "ftp://x.example.com/1", "title": "A"}]},
+    {"entries": [{"url": "http://127.1/job/1", "title": "A"}]},
+    {"entries": [{"url": "http://169.254.169.254/latest", "title": "A"}]},
     {"entries": [{"url": A, "title": "A"}] * 101}, {"entries": [{"url": A, "force": "yes"}]}])
 def test_a_run_rejects_invalid_entries(tmp_path, root, body):
     answer = client(tmp_path, root).post("/alert-mails/runs", json=body)

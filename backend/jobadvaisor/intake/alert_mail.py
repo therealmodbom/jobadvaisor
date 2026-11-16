@@ -5,6 +5,7 @@ by the intake model choosing link numbers. Nothing is fetched here."""
 import ipaddress
 import json
 import re
+import socket
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -101,7 +102,10 @@ DROP_PATHS = (
     "/feed", "/mynetwork", "/messaging", "/notifications", "/premium", "/widgets", "/help",
     "/hilfe", "/privacy", "/datenschutz", "/impressum", "/imprint", "/email/view", "/webversion",
     "/legal", "/terms", "/agb")
-OPAQUE_SEGMENT = re.compile(r"[A-Za-z0-9_=-]{20,}")
+OPAQUE_SEGMENT = re.compile(r"[A-Za-z0-9_=.%~-]{20,}")
+# A URL in a text: with a scheme, or without one when a path or query follows its host.
+MASKED_URL = re.compile(r"(?i)https?://[^\s<>\"')\]]+"
+                        r"|(?:www\.)?[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}[/?][^\s<>\"')\]]*")
 URL_TEXT = re.compile(r"(?i)(https?://\S+|(www\.)?[\w-]+(\.[\w-]+)*\.[a-z]{2,}(/\S*)?)")
 
 
@@ -139,7 +143,7 @@ def _career_site_key(url: str) -> str | None:
     if not CAREER_SITE_PATH.match(parts.path) or "refid" not in {
             name.lower() for name, _ in parse_qsl(parts.query, keep_blank_values=True)}:
         return None
-    return f"{parts.scheme}://{parts.netloc}{parts.path}"
+    return f"{parts.scheme}://{parts.netloc.rpartition('@')[2]}{parts.path}"
 
 
 RULES = (
@@ -240,7 +244,11 @@ def _host_path(url: str) -> str:
 
 
 def _mask_urls(text: str) -> str:
-    return TEXT_URL.sub(lambda match: _host_path(match.group(0)), text)
+    def mask(match: re.Match) -> str:
+        url = match.group(0)
+        return _host_path(url if "://" in url else "//" + url)
+
+    return MASKED_URL.sub(mask, text)
 
 
 def _model_path(items: list[str | Link], model, guard, hosts: dict[str, int]) -> Found:
@@ -295,7 +303,8 @@ def read_mail(html: str | None, text: str) -> list[str | Link]:
 
 def public_link(url: str) -> bool:
     """Whether `url` is an absolute http(s) address on a public host: not `localhost`, not a
-    single-label host, and no IP literal in a loopback, private, link-local or reserved range."""
+    single-label host, and no IP address in a loopback, private, link-local or reserved range,
+    in any form the resolver reads (`127.1`, `0x7f.0.0.1`, `0177.0.0.1`, `2130706433`)."""
     try:
         parts = urlsplit(url)
         host = (parts.hostname or "").rstrip(".").lower()
@@ -306,6 +315,10 @@ def public_link(url: str) -> bool:
     try:
         return ipaddress.ip_address(host).is_global
     except ValueError:
+        pass
+    try:
+        return ipaddress.ip_address(socket.inet_aton(host)).is_global
+    except OSError:
         return "." in host and host != "localhost" and not host.endswith(".localhost")
 
 
@@ -354,6 +367,8 @@ class _MailParser(HTMLParser):
         self._skipping = 0
 
     def handle_starttag(self, tag, attrs):
+        if tag == "body":
+            self._skipping = 0  # a head left open must not swallow the body
         if tag in SKIPPED_TAGS:
             self._skipping += 1
         if tag in BLOCK_TAGS:
@@ -402,13 +417,28 @@ class _MailParser(HTMLParser):
         return out
 
 
+def _record(record: Path, line: dict) -> None:
+    """Append `line` as JSON to `record`; a failed write is ignored (the record is a
+    convenience for #109)."""
+    try:
+        record.parent.mkdir(parents=True, exist_ok=True)
+        with record.open("a") as file:
+            file.write(json.dumps(line) + "\n")
+    except OSError:
+        pass
+
+
 def preview(intake: Intake, html: str | None, text: str, record: Path) -> dict:
     """The preview answer for a pasted mail (design.md → API, without `screening`): the
     finder's entries, each with the stored posting that has its link (`duplicate`) and whether
     its host is login-walled. The stored postings are read once. One line per preview is
-    appended to `record` (design.md → Record for #109); a failed write is ignored. Raises
-    `FinderError`."""
-    found = find_postings(html, text, model=intake.model, guard=intake.guard)
+    appended to `record` (design.md → Record for #109), a `failed` line when the finder fails;
+    a failed write is ignored. Raises `FinderError`."""
+    try:
+        found = find_postings(html, text, model=intake.model, guard=intake.guard)
+    except FinderError as error:
+        _record(record, {"at": datetime.now(UTC).isoformat(), "failed": str(error)})
+        raise
     postings = intake.postings()
     by_key = {normalize_url(url): posting_id
               for posting_id, posting in postings.items() for url in posting.urls}
@@ -424,12 +454,7 @@ def preview(intake: Intake, html: str | None, text: str, record: Path) -> dict:
     line = {"at": datetime.now(UTC).isoformat(), "read_by": found.read_by, "hosts": found.hosts,
             "entries": len(found.entries), "held": found.held,
             "model_skipped": found.model_skipped}
-    try:
-        record.parent.mkdir(parents=True, exist_ok=True)
-        with record.open("a") as file:
-            file.write(json.dumps(line) + "\n")
-    except OSError:
-        pass  # the record is a convenience for #109
+    _record(record, line)
     return {"entries": entries, "read_by": found.read_by, "unread_hosts": found.unread_hosts,
             "held": found.held, "model_skipped": found.model_skipped,
             "truncated": found.truncated}

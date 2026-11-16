@@ -10,12 +10,17 @@ LINKEDIN_JOB_PATH = re.compile(r"^(?:/comm)?/jobs/view/(?:[^/]*-)?(\d+)/?$")
 LINKEDIN_JOBS_PATH = re.compile(r"^(?:/comm)?/jobs/")
 
 
+USER_INFO = re.compile(r"^([A-Za-z][A-Za-z0-9+.-]*://)[^/?#]*@")
+
+
 def strip_query(url: str) -> str:
-    """`url` with only the query parameters whose lowercased name is in `POSTING_PARAMETERS`,
-    and its fragment only when that is a hash route (`#/…`, `#!…`) without `=`. Everything
-    else is kept byte for byte, so a clean address comes back unchanged."""
+    """`url` without user info (`user:password@`), with only the query parameters whose
+    lowercased name is in `POSTING_PARAMETERS`, and its fragment only when that is a hash route
+    (`#/…`, `#!…`) without `=`. Everything else is kept byte for byte, so a clean address comes
+    back unchanged."""
     base, has_fragment, fragment = url.partition("#")
     base, _, query = base.partition("?")
+    base = USER_INFO.sub(r"\1", base)
     kept = [pair for pair in query.split("&")
             if pair and unquote_plus(pair.split("=", 1)[0]).lower() in POSTING_PARAMETERS]
     out = base + (f"?{'&'.join(kept)}" if kept else "")
@@ -25,7 +30,8 @@ def strip_query(url: str) -> str:
 
 
 def navigation_allowed(url: str) -> bool:
-    """Whether a redirect may go to `url`: it carries nothing `strip_query` would remove."""
+    """Whether a redirect may go to `url`: it carries nothing `strip_query` would remove (no
+    user info, no personal parameter)."""
     return strip_query(url) == url
 
 

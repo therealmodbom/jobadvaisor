@@ -1,4 +1,4 @@
-import { useEffect, useState, type ClipboardEvent, type ReactNode } from 'react'
+import { useEffect, useId, useState, type ClipboardEvent, type ReactNode } from 'react'
 import { Check, CircleAlert, Clock, Copy, Info, LoaderCircle, Lock, ShieldAlert, ShieldCheck, ShieldOff } from 'lucide-react'
 import {
   api, ApiError, type AlertEntry, type AlertPreview, type AlertRunEntry, type AlertRunState, type PostingPageData,
@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils'
 import { POLL_FAILURES, POLL_MS } from '@/views/PoolView'
 
 const RUN_KEY = 'jobadvaisor.alert-run'
+const BASE_KEY = 'jobadvaisor.alert-run-base'
 
 /** The alert run's ID kept across a reload, so the view attaches to the run again. Storage may
  * be blocked, so every access is guarded. */
@@ -23,10 +24,21 @@ const storedRun = {
       return null
     }
   },
-  set: (id: string | null) => {
+  /** For a run of one stored-anyway entry: the original run and the row it replaces. */
+  getBase: (): { id: string; index: number } | null => {
+    try {
+      return JSON.parse(sessionStorage.getItem(BASE_KEY) ?? 'null')
+    } catch {
+      return null
+    }
+  },
+  /** Keeps run `id` (`null` drops it), and with `base` the original run its single row belongs to. */
+  set: (id: string | null, base?: { id: string; index: number }) => {
     try {
       if (id) sessionStorage.setItem(RUN_KEY, id)
       else sessionStorage.removeItem(RUN_KEY)
+      if (id && base) sessionStorage.setItem(BASE_KEY, JSON.stringify(base))
+      else sessionStorage.removeItem(BASE_KEY)
     } catch { /* storage blocked: a reload simply does not resume */ }
   },
 }
@@ -95,6 +107,17 @@ export function AlertMailView({ onUrl, onText, onPdf }: { onUrl: () => void; onT
   const [forced, setForced] = useState<{ index: number; base: AlertRunEntry[] } | null>(null)
 
   const running = runId !== null && (progress === null || progress.status === 'running')
+
+  useEffect(() => {
+    // After a reload: put the single row of a stored-anyway run back into its original report.
+    const base = storedRun.getBase()
+    if (!base) return
+    let stale = false
+    api<AlertRunState>(`/alert-mails/runs/${base.id}`).then((original) => {
+      if (!stale) setForced({ index: base.index, base: original.entries })
+    }, () => {})
+    return () => { stale = true }
+  }, [])
 
   useEffect(() => {
     if (!runId || !running || pollFailed) return
@@ -171,7 +194,7 @@ export function AlertMailView({ onUrl, onText, onPdf }: { onUrl: () => void; onT
     setStartError(false)
     try {
       const { run_id: id } = await api<{ run_id: string }>('/alert-mails/runs', { method: 'POST', json: { entries } })
-      storedRun.set(id)
+      storedRun.set(id, row && runId ? { id: runId, index: row.index } : undefined)
       setForced(row ?? null)
       setPollFailed(false)
       setProgress({ run_id: id, status: 'running', error: null, total: entries.length, done: 0,
@@ -254,7 +277,7 @@ export function AlertMailView({ onUrl, onText, onPdf }: { onUrl: () => void; onT
   if (answer && answer.entries.length === 0) {
     return (
       <Notice title="Keine Stellen gefunden" Icon={Info}
-              text="In dieser Mail führt kein Link zu einer Stellenanzeige, nur zu Einstellungen, Suchen oder zum Abbestellen. Prüfe, ob du die ganze Mail kopiert hast, oder füge die Anzeigen einzeln als Link oder Text ein.">
+              text="In dieser Mail wurde kein Link zu einer Stellenanzeige gefunden. Prüfe, ob du die ganze Mail kopiert hast, oder füge die Anzeigen einzeln als Link oder Text ein.">
         <div className="flex flex-wrap gap-2">
           <Button type="button" onClick={onUrl}>Link einfügen</Button>
           <Button type="button" variant="outline" onClick={onText}>Text einfügen</Button>
@@ -429,7 +452,7 @@ function PickRow({ entry, index, checked, onToggle, onText }: {
              aria-describedby={locked || entry.login_walled ? why : undefined} onChange={onToggle}
              className="mt-0.5 size-[22px] flex-none accent-primary disabled:cursor-not-allowed disabled:opacity-50" />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <label htmlFor={`alert-entry-${index}`} className="font-bold">{entry.title}</label>
+        <label htmlFor={`alert-entry-${index}`} className="font-bold">{entry.title || entry.url}</label>
         <span className="font-mono text-sm break-all text-muted-foreground">{entry.url}</span>
         {entry.duplicate && (
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
@@ -570,6 +593,7 @@ function RunRow({ entry, ended, onText, onPdf, onForce }: {
   onForce: () => void
 }) {
   const [confirming, setConfirming] = useState(false)
+  const confirmId = useId()
   const byText = entry.state === 'duplicate' && entry.duplicate_by !== 'url'
   const match = useStoredPosting(byText ? entry.posting_id : undefined)
   const postingHref = `#/anzeigen/${encodeURIComponent(entry.posting_id ?? '')}`
@@ -589,7 +613,7 @@ function RunRow({ entry, ended, onText, onPdf, onForce }: {
                                              icon={<LoaderCircle className={cn(ICON, 'motion-safe:animate-spin')} aria-hidden="true" />} />}
         {entry.state === 'waiting' && <Label tone="text-muted-foreground" text={ended ? 'nicht gestartet' : 'wartet'}
                                              icon={<Clock className={ICON} aria-hidden="true" />} />}
-        <span className="font-bold">{entry.title}</span>
+        {entry.title && <span className="font-bold">{entry.title}</span>}
         <span className="font-mono text-sm break-all text-muted-foreground">{entry.url}</span>
 
         {entry.state === 'stored' && (
@@ -614,9 +638,9 @@ function RunRow({ entry, ended, onText, onPdf, onForce }: {
               </Button>
             )}
             {ended && confirming && (
-              <div role="group" aria-labelledby="alert-confirm"
+              <div role="group" aria-labelledby={confirmId}
                    className="flex flex-col gap-2.5 rounded-[10px] border border-primary bg-positive-soft px-3.5 py-3">
-                <p id="alert-confirm">
+                <p id={confirmId}>
                   <strong>Als neue Anzeige speichern?</strong> Der Text {entry.duplicate_by === 'text' ? 'gleicht' : 'ähnelt'} {matchName}.
                   Die gespeicherte Anzeige bleibt, wie sie ist, und die Seite wird noch einmal abgerufen.
                 </p>

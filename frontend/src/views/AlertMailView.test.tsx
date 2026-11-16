@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import type { AlertEntry, AlertPreview, AlertRunState } from '@/api'
@@ -256,6 +256,7 @@ test('no posting found points to the link and text inputs', async () => {
   paste(field(), PLAIN, HTML)
   await userEvent.click(screen.getByRole('button', { name: 'Stellen finden' }))
   expect(await screen.findByRole('heading', { name: 'Keine Stellen gefunden' })).toBeVisible()
+  expect(screen.getByText(/kein Link zu einer Stellenanzeige gefunden/)).toBeVisible()
   await userEvent.click(screen.getByRole('button', { name: 'Link einfügen' }))
   await userEvent.click(screen.getByRole('button', { name: 'Text einfügen' }))
   expect(onUrl).toHaveBeenCalled()
@@ -488,6 +489,54 @@ test('confirmed, it starts a run of that entry with force and its row shows it a
   expect(within(rows[0]).getByRole('link', { name: 'Anzeige ansehen' })).toHaveAttribute('href', '#/anzeigen/p-10')
   expect(rows[1]).toHaveTextContent('Hinzugefügt')
   expect(sessionStorage.getItem(RUN_KEY)).toBe('r2')
+})
+
+test('after a reload the forced row sits in its original report again', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  const routes = {
+    ...TEXT_DUPLICATE,
+    'POST /alert-mails/runs': { status: 202, body: { run_id: 'r2' } },
+    'GET /alert-mails/runs/r2': { body: run([row(1, 'stored', { posting_id: 'p-10' })],
+                                             { run_id: 'r2', status: 'done' }) },
+  }
+  stubApi(routes)
+  const first = view()
+  await userEvent.click(await screen.findByRole('button', { name: 'Trotzdem als neue Anzeige speichern' }))
+  await userEvent.click(await screen.findByRole('button', { name: 'Ja, als neue Anzeige speichern' }))
+  await screen.findByRole('list', { name: 'Stand je Anzeige' })
+  first.unmount()
+  stubApi(routes)
+  view()
+  await waitFor(() => expect(rowsOf(screen.getByRole('list', { name: 'Stand je Anzeige' }))).toHaveLength(2))
+  const rows = rowsOf(screen.getByRole('list', { name: 'Stand je Anzeige' }))
+  expect(within(rows[0]).getByRole('link', { name: 'Anzeige ansehen' })).toHaveAttribute('href', '#/anzeigen/p-10')
+  expect(rows[1]).toHaveTextContent('Hinzugefügt')
+})
+
+test('two open confirmations do not share an id', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({
+    'GET /postings/p-9': { body: { posting: { title: 'Lead Engineer Video', company: 'Musterdienst GmbH' } } },
+    'GET /alert-mails/runs/r1': { body: run([
+      row(1, 'duplicate', { posting_id: 'p-9', duplicate_by: 'text' }),
+      row(2, 'duplicate', { posting_id: 'p-9', duplicate_by: 'text' }),
+    ], { status: 'done' }) },
+  })
+  view()
+  for (const button of await screen.findAllByRole('button', { name: 'Trotzdem als neue Anzeige speichern' })) {
+    await userEvent.click(button)
+  }
+  const ids = screen.getAllByRole('group', { name: /Als neue Anzeige speichern\?/ })
+    .map((group) => group.getAttribute('aria-labelledby'))
+  expect(new Set(ids).size).toBe(2)
+})
+
+test('an entry without a title shows its link as the name', async () => {
+  stubApi(found([entry(1, { title: '' })]))
+  view()
+  await findStellen()
+  expect(screen.getByRole('checkbox', { name: entry(1).url })).toBeVisible()
 })
 
 test('the store-anyway action waits while the run still computes', async () => {

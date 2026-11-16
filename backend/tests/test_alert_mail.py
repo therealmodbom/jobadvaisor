@@ -99,6 +99,26 @@ def test_only_public_absolute_http_links_are_kept():
     assert [link.url for link in links(read_mail(html, ""))] == ["https://jobs.example.com/job/7"]
 
 
+@pytest.mark.parametrize("url", ["http://127.1/job/1", "http://0x7f.0.0.1/job/1",
+                                 "http://2130706433/job/1", "http://0177.0.0.1/job/1"])
+def test_short_and_encoded_ip_forms_are_not_public(url):
+    assert links(read_mail(f'<a href="{url}">Job</a>', "")) == []
+
+
+def test_a_head_without_end_tag_does_not_swallow_the_body():
+    html = ('<html><head><meta charset=utf-8><body><a href="https://www.linkedin.com/comm/jobs/'
+            'view/4100000123?trk=x">Senior Dev</a>')
+    found = find_postings(html, "", model=Untouchable(), guard=NoGuard())
+    assert [(e.url, e.title) for e in found.entries] == [
+        ("https://www.linkedin.com/jobs/view/4100000123", "Senior Dev")]
+
+
+def test_user_info_is_removed_from_a_cleaned_career_site_link():
+    html = '<a href="https://u:SECRET@careers.example.com/job/x/123?refid=1">Developer</a>'
+    found = find_postings(html, "", model=Untouchable(), guard=NoGuard())
+    assert [e.url for e in found.entries] == ["https://careers.example.com/job/x/123"]
+
+
 @pytest.mark.parametrize("name", RULE_CASES)
 def test_rule_fixture_gives_its_expected_entries(name):
     found = find(name)
