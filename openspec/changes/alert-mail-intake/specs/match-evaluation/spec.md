@@ -12,17 +12,17 @@ Every LLM-backed behavior in this capability set — feature extraction, scoring
 ## ADDED Requirements
 
 ### Requirement: Alert mail finder eval data
-The harness SHALL measure the alert-mail finder on anonymized real alert mails, as pasted HTML and as plain text. Every personal or search-specific value in them SHALL be replaced, and tokens SHALL be replaced by invalid ones.
+The harness SHALL test and measure the alert-mail finder on anonymized real alert mails, as pasted HTML and as plain text. Every personal or search-specific value in them SHALL be replaced, and tokens SHALL be replaced by invalid ones.
 
 #### Scenario: Anonymized data
-- **WHEN** the finder eval's data is committed
-- **THEN** it holds no recipient name, e-mail address, search term or token value, and every token is an invalid placeholder
+- **WHEN** the finder's fixture mails are committed
+- **THEN** they hold no recipient name, e-mail address, search term or token value, and every token is an invalid placeholder
 
-### Requirement: Alert mail finder eval coverage
-The finder eval's data SHALL include mails with footer and unsubscribe links, and a mail with an instruction addressed to an AI system.
+### Requirement: Alert mail finder fixture coverage
+The finder's fixture mails SHALL include mails with footer and unsubscribe links, which the rules' regression test checks, and a mail with an instruction addressed to an AI system, which the finder eval measures.
 
 #### Scenario: Coverage
-- **WHEN** the finder eval's cases are listed
+- **WHEN** the finder's fixture mails are listed
 - **THEN** they include a mail whose links all lead to footer, settings or unsubscribe pages, and a mail with an instruction addressed to an AI system
 
 ### Requirement: Alert mail finder eval metrics
