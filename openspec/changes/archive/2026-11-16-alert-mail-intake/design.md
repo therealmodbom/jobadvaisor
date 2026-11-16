@@ -34,7 +34,7 @@ Sample mails show where the titles sit:
 
 ## Decisions
 
-[ADR 0011](../../../docs/decisions/0011-alert-mails-read-by-link-rules-and-a-model-that-picks-link-numbers.md) records the finder's approach, and [ADR 0012](../../../docs/decisions/0012-links-from-a-mail-cleaned-by-an-allow-list.md) the link cleaning, each with the rejected alternatives. The decisions below say how they are built.
+[ADR 0011](../../../../docs/decisions/0011-alert-mails-read-by-link-rules-and-a-model-that-picks-link-numbers.md) records the finder's approach, and [ADR 0012](../../../../docs/decisions/0012-links-from-a-mail-cleaned-by-an-allow-list.md) the link cleaning, each with the rejected alternatives. The decisions below say how they are built.
 
 **Paste.** The alert-mail input is a `<textarea>` whose `onPaste` reads `clipboardData.getData('text/html')` and `getData('text/plain')`. It shows the plain text and keeps the HTML in component state.
 
