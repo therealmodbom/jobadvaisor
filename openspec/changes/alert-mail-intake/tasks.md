@@ -20,7 +20,7 @@ TDD per task: a failing test first, then the code. Fixtures are anonymized real 
   - only absolute http(s) links on public hosts are kept.
 
   Verify with tests on the LinkedIn fixture (three links per job, in order) and the plain-text fixture, and with links to `mailto:`, `javascript:`, a relative path, `localhost`, `192.168.1.10`, `10.0.0.1`, `[::1]` and a single-label host, none of them kept.
-- [ ] 2.2 `clean_link`, `strip_query` and `navigation_allowed`: `clean_link` gives the rule's canonical URL, or `strip_query` (the allow-listed query parameters plus a hash route without `=`). `navigation_allowed` holds when `strip_query` leaves the address unchanged, for rule and other addresses alike. Verify with tests for:
+- [x] 2.2 `clean_link`, `strip_query` and `navigation_allowed`: `clean_link` gives the rule's canonical URL, or `strip_query` (the allow-listed query parameters plus a hash route without `=`). `navigation_allowed` holds when `strip_query` leaves the address unchanged, for rule and other addresses alike. Verify with tests for:
   - a LinkedIn `/comm/` link with `otpToken`;
   - a Bundesagentur link with search parameters;
   - a career-site link with `refid` and `eid`;

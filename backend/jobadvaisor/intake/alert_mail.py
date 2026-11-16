@@ -4,10 +4,15 @@ by the intake model choosing link numbers. Nothing is fetched here."""
 
 import ipaddress
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from html.parser import HTMLParser
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlsplit
 
+from jobadvaisor.intake.bundesagentur import reference_number
+from jobadvaisor.intake.links import linkedin_job_id, strip_query
+
+CAREER_SITE_PATH = re.compile(r"^/job/[^/]+/\d+(?:-[a-z]{2}_[A-Z]{2})?/?$")
 BLOCK_TAGS = {"p", "div", "li", "ul", "ol", "br", "tr", "td", "th", "table", "section", "article",
               "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "pre", "center"}
 SKIPPED_TAGS = {"script", "style", "head", "title", "template", "noscript"}
@@ -22,6 +27,51 @@ class Link:
     url: str
     text: str
     image_only: bool
+
+
+@dataclass(frozen=True)
+class Rule:
+    """A fixed link rule: `match` gives a link's posting key or `None`, `canonical` the posting's
+    URL for a key."""
+
+    name: str
+    match: Callable[[str], str | None]
+    canonical: Callable[[str], str]
+
+
+def _career_site_key(url: str) -> str | None:
+    parts = urlsplit(url)
+    if not CAREER_SITE_PATH.match(parts.path) or "refid" not in {
+            name.lower() for name, _ in parse_qsl(parts.query, keep_blank_values=True)}:
+        return None
+    return f"{parts.scheme}://{parts.netloc}{parts.path}"
+
+
+RULES = (
+    Rule("linkedin", linkedin_job_id, lambda key: f"https://www.linkedin.com/jobs/view/{key}"),
+    Rule("bundesagentur", reference_number,
+         lambda key: f"https://www.arbeitsagentur.de/jobsuche/jobdetail/{key}"),
+    Rule("career_site", _career_site_key, lambda key: key),
+)
+
+
+def rule_for(url: str) -> tuple[Rule, str] | None:
+    """The first rule that reads `url`, with the posting key it gives, or `None`."""
+    for rule in RULES:
+        try:
+            key = rule.match(url)
+        except ValueError:
+            key = None
+        if key:
+            return rule, key
+    return None
+
+
+def clean_link(url: str) -> str:
+    """`url` without personal parameters: a rule's canonical URL when a rule reads it, else
+    `strip_query(url)`."""
+    found = rule_for(url)
+    return found[0].canonical(found[1]) if found else strip_query(url)
 
 
 def read_mail(html: str | None, text: str) -> list[str | Link]:
