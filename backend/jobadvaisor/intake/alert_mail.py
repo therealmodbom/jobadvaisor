@@ -3,17 +3,23 @@ job alert mail lists, as title and cleaned link, read by fixed link rules or, fo
 by the intake model choosing link numbers. Nothing is fetched here."""
 
 import ipaddress
+import json
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from html.parser import HTMLParser
+from pathlib import Path
 from urllib.parse import parse_qsl, unquote, urlsplit
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
 from jobadvaisor.intake.bundesagentur import reference_number
+from jobadvaisor.intake.duplicates import normalize_url
+from jobadvaisor.intake.ladder import is_login_walled, login_wall_hosts
 from jobadvaisor.intake.links import linkedin_job_id, strip_query
+from jobadvaisor.intake.postings import Intake, read_policy_pack
 from jobadvaisor.tools.prompts import DATA_RULE, data_block
 
 MAX_MODEL_TEXT = 30_000
@@ -394,3 +400,36 @@ class _MailParser(HTMLParser):
             elif _clean(item):
                 out.append(_clean(item))
         return out
+
+
+def preview(intake: Intake, html: str | None, text: str, record: Path) -> dict:
+    """The preview answer for a pasted mail (design.md → API, without `screening`): the
+    finder's entries, each with the stored posting that has its link (`duplicate`) and whether
+    its host is login-walled. The stored postings are read once. One line per preview is
+    appended to `record` (design.md → Record for #109); a failed write is ignored. Raises
+    `FinderError`."""
+    found = find_postings(html, text, model=intake.model, guard=intake.guard)
+    postings = intake.postings()
+    by_key = {normalize_url(url): posting_id
+              for posting_id, posting in postings.items() for url in posting.urls}
+    walled = login_wall_hosts(read_policy_pack(intake.root))
+    entries = []
+    for entry in found.entries:
+        posting_id = by_key.get(normalize_url(entry.url))
+        entries.append({
+            "url": entry.url, "title": entry.title, "ambiguous": entry.ambiguous,
+            "duplicate": {"posting_id": posting_id, "title": postings[posting_id].title}
+            if posting_id else None,
+            "login_walled": is_login_walled(entry.url, walled)})
+    line = {"at": datetime.now(UTC).isoformat(), "read_by": found.read_by, "hosts": found.hosts,
+            "entries": len(found.entries), "held": found.held,
+            "model_skipped": found.model_skipped}
+    try:
+        record.parent.mkdir(parents=True, exist_ok=True)
+        with record.open("a") as file:
+            file.write(json.dumps(line) + "\n")
+    except OSError:
+        pass  # the record is a convenience for #109
+    return {"entries": entries, "read_by": found.read_by, "unread_hosts": found.unread_hosts,
+            "held": found.held, "model_skipped": found.model_skipped,
+            "truncated": found.truncated}

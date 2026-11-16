@@ -46,7 +46,7 @@ TDD per task: a failing test first, then the code. Fixtures are anonymized real 
   - two different titles behind one cleaned click-redirect address give two `ambiguous` entries, and one title behind two links gives one entry;
   - a flagged mail is `held` and calls no model;
   - a raising classifier gives the `screening failed` error and calls no model.
-- [ ] 2.5 Duplicate and login-wall marks, and the record:
+- [x] 2.5 Duplicate and login-wall marks, and the record:
   - each entry gets `duplicate` from `duplicate_of(postings, urls=[link])` and `login_walled` from the policy pack's hosts;
   - the preview loads the stored postings once (`intake.postings()` reads every file), not once per entry, and builds the set of their normalized URLs once, so each entry costs one lookup;
   - each preview appends `{at, read_by, hosts, entries, held, model_skipped}` to `alert-mails.jsonl` in the state directory, ignoring a failed write.
