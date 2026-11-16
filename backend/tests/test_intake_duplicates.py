@@ -21,7 +21,14 @@ from jobadvaisor.intake.duplicates import (
     shingles,
     text_hash,
 )
-from jobadvaisor.intake.postings import Intake, Submission, add_submission, posting_urls
+from jobadvaisor.intake.fetch import fetch_plain
+from jobadvaisor.intake.postings import (
+    Intake,
+    Submission,
+    add_from_url,
+    add_submission,
+    posting_urls,
+)
 from jobadvaisor.tools.guard import ContentGuard
 from jobadvaisor.triage.runs import Runs
 
@@ -138,6 +145,60 @@ def test_identity_bearing_query_parameters_are_kept():
 def test_job_board_detail_urls_normalize_to_their_reference_number():
     assert normalize_url("https://www.arbeitsagentur.de/jobsuche/jobdetail/12-3-S?pos=4") == \
         normalize_url("https://arbeitsagentur.de/jobsuche/jobdetail/12-3-S")
+
+
+STORED_LINKEDIN = "https://www.linkedin.com/jobs/view/4100000101"
+
+
+@pytest.mark.parametrize("form", [
+    "https://www.linkedin.com/jobs/view/4100000101/",
+    "https://www.linkedin.com/comm/jobs/view/4100000101/?trackingId=TOKEN-1&otpToken=TOKEN-2",
+    "https://de.linkedin.com/jobs/view/leitung-softwareplattform-at-nordlicht-4100000101",
+    "https://www.linkedin.com/jobs/search/?currentJobId=4100000101&keywords=TOKEN-3",
+])
+def test_linkedin_job_forms_normalize_to_the_job_id(form):
+    assert normalize_url(form) == normalize_url(STORED_LINKEDIN) == "linkedin:4100000101"
+
+
+def test_linkedin_company_page_keeps_its_old_key():
+    assert normalize_url("https://www.linkedin.com/company/example-group/") == \
+        "linkedin.com/company/example-group"
+
+
+@pytest.fixture
+def intake(tmp_path):
+    (tmp_path / "postings").mkdir()
+    write_json(tmp_path / "profile.json", {"schema_version": "1", "summary": "Developer"})
+    write_json(tmp_path / "policy-pack.json", POLICY_PACK)
+    return Intake(tmp_path, FakeStructuredModel(*[FIELDS] * 4), ContentGuard(None, {}))
+
+
+def test_a_text_duplicate_is_stored_on_request(intake):
+    first, _, _ = add_submission(intake, Submission(TEXT, "url", ["https://a.example/job/1"]))
+    again = Submission(TEXT, "url", ["https://b.example/job/2"])
+    assert add_submission(intake, again)[0::2] == (first, "text")
+    second, _, duplicate = add_submission(intake, again, allow_text_duplicate=True)
+    assert duplicate is None and second != first and len(stored(intake.root)) == 2
+
+
+def test_a_url_duplicate_is_never_stored_on_request(intake):
+    first, _, _ = add_submission(intake, Submission(TEXT, "url", ["https://a.example/job/1"]))
+    again = Submission(OTHER, "url", ["https://a.example/job/1?utm_source=x"])
+    assert add_submission(intake, again, allow_text_duplicate=True)[0::2] == (first, "url")
+    assert len(stored(intake.root)) == 1
+
+
+def test_add_from_url_passes_the_request_on(intake, site):
+    page = f"{site}/static.html"
+    first, _, _ = add_submission(intake, Submission(fetch_plain(page).text, "text"))
+    assert add_from_url(intake, page)[0::2] == (first, "text")
+    new, _, duplicate, _ = add_from_url(intake, page, allow_text_duplicate=True)
+    assert duplicate is None and new != first
+
+
+def test_another_linkedin_form_of_the_job_is_not_stored_twice():
+    submitted = "https://www.linkedin.com/comm/jobs/view/4100000101/?otpToken=TOKEN-2"
+    assert posting_urls(submitted, STORED_LINKEDIN) == [submitted]
 
 
 def test_text_hash_ignores_case_and_whitespace():

@@ -1,0 +1,20 @@
+title = "JobAdvAIsor gitleaks config"
+
+# The default rules stay on. Two kinds of value in the tests and fixtures are secret-shaped by
+# design and are not secrets:
+# - `TOKEN-<n>` replaces every token value in the anonymized alert-mail fixtures
+#   (fixtures/intake/alert-mails/), at the real parameter positions. The generic-api-key rule
+#   reads the word "token" and the text after it as a key.
+# - the JWT of jwt.io's documentation example, which a test feeds to the link cleaner to check
+#   that a dotted token in a URL path never reaches a model.
+# The allowlist works on the matched text, not on paths, so a real secret in a fixture still fails.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Placeholder tokens of the anonymized fixtures and a documentation JWT"
+regexTarget = "match"
+regexes = [
+  '''TOKEN-\d+''',
+  '''eyJhbGciOiJIUzI1NiJ9\.eyJzdWIiOiIxMjM0NTY3ODkwIn0\.dBjftJeZ4CVPmB92K27uhbUJU1p1r''',
+]

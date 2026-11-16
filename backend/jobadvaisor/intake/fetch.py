@@ -3,11 +3,21 @@ schema.org `JobPosting` JSON-LD, and Playwright Chromium for script-rendered pag
 
 import json
 import re
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from urllib.parse import urldefrag, urljoin, urlsplit
 
 import httpx
+
+from jobadvaisor.intake.links import navigation_allowed, public_link
+
+# The cleaned link of the alert-mail entry being added (`design.md` → Cleaning): a fetch that
+# starts at it checks every redirect hop with `navigation_allowed` before requesting it.
+guarded_link: ContextVar[str | None] = ContextVar("guarded_link", default=None)
+REFUSED_REDIRECT = "redirect with personal parameters"
+REFUSED_HOST = "redirect to a non-public address"
+MAX_REDIRECTS = 10
 
 MIN_PAGE_TEXT = 600  # characters; less is a teaser, a portal entry, a cookie wall or a challenge
 USER_AGENT = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 "
@@ -60,10 +70,36 @@ def fetch_rendered(url: str) -> Page:
 
 def download_plain(url: str, http: httpx.Client | None = None) -> tuple[str, str]:
     """The address after redirects and the HTML of `url` over HTTP, retrying once after a
-    transport error or a 429/5xx answer. Raises `FetchError` naming the failure."""
+    transport error or a 429/5xx answer. While `guarded_link` is `url`, a redirect hop that
+    fails `navigation_allowed` is not sent (`FetchError(REFUSED_REDIRECT)`). Raises `FetchError`
+    naming the failure."""
     require_http(url)
     http = http or httpx.Client(timeout=TIMEOUT_SECONDS, follow_redirects=True,
                                 headers={"User-Agent": USER_AGENT})
+    if guarded_link.get() != url:
+        return _download_plain(url, http)
+    hooks = http.event_hooks
+    http.event_hooks = {**hooks, "request": [*hooks.get("request", []), _check_hop]}
+    try:
+        return _download_plain(url, http)
+    finally:
+        http.event_hooks = hooks
+
+
+def _refusal(url: str) -> str | None:
+    """Why a hop to `url` must not be sent (`REFUSED_HOST`, `REFUSED_REDIRECT`), or `None`. The
+    guarded start link itself is exempt from the host rule: the API checked it already."""
+    if url != guarded_link.get() and not public_link(url):
+        return REFUSED_HOST
+    return None if navigation_allowed(url) else REFUSED_REDIRECT
+
+
+def _check_hop(request: httpx.Request) -> None:
+    if reason := _refusal(str(request.url)):
+        raise FetchError(reason)
+
+
+def _download_plain(url: str, http: httpx.Client) -> tuple[str, str]:
     for attempt in (1, 2):
         try:
             response = http.get(url)
@@ -85,17 +121,63 @@ def download_plain(url: str, http: httpx.Client | None = None) -> tuple[str, str
 
 def download_rendered(url: str) -> tuple[str, str]:
     """The address after redirects and the HTML of `url` rendered in headless Chromium until
-    the network is idle. Raises `FetchError` naming the failure."""
+    the network is idle. While `guarded_link` is `url`, a main-frame navigation that fails
+    `_refusal` is aborted before it is sent (`FetchError(REFUSED_REDIRECT)` or `REFUSED_HOST`).
+    Raises `FetchError` naming the failure."""
     require_http(url)
     from playwright.sync_api import Error, sync_playwright
+
+    refused, hops = [], []
+
+    def check(route):
+        """Chromium follows a server redirect without routing its target, so a main-frame
+        navigation is fetched without redirects here: a refused target is never sent, and a
+        clean one ends this navigation and is opened as a new one (`hops`), routed in turn."""
+        request = route.request
+        if not request.is_navigation_request() or request.frame.parent_frame is not None:
+            route.continue_()
+            return
+        if reason := _refusal(request.url):
+            refused.append(reason)
+            route.abort()
+            return
+        response = route.fetch(max_redirects=0)
+        location = response.headers.get("location")
+        if not (300 <= response.status < 400 and location):
+            route.fulfill(response=response)
+            return
+        target = urljoin(request.url, location)
+        if reason := _refusal(target):
+            refused.append(reason)
+            route.abort()
+            return
+        hops.append(target)
+        route.fulfill(status=200, content_type="text/html", body="")  # ends this navigation
 
     try:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch()
             try:
                 tab = browser.new_page(user_agent=USER_AGENT)
-                response = tab.goto(url, wait_until="networkidle",
-                                    timeout=TIMEOUT_SECONDS * 1000)
+                if guarded_link.get() == url:
+                    tab.route("**/*", check)
+                target = url
+                for _ in range(MAX_REDIRECTS + 1):
+                    hops.clear()
+                    try:
+                        response = tab.goto(target, wait_until="networkidle",
+                                            timeout=TIMEOUT_SECONDS * 1000)
+                    except Error:
+                        if refused:
+                            raise FetchError(refused[0]) from None
+                        raise
+                    if not hops:
+                        break
+                    target = hops[0]
+                else:
+                    raise FetchError("too many redirects")
+                if refused:
+                    raise FetchError(refused[0])
                 if response is not None and response.status >= 400:
                     raise FetchError(f"HTTP {response.status}")
                 html, final_url = tab.content(), tab.url

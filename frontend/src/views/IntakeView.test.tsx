@@ -1,9 +1,10 @@
-import { render, screen, within } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { axe } from '@/test-axe'
 import { pending, stubApi } from '@/test-api'
 import { IntakeView } from './IntakeView'
+import { POLL_MS } from './PoolView'
 
 const URL = 'https://jobs.example.com/postings/48213'
 const HOSTS = { 'GET /policy-pack/login-wall-hosts': { body: { hosts: ['linkedin.com', 'xing.com'] } } }
@@ -22,8 +23,13 @@ async function submitUrl() {
   await userEvent.click(screen.getByRole('button', { name: 'Hinzufügen' }))
 }
 
+beforeEach(() => {
+  sessionStorage.clear()
+})
+
 afterEach(() => {
   vi.unstubAllGlobals()
+  vi.useRealTimers()
 })
 
 test('the link source is named for one or several links', () => {
@@ -188,6 +194,66 @@ test('the batch results have no accessibility violations', async () => {
   await submitLines(URL, URL_B, URL_C)
   await screen.findByRole('list', { name: 'Ergebnis je Link' })
   expect(await axe(container)).toHaveNoViolations()
+})
+
+const RUN_KEY = 'jobadvaisor.alert-run'
+const RUN_ROW = { url: 'https://www.linkedin.com/jobs/view/4100000101', title: 'Stelle 1' }
+const alertRun = (state: string, status: string) => ({ run_id: 'r1', status, error: null, total: 1,
+  done: state === 'running' ? 0 : 1, entries: [{ ...RUN_ROW, state }] })
+
+test('the alert-mail source shows the paste field and hides the link form', async () => {
+  stubApi(HOSTS)
+  render(<IntakeView />)
+  await userEvent.click(screen.getByRole('button', { name: 'Alert-Mail' }))
+  expect(screen.getByRole('button', { name: 'Alert-Mail' })).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.getByRole('button', { name: 'Link(s)' })).toHaveAttribute('aria-pressed', 'false')
+  expect(screen.getByLabelText('Alert-Mail', { selector: 'textarea' })).toBeVisible()
+  expect(screen.queryByLabelText('Link zur Anzeige')).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Hinzufügen' })).not.toBeInTheDocument()
+})
+
+test('the alert-mail field stays hidden while another source shows', () => {
+  stubApi(HOSTS)
+  render(<IntakeView />)
+  expect(screen.getByLabelText('Alert-Mail', { selector: 'textarea' })).not.toBeVisible()
+  expect(screen.getByLabelText('Link zur Anzeige')).toBeVisible()
+})
+
+test('the text button of a failed alert entry switches to the text source', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ ...HOSTS, 'GET /alert-mails/runs/r1': { body: alertRun('failed', 'done') } })
+  render(<IntakeView />)
+  await userEvent.click(screen.getByRole('button', { name: 'Alert-Mail' }))
+  const run = await screen.findByRole('list', { name: 'Stand je Anzeige' })
+  await userEvent.click(within(run).getByRole('button', { name: 'Text einfügen' }))
+  expect(screen.getAllByRole('button', { name: 'Text einfügen' })[0]).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.getByLabelText('Anzeigentext')).toBeVisible()
+})
+
+test('the PDF button of a failed alert entry switches to the PDF source', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ ...HOSTS, 'GET /alert-mails/runs/r1': { body: alertRun('failed', 'done') } })
+  render(<IntakeView />)
+  await userEvent.click(screen.getByRole('button', { name: 'Alert-Mail' }))
+  await userEvent.click(await screen.findByRole('button', { name: 'PDF hochladen' }))
+  expect(screen.getByRole('button', { name: 'PDF' })).toHaveAttribute('aria-pressed', 'true')
+})
+
+test('switching the source away and back keeps a running alert run polling', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  let reads = 0
+  stubApi({ ...HOSTS, 'GET /alert-mails/runs/r1': () => ({ body: alertRun('running', 'running'), n: ++reads }) })
+  render(<IntakeView />)
+  await userEvent.click(screen.getByRole('button', { name: 'Alert-Mail' }), { advanceTimers: vi.advanceTimersByTime })
+  await screen.findByRole('list', { name: 'Stand je Anzeige' })
+  await userEvent.click(screen.getByRole('button', { name: 'Link(s)' }), { advanceTimers: vi.advanceTimersByTime })
+  const before = reads
+  await act(() => vi.advanceTimersByTimeAsync(POLL_MS * 2))
+  expect(reads).toBeGreaterThan(before)
+  await userEvent.click(screen.getByRole('button', { name: 'Alert-Mail' }), { advanceTimers: vi.advanceTimersByTime })
+  expect(screen.getByRole('list', { name: 'Stand je Anzeige' })).toBeVisible()
+  vi.useRealTimers()
 })
 
 test('the intake view has no accessibility violations', async () => {

@@ -1,0 +1,70 @@
+Guten Tag,
+
+zu Ihrer gespeicherten Stellensuche "Beispielsuche in 12345 Musterstadt" liegen 3 neue Treffer vor:
+
+
+Assistenz der Bereichsleitung (m/w/d)
+Beispiel-Institut für Automatisierung
+Musterstadt (5 km)
+Teilzeit
+Befristet für 24 Monate
+
+
+ab 15.01.2027
+
+Homeoffice (bis zu 20 %)
+
+https://www.arbeitsagentur.de/jobsuche/jobdetail/10000-1000000001-S
+
+Teamassistenz (m/w/d), Teilzeit (bis zu 20 h)
+Beispiel-Institut für Automatisierung
+Musterstadt (5 km)
+Teilzeit
+Befristet für 11 Monate
+
+
+
+
+Homeoffice möglich
+
+https://www.arbeitsagentur.de/jobsuche/jobdetail/10000-1000000002-S
+
+Senior Data Scientist (m/w/d)
+Musterdienst GmbH
+Musterstadt (2 km)
+Vollzeit
+Unbefristet
+
+
+
+
+Homeoffice möglich
+
+https://www.arbeitsagentur.de/jobsuche/jobdetail/10000-1000000003-S
+
+
+Alle aktuellen Stellenangebote zu Ihrer Stellensuche: https://www.arbeitsagentur.de/jobsuche/suche?angebotsart=TOKEN-1&was=TOKEN-2&wo=TOKEN-3&umkreis=TOKEN-4&arbeitszeit=TOKEN-5
+Ihre gespeicherten Suchen verwalten: https://www.arbeitsagentur.de/jobsuche/pd/profil/suchen
+
+
+Hinweis: Dies ist eine maschinell erzeugte E-Mail – bitte antworten Sie nicht an diese E-Mail-Adresse.
+
+Diese E-Mail bietet Ihnen eine Übersicht aller neuen Stellenangebote zu Ihrer gespeicherten Stellensuche.
+Sie können die Häufigkeit des Versands (täglich oder wöchentlich) in Ihrem Profil jederzeit ändern.
+
+Benachrichtigungen zu dieser Stellensuche abbestellen: https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/ct/v1/suchauftrag/abbestellen?token=TOKEN-6
+
+Impressum:
+Bundesagentur für Arbeit
+Rechtsform: Bundesunmittelbare Körperschaft des öffentlichen Rechts mit Selbstverwaltung
+
+vertreten durch den Vorstand, dieser durch seine Vorsitzende
+
+Andrea Nahles
+
+Regensburger Straße 104
+90478 Nürnberg
+Telefon: 0800 4 555500 (gebührenfrei)
+https://www.arbeitsagentur.de
+
+Umsatzsteueridentifikationsnummer DE811458858
