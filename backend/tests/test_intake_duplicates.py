@@ -140,6 +140,29 @@ def test_job_board_detail_urls_normalize_to_their_reference_number():
         normalize_url("https://arbeitsagentur.de/jobsuche/jobdetail/12-3-S")
 
 
+STORED_LINKEDIN = "https://www.linkedin.com/jobs/view/4100000101"
+
+
+@pytest.mark.parametrize("form", [
+    "https://www.linkedin.com/jobs/view/4100000101/",
+    "https://www.linkedin.com/comm/jobs/view/4100000101/?trackingId=TOKEN-1&otpToken=TOKEN-2",
+    "https://de.linkedin.com/jobs/view/leitung-softwareplattform-at-nordlicht-4100000101",
+    "https://www.linkedin.com/jobs/search/?currentJobId=4100000101&keywords=TOKEN-3",
+])
+def test_linkedin_job_forms_normalize_to_the_job_id(form):
+    assert normalize_url(form) == normalize_url(STORED_LINKEDIN) == "linkedin:4100000101"
+
+
+def test_linkedin_company_page_keeps_its_old_key():
+    assert normalize_url("https://www.linkedin.com/company/example-group/") == \
+        "linkedin.com/company/example-group"
+
+
+def test_another_linkedin_form_of_the_job_is_not_stored_twice():
+    submitted = "https://www.linkedin.com/comm/jobs/view/4100000101/?otpToken=TOKEN-2"
+    assert posting_urls(submitted, STORED_LINKEDIN) == [submitted]
+
+
 def test_text_hash_ignores_case_and_whitespace():
     assert text_hash("Go  services\n\nBremen ") == text_hash("go services bremen")
     assert text_hash("Go services") != text_hash("Rust services")

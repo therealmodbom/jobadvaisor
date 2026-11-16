@@ -8,6 +8,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from jobadvaisor.data.models import Posting
 from jobadvaisor.intake.bundesagentur import reference_number
+from jobadvaisor.intake.links import linkedin_job_id
 
 SHINGLE_WORDS = 5
 CONTAINMENT_THRESHOLD = 0.8  # demo persona: distinct postings reach 0.758, see `design.md`
@@ -22,10 +23,12 @@ Reason = Literal["url", "text", "similar_text"]
 def normalize_url(url: str) -> str:
     """A comparison key for `url`: scheme and host lower-cased, `www.` dropped, no trailing
     slash, tracking parameters removed and the rest sorted, a fragment kept only as a hash
-    route (`#/…`, `#!…`). A job-board detail URL becomes its reference number, since its other
-    parameters only describe the search."""
+    route (`#/…`, `#!…`). A job-board detail URL becomes its reference number, and a LinkedIn
+    job page in any of its forms its job ID, since their other parts only track the reader."""
     if number := reference_number(url):
         return f"arbeitsagentur:{number}"
+    if job_id := linkedin_job_id(url):
+        return f"linkedin:{job_id}"
     parts = urlsplit(url.strip())
     host = (parts.hostname or "").removeprefix("www.")
     query = sorted((name, value) for name, value in parse_qsl(parts.query)
