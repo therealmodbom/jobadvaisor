@@ -71,6 +71,25 @@ While the chosen entries are added, the view SHALL show for each entry whether i
 - **WHEN** the user switches to the link source during a run, comes back, and then reloads the page
 - **THEN** the view still shows the run's progress, or its report once the run ended
 
+### Requirement: Alert mail duplicate by text
+An entry the run reports as a duplicate by link SHALL show the stored posting with a link to it, and offer no way to store it again. An entry reported as a duplicate by text SHALL show the stored posting it matches and offer "Trotzdem als neue Anzeige speichern", which SHALL ask for confirmation, naming that posting, before it stores anything.
+
+#### Scenario: Duplicate by text
+- **WHEN** the run reports an entry as a duplicate by text
+- **THEN** the view shows the matching stored posting with a link, and offers to store the entry anyway
+
+#### Scenario: Confirmed
+- **WHEN** the user chooses to store it anyway and confirms
+- **THEN** the entry is added as a new posting, and its row shows it as stored
+
+#### Scenario: Not confirmed
+- **WHEN** the user chooses to store it anyway and cancels the confirmation
+- **THEN** nothing is stored, and the row still shows the duplicate
+
+#### Scenario: Duplicate by link
+- **WHEN** the run reports an entry as a duplicate by link
+- **THEN** the row shows the stored posting with a link and offers no way to store it again
+
 ### Requirement: Alert mail run refused or lost
 When a run is refused because another one computes, the view SHALL show that run's progress. When the server no longer knows a run, because it restarted, the view SHALL say so and offer to start over.
 

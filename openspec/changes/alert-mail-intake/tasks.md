@@ -57,12 +57,19 @@ TDD per task: a failing test first, then the code. Fixtures are anonymized real 
   - a rendered test against a local server (the eval's `serve_pages` pattern): a 302 to a tokenised local address raises, and the server's log shows the target was never requested;
   - a test that a fetch of another URL while the guard is set, and any fetch without the guard, follows redirects as today.
 
+- [ ] 3.3 `allow_text_duplicate` (default `False`) on `add_from_url` and `add_submission`: when set, the `text` and `similar_text` match is skipped, before and under the lock, and the URL match stays. Verify with tests that:
+  - a stored posting with the same text under another link is returned as a duplicate by default, and a second posting is stored with the flag;
+  - a stored posting with the same link is returned as a duplicate by `url` with the flag too;
+  - the default behavior of every other caller is unchanged.
+
 ## 4. Background run (`intake/alert_runs.py`)
 
 - [ ] 4.1 `AlertRuns` (`start`, `read`, `AlertRunBusyError` with the computing run's ID), built like `Imports`: per-entry state `waiting → running → stored | duplicate | failed`, with attempts or a reason, `guarded_link` set around each entry, and one entry's error never stops the run. Verify with tests using fake fetchers:
   - the guard holds the entry's link while it runs and is cleared after;
   - three entries where the second fails;
-  - an entry stored meanwhile reported as a duplicate;
+  - an entry stored meanwhile reported as a duplicate, with `duplicate_by` `url`;
+  - an entry whose page text matches a stored posting reported as a duplicate with `duplicate_by` `text`, and stored as a new posting when its request entry has `force`;
+  - an entry with `force` whose link is stored still reported as a duplicate by `url`;
   - a second start refused while the first computes (a test holding the first entry), naming the first run's ID;
   - a crash of the loop reported as `status: failed`.
 
@@ -73,7 +80,8 @@ TDD per task: a failing test first, then the code. Fixtures are anonymized real 
   - `held` with a flagging classifier, and `model_skipped` without a classifier;
   - 502 `screening failed` from a raising classifier, and 502 `finder failed` from a failing model;
   - 422 for more than 2,000,000 characters and for empty input;
-  - 202, then the polled state up to `done`;
+  - 202, then the polled state up to `done`, with `duplicate_by` on a duplicate entry;
+  - a run entry with `force: true` storing a text duplicate, and `force` missing meaning `false`;
   - 409 `alert run in progress` with `run_id`;
   - 404 for an unknown run;
   - a raw link with a token sent to `/runs` arrives cleaned.
@@ -85,7 +93,7 @@ TDD per task: a failing test first, then the code. Fixtures are anonymized real 
   - the paste field with its hint and "Stellen finden", the finding state, and the screening line;
   - the pick list with new, stored, login-walled, not-addable and deselected rows, and the truncation note;
   - the states "no posting found", "screening off, only known senders", "held by the content guard", "reading failed" with a retry, and "run no longer known";
-  - the run with waiting, running, stored, duplicate and failed rows, the done count, and a run that ended `failed`;
+  - the run with waiting, running, stored, duplicate by link, duplicate by text with "Trotzdem als neue Anzeige speichern" and its confirmation, and failed rows, the done count, and a run that ended `failed`;
   - the narrow phone width.
 
   Verify by the artifact being approved. Group 7 starts only after this.
@@ -97,6 +105,7 @@ TDD per task: a failing test first, then the code. Fixtures are anonymized real 
   - the preview call with its states (found, nothing found, screening off, held, 502 with retry and the mail kept);
   - the pick list (new preselected; stored marked, linked and disabled; login-walled not preselected; not-addable disabled with the text option; the count in the action; the truncation note);
   - the run, polled every second, with per-row states, attempts and the text and PDF buttons;
+  - a `duplicate` row with a link to the stored posting, and for `duplicate_by` `text` or `similar_text` the action "Trotzdem als neue Anzeige speichern" with a confirmation naming that posting, which starts a run of that entry with `force: true`; none for `url`;
   - the run's ID in `sessionStorage`, attaching after a reload, attaching on 409 to the named run, and "run no longer known" on 404;
   - "Andere Mail einfügen".
 

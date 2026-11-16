@@ -15,6 +15,7 @@ Job boards and career sites send job alert mails that list several new postings 
 - A pick list shows the found postings. New ones are preselected. Ones already stored are marked, linked to the stored posting and not selected, and so are ones on login-walled hosts. A LinkedIn job link is recognised as a stored posting by its job ID before any fetch, also in plain link intake.
 - The pick list and the per-entry report are built for the mail. #57 (pasted alert text with pick list) proposed reusing the several-links input's list, but that input runs inside one long request and shows no progress, so a background run takes its place.
 - The chosen entries are added in a background run, one after the other, through the existing intake (fetch ladder, intake loop, duplicate check, content guard, field filling). The view shows each entry's progress and outcome. A failed entry keeps the text and PDF options and does not stop the others.
+- A duplicate found by link stays locked, in the pick list and in the report. A duplicate found by text, which only shows after the fetch, is reported with the matching stored posting and can be stored anyway after a confirmation.
 - The content guard screens the mail text before the model sees it. A flagged mail reaches no model, and the view says the content guard held it. A failing classifier stops the reading, with a retry.
 - The finder records, per mail, which pattern read it, or that the model did, with the hosts of its links. This is the groundwork for #109.
 - A new eval reports postings found and links correct, per pattern and for the model fallback, on anonymized real alert mails.
@@ -31,8 +32,9 @@ None.
   - the input forms gain the alert mail;
   - new requirements cover the finder, the links it offers, the record of how a mail was read, the removal of personal link parameters, links that do not tell postings apart and the background run of the chosen entries;
   - duplicate detection recognises a LinkedIn job by its ID;
+  - an entry whose text duplicates a stored posting can be stored anyway on request;
   - the content guard covers the mail text.
-- `web-ui`: the intake view gains the alert-mail input; new requirements cover the paste that keeps links, the pick list, a held or failed reading, the progress and outcome of each entry, and a refused or lost run.
+- `web-ui`: the intake view gains the alert-mail input; new requirements cover the paste that keeps links, the pick list, a held or failed reading, the progress and outcome of each entry, a duplicate by text that can be stored anyway, and a refused or lost run.
 - `match-evaluation`: the list of LLM-backed behaviors that need an eval gains the finder's model fallback, and a new requirement names the finder's eval.
 
 ## Non-goals
@@ -51,6 +53,7 @@ None.
   - new `intake/alert_mail.py`: link extraction from HTML or plain text, patterns, link cleaning, model fallback and the finder's record;
   - new `intake/alert_runs.py`: the background run, on the pattern of `Imports`;
   - `intake/duplicates.py`: LinkedIn job ID key, which also applies to plain link intake and the list import;
+  - `intake/postings.py`: `allow_text_duplicate` on `add_from_url` and `add_submission`;
   - `intake/fetch.py`: for a mail entry's link, each redirect is checked before it is requested, in the plain and the browser fetch;
   - `api/app.py`: `POST /alert-mails/preview`, `POST /alert-mails/runs`, `GET /alert-mails/runs/{id}`;
   - `evals/alert_mail.py` and its entry in `evals/__main__.py`.

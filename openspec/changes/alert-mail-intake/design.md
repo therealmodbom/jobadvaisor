@@ -34,7 +34,7 @@ Sample mails show where the titles sit:
 
 ## Decisions
 
-[ADR 0011](../../../docs/decisions/0011-alert-mails-read-by-link-rules-and-a-model-that-picks-link-numbers.md) records the finder's approach and the link cleaning, with the rejected alternatives. The decisions below say how they are built.
+[ADR 0011](../../../docs/decisions/0011-alert-mails-read-by-link-rules-and-a-model-that-picks-link-numbers.md) records the finder's approach, and [ADR 0012](../../../docs/decisions/0012-links-from-a-mail-cleaned-by-an-allow-list.md) the link cleaning, each with the rejected alternatives. The decisions below say how they are built.
 
 **Paste.** The alert-mail input is a `<textarea>` whose `onPaste` reads `clipboardData.getData('text/html')` and `getData('text/plain')`. It shows the plain text and keeps the HTML in component state.
 
@@ -101,15 +101,19 @@ A link no rule reads whose path has an opaque segment is not offered to the mode
 - `posting_urls` no longer stores a second LinkedIn form of the same job;
 - the import's "listed link" check matches across forms.
 
-The preview marks an entry as stored through `duplicate_of(postings, urls=[link])` and answers that posting's ID and title. It also marks an entry whose host is in the policy pack's login-walled hosts (`login_wall_hosts`) as `login_walled`. That entry is not preselected, since it can only be found through the intake loop's search.
+The preview marks an entry as stored through `duplicate_of(postings, urls=[link])` and answers that posting's ID and title. This finds duplicates by link only, before any fetch: the same job ID or address. Such an entry stays locked in the pick list, since picking it again can only be an accident. A duplicate by text (`text` or `similar_text`, see `duplicates.py`) can only be found in the run, after the fetch, and is handled there (Run). The preview also marks an entry whose host is in the policy pack's login-walled hosts (`login_wall_hosts`) as `login_walled`. That entry is not preselected, since it can only be found through the intake loop's search.
 
 **Record for #109.** After each preview, one JSON line is appended to `alert-mails.jsonl` in the state directory (`state_path`, outside the data repository): `{at, read_by, hosts: {host: count}, entries: <count>, held, model_skipped}`. It holds no path, query, title or text. A failed write is ignored, since the record is a convenience.
 
 **Run.** `intake/alert_runs.py` has `AlertRuns`, built like `Imports`: a one-worker executor, a lock, in-memory state, and `AlertRunBusyError` carrying the computing run's ID.
 
-- Each entry sets `guarded_link` to its link and calls `add_from_url(intake, link)` with the defaults of a single link, so a gone link is still looked for elsewhere.
+- Each entry sets `guarded_link` to its link and calls `add_from_url(intake, link, allow_text_duplicate=entry.force)` with the other defaults of a single link, so a gone link is still looked for elsewhere.
 - Errors map as in `import_entry`: `PostingNotFoundError` gives `failed` with its attempts; a `ValueError` gives `failed` with its text (`ValidationError` with its type name); anything else gives `failed` with its type name. One entry never stops the run.
-- State is `{run_id, status, error, total, done, entries: [{url, title, state, posting_id?, attempts?, reason?}]}`. `state` is one of `waiting`, `running`, `stored`, `duplicate`, `failed`. `status` is one of `running`, `done`, `failed`.
+- State is `{run_id, status, error, total, done, entries: [{url, title, state, posting_id?, duplicate_by?, attempts?, reason?}]}`. `state` is one of `waiting`, `running`, `stored`, `duplicate`, `failed`. `duplicate_by` is `url`, `text` or `similar_text` on a `duplicate` entry. `status` is one of `running`, `done`, `failed`.
+- *Storing a text duplicate anyway.* `add_from_url` and `add_submission` gain `allow_text_duplicate` (default `False`). When set, `add_submission` skips the `text` and `similar_text` match and keeps the URL match, before and under the lock. The entry is then stored as a new posting with its own link. A duplicate by URL is never stored again, with or without the flag.
+  - `force` is the run entry's request for it, set only by the user's explicit action on a `duplicate` entry with `duplicate_by` of `text` or `similar_text` (UI).
+  - It is a new run of that one entry through the same endpoint, so the one-run-at-a-time rule and the polling apply unchanged.
+  - The fetch runs again, which is the cost of a rare choice. The alternative, keeping the fetched text in the run's state, would hold a page's text in memory with no other use.
 
 An alert run and a list import may compute at the same time. Both store through `_STORE_LOCK` and the write gate, so nothing is stored twice; the cost is two browser fetches at once. Merging the two runners is left to #91 (import survives a restart), which reworks the import's state anyway.
 
@@ -121,7 +125,7 @@ An alert run and a list import may compute at the same time. Both store through 
   - At most 100 entries are answered, the run's limit. `truncated` is true when the mail held more.
   - 502 `screening failed` when the classifier fails, and 502 `finder failed` when the model call fails. Both offer a retry.
 - `POST /alert-mails/runs`:
-  - Body: `{entries: [{url, title}]}`, 1 to 100 entries, each `url` an http(s) address.
+  - Body: `{entries: [{url, title, force?: boolean}]}`, 1 to 100 entries, each `url` an http(s) address. `force` is `false` when missing.
   - 202: `{run_id}`.
   - 409: `{error: "alert run in progress", detail, run_id}`, so the client can attach to the computing run.
   - 422 `invalid request`.
@@ -150,6 +154,8 @@ An alert run and a list import may compute at the same time. Both store through 
   - 404 while polling ("Lauf nicht mehr bekannt", start over);
   - a run that ended `failed`.
 - Run: one row per entry with its state, "x von y erledigt", failed rows with the ladder's attempts (`AttemptList`, moved to a shared component) and the text and PDF buttons, and stored rows with "Anzeige ansehen".
+  - A `duplicate` row shows the stored posting with a link. When `duplicate_by` is `text` or `similar_text`, it also offers "Trotzdem als neue Anzeige speichern". The action asks for confirmation first, naming the stored posting the text matches. On confirmation it starts a run of that entry with `force: true`. A row with `duplicate_by` `url` offers no such action.
+  - The pick list shows no such action: its stored entries are link duplicates and stay locked.
 - Copy is German, in the view's existing tone. "Bewerten" does not appear in this view.
 - The look and position come from a Design artifact on the "JobAdvAIsor Design System", agreed before the UI is built.
 
@@ -192,10 +198,11 @@ An alert run and a list import may compute at the same time. Both store through 
 - [A mail from an unknown sender that also holds one link a rule reads] → only that link's posting is listed, and `read_by` names the rule. The record's host counts show the other hosts. Accepted: alert mails come from one sender each, and the pick list shows what was found.
 - [The career-site rule matches an unrelated `/job/<title>/<number>` link with a `refid` parameter] → it would only list a link that is shown in the pick list and can be deselected. The rule is checked against the fixtures of the other senders.
 - [The model picks an action link the drop list does not name] → the cleaned link has no token for an action, the pick list shows every link before anything is fetched, and only public http(s) hosts are kept.
-- [A job site that names the posting in a parameter outside `POSTING_PARAMETERS`] → its postings clean to one link and show as `ambiguous`, or a single one is fetched without its ID and fails or stores the wrong page (ADR 0011, Consequences). A further name is a one-line addition.
+- [A job site that names the posting in a parameter outside `POSTING_PARAMETERS`] → its postings clean to one link and show as `ambiguous`, or a single one is fetched without its ID and fails or stores the wrong page (ADR 0012, Consequences). A further name is a one-line addition.
 - [The opacity heuristic misses a token in a path segment, or blanks a real slug] → a missed token is fetched with the link, as the mail's own click would do, but never shown to the model. A blanked slug only shortens the model's view of that link.
 - [Login-walled hosts such as Xing] → their entries are marked and not preselected. When chosen, they go through the intake loop's search like any login-walled link.
 - [A site redirects a clean link through an address with tracking or session parameters] → that entry fails with "redirect with personal parameters" and keeps the text and PDF options. Nothing is sent to the redirect target. A posting parameter missing from the allow-list shows up here too, and is a one-line addition.
+- [A false text duplicate, such as two postings of one employer with a shared long text] → the run reports it as a duplicate, and the user can store it anyway after a confirmation. The reverse risk, an accidental second add, is closed for links (locked in the pick list) and costs one confirmation for text.
 - [Two rendered fetches at once while an import also runs] → slower, not wrong.
 - [A 30,000-character cap cuts a very long unknown mail] → the later postings are not found. The cap sits well above the samples' visible text.
 - [The run state is lost on restart] → stated in the view (404 while polling), as for the import. A new paste marks what was stored.

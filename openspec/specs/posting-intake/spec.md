@@ -304,6 +304,21 @@ The system SHALL add the entries the user chooses from a mail in a background ru
 - **WHEN** a chosen entry was stored by another way after the mail was read
 - **THEN** it is reported as a duplicate, and no second posting is stored
 
+#### Scenario: Entry whose text is stored under another link
+- **WHEN** a chosen entry's link is new, and the posting text its page yields matches a stored posting
+- **THEN** it is reported as a duplicate by text, naming that posting, and nothing new is stored
+
+### Requirement: A text duplicate stored anyway on request
+The system SHALL, when the user explicitly asks for it for an entry reported as a duplicate by text, store that entry as a new posting despite the matching text. It SHALL NOT do so for an entry whose link a stored posting has: such an entry is never stored again.
+
+#### Scenario: Stored anyway
+- **WHEN** an entry was reported as a duplicate by text, and the user asks to store it anyway
+- **THEN** a new posting with that entry's link and text is stored, and the existing posting stays as it is
+
+#### Scenario: Link duplicate cannot be forced
+- **WHEN** a request asks to store an entry anyway whose link a stored posting has
+- **THEN** the existing posting is reported as a duplicate by link, and nothing new is stored
+
 ### Requirement: One alert run at a time
 The system SHALL compute one alert-mail run at a time, and SHALL refuse to start another while one computes, naming the run that computes so the client can follow it. A run's state SHALL live in memory only, so a restart forgets it.
 
