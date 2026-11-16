@@ -5,9 +5,9 @@ by the intake model choosing link numbers. Nothing is fetched here."""
 import ipaddress
 import re
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from html.parser import HTMLParser
-from urllib.parse import parse_qsl, urlsplit
+from urllib.parse import parse_qsl, unquote, urlsplit
 
 from jobadvaisor.intake.bundesagentur import reference_number
 from jobadvaisor.intake.links import linkedin_job_id, strip_query
@@ -32,11 +32,89 @@ class Link:
 @dataclass(frozen=True)
 class Rule:
     """A fixed link rule: `match` gives a link's posting key or `None`, `canonical` the posting's
-    URL for a key."""
+    URL for a key, `title` the posting's title from the texts of that key's links (image-only
+    links and URL texts already left out), "" when none fits."""
 
     name: str
     match: Callable[[str], str | None]
     canonical: Callable[[str], str]
+    title: Callable[[list[str]], str]
+
+
+@dataclass(frozen=True)
+class Entry:
+    """A posting the mail lists: its cleaned link and title. `ambiguous` marks a link that does
+    not tell this posting from another one, so it cannot be added by its link."""
+
+    url: str
+    title: str
+    ambiguous: bool = False
+
+
+@dataclass(frozen=True)
+class Found:
+    """What the finder read in a mail (design.md → API, preview answer):
+    - `entries`: at most `MAX_ENTRIES`, in mail order; `truncated` when the mail held more;
+    - `read_by`: the rules that read the mail, or `["model"]`, or empty;
+    - `unread_hosts`: `{host, links}` for kept links no rule read, at most `MAX_UNREAD_HOSTS`;
+    - `held`: the content guard flagged the mail; `model_skipped`: why no model read it;
+    - `hosts`: every kept link's host with its count, for the record."""
+
+    entries: list[Entry]
+    read_by: list[str]
+    unread_hosts: list[dict]
+    truncated: bool = False
+    held: bool = False
+    model_skipped: str | None = None
+    hosts: dict[str, int] = field(default_factory=dict)
+
+
+MAX_ENTRIES = 100
+MAX_UNREAD_HOSTS = 10
+# Navigation and account links, by a word of their text or a part of their path (lowercased).
+DROP_WORDS = {
+    "unsubscribe", "abbestellen", "abmelden", "abmeldung", "abonnement", "optout", "settings",
+    "einstellungen", "preferences", "präferenzen", "verwalten", "manage", "alert", "alerts",
+    "jobalert", "benachrichtigungen", "notifications", "mitteilungen", "profil", "profile",
+    "premium", "widget", "hilfe", "help", "faq", "datenschutz", "privacy", "impressum", "imprint",
+    "agb", "terms", "browser", "webversion"}
+DROP_PATHS = (
+    "unsubscribe", "abbestell", "abmeld", "optout", "opt-out", "/settings", "einstellung",
+    "preferences", "/alerts", "job-alert", "/suchauftrag", "/search", "/suche", "/profil", "/in/",
+    "/feed", "/mynetwork", "/messaging", "/notifications", "/premium", "/widgets", "/help",
+    "/hilfe", "/privacy", "/datenschutz", "/impressum", "/imprint", "/email/view", "/webversion",
+    "/legal", "/terms", "/agb")
+OPAQUE_SEGMENT = re.compile(r"[A-Za-z0-9_=-]{20,}")
+URL_TEXT = re.compile(r"(?i)(https?://\S+|(www\.)?[\w-]+(\.[\w-]+)*\.[a-z]{2,}(/\S*)?)")
+
+
+def opaque(segment: str) -> bool:
+    """Whether a path segment looks like a token: at least 20 characters of `[A-Za-z0-9_=-]`
+    with upper case, lower case and a digit, and fewer than three hyphens (word slugs pass)."""
+    return bool(OPAQUE_SEGMENT.fullmatch(segment)) and segment.count("-") < 3 and all(
+        any(test(c) for c in segment) for test in (str.isupper, str.islower, str.isdigit))
+
+
+def dropped(link: Link) -> bool:
+    """Whether `link` is a navigation, account or legal link, a home page, or has an opaque
+    path segment (its path may itself be a token)."""
+    path = unquote(urlsplit(link.url).path)
+    words = set(re.findall(r"\w+", link.text.lower()))
+    return (path in ("", "/") or bool(words & DROP_WORDS)
+            or any(part in path.lower() for part in DROP_PATHS)
+            or any(opaque(segment) for segment in path.split("/")))
+
+
+def _linkedin_title(texts: list[str]) -> str:
+    return next((text for text in texts if " · " not in text), "")
+
+
+def _bundesagentur_title(texts: list[str]) -> str:
+    return max((re.sub(r"^\d+\.\s*", "", text) for text in texts), key=len, default="")
+
+
+def _career_site_title(texts: list[str]) -> str:
+    return re.sub(r"\s+-\s+[^-]+,\s*[A-Z]{2}$", "", texts[0]) if texts else ""
 
 
 def _career_site_key(url: str) -> str | None:
@@ -48,10 +126,12 @@ def _career_site_key(url: str) -> str | None:
 
 
 RULES = (
-    Rule("linkedin", linkedin_job_id, lambda key: f"https://www.linkedin.com/jobs/view/{key}"),
+    Rule("linkedin", linkedin_job_id, lambda key: f"https://www.linkedin.com/jobs/view/{key}",
+         _linkedin_title),
     Rule("bundesagentur", reference_number,
-         lambda key: f"https://www.arbeitsagentur.de/jobsuche/jobdetail/{key}"),
-    Rule("career_site", _career_site_key, lambda key: key),
+         lambda key: f"https://www.arbeitsagentur.de/jobsuche/jobdetail/{key}",
+         _bundesagentur_title),
+    Rule("career_site", _career_site_key, lambda key: key, _career_site_title),
 )
 
 
@@ -72,6 +152,44 @@ def clean_link(url: str) -> str:
     `strip_query(url)`."""
     found = rule_for(url)
     return found[0].canonical(found[1]) if found else strip_query(url)
+
+
+def find_postings(html: str | None, text: str, *, model, guard) -> Found:
+    """The postings the mail (`read_mail`) lists. When any link matches a rule, the rules read
+    the mail without a model call, and `unread_hosts` names the hosts of other kept links.
+    Otherwise the `model` reads it behind the content `guard` (`_model_path`)."""
+    links = [item for item in read_mail(html, text) if isinstance(item, Link)]
+    hosts: dict[str, int] = {}
+    for link in links:
+        host = _host(link.url)
+        hosts[host] = hosts.get(host, 0) + 1
+    matched = [(link, rule_for(link.url)) for link in links]
+    if not any(found for _, found in matched):
+        return _model_path(read_mail(html, text), model, guard, hosts)
+    groups: dict[tuple[str, str], list[Link]] = {}
+    unread: dict[str, set[str]] = {}
+    for link, found in matched:
+        if found:
+            groups.setdefault((found[0].name, found[1]), []).append(link)
+        elif not dropped(link):
+            unread.setdefault(_host(link.url), set()).add(strip_query(link.url))
+    rules = {rule.name: rule for rule in RULES}
+    entries = []
+    for (name, key), group in groups.items():
+        texts = [link.text for link in group
+                 if link.text and not link.image_only and not URL_TEXT.fullmatch(link.text)]
+        entries.append(Entry(rules[name].canonical(key), rules[name].title(texts)))
+    return Found(entries[:MAX_ENTRIES], list(dict.fromkeys(name for name, _ in groups)),
+                 [{"host": host, "links": len(urls)} for host, urls in sorted(unread.items())]
+                 [:MAX_UNREAD_HOSTS], truncated=len(entries) > MAX_ENTRIES, hosts=hosts)
+
+
+def _host(url: str) -> str:
+    return (urlsplit(url).hostname or "").lower()
+
+
+def _model_path(items: list[str | Link], model, guard, hosts: dict[str, int]) -> Found:
+    raise NotImplementedError
 
 
 def read_mail(html: str | None, text: str) -> list[str | Link]:

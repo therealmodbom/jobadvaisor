@@ -28,7 +28,7 @@ TDD per task: a failing test first, then the code. Fixtures are anonymized real 
   - a `#/job/1` route and a `#access_token=…` fragment;
   - idempotence (cleaning a cleaned link changes nothing);
   - `navigation_allowed` on a clean address, on a tokenised address, on the same path with a trailing slash, on a LinkedIn `/jobs/view/<id>/` address (allowed) and on the same address with `otpToken` (refused).
-- [ ] 2.3 The three rules with their title pickers (image-only links and URL texts skipped), and the rule path of `find_postings`: one entry per key, in mail order, with `read_by`, at most 100 entries with `truncated`. Verify with tests on the rule fixtures:
+- [x] 2.3 The three rules with their title pickers (image-only links and URL texts skipped), and the rule path of `find_postings`: one entry per key, in mail order, with `read_by`, at most 100 entries with `truncated`. Verify with tests on the rule fixtures:
   - the expected entries and titles for each, and the four LinkedIn forms;
   - footer, unsubscribe and search links not returned;
   - an unrelated `/job/<title>/<number>` link without `refid` not read by `career_site`;
