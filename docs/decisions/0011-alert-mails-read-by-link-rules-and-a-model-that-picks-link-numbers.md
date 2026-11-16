@@ -25,7 +25,7 @@ There are two ways to find the posting links. A *rule* is code for one known sen
 ## Alternatives considered
 
 - **A model on the whole mail, answering with URLs.** It is the shortest path and covers every sender, but every token reaches the model provider, the content guard's classifier and the trace store. The model can also invent or alter a URL, and the prompt grows to the size of the mail.
-- **Rules keyed on the sender's address.** This would be exact, but a paste carries no sender address.
+- **Rules keyed on the sender's address.** This would be exact, but a paste carries no sender address. A mailbox (#58) will have it and can then choose the rules by sender. The link rules stay, since the links still have to be read and cleaned, and a sender address can be forged, so it is no security feature.
 
 ## Consequences
 
