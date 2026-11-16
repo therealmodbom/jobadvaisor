@@ -68,7 +68,7 @@ TDD per task: a failing test first, then the code. Fixtures are anonymized real 
 
 ## 4. Background run (`intake/alert_runs.py`)
 
-- [ ] 4.1 `AlertRuns` (`start`, `read`, `AlertRunBusyError` with the computing run's ID), built like `Imports`: per-entry state `waiting → running → stored | duplicate | failed`, with attempts or a reason, `guarded_link` set around each entry, and one entry's error never stops the run. Verify with tests using fake fetchers:
+- [x] 4.1 `AlertRuns` (`start`, `read`, `AlertRunBusyError` with the computing run's ID), built like `Imports`: per-entry state `waiting → running → stored | duplicate | failed`, with attempts or a reason, `guarded_link` set around each entry, and one entry's error never stops the run. Verify with tests using fake fetchers:
   - the guard holds the entry's link while it runs and is cleared after;
   - three entries where the second fails;
   - an entry stored meanwhile reported as a duplicate, with `duplicate_by` `url`;
