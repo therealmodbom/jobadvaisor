@@ -9,9 +9,20 @@ from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from urllib.parse import parse_qsl, unquote, urlsplit
 
+from langchain_core.messages import HumanMessage, SystemMessage
+from pydantic import BaseModel, Field
+
 from jobadvaisor.intake.bundesagentur import reference_number
 from jobadvaisor.intake.links import linkedin_job_id, strip_query
+from jobadvaisor.tools.prompts import DATA_RULE, data_block
 
+MAX_MODEL_TEXT = 30_000
+MODEL_INSTRUCTIONS = (
+    "You read one job alert mail. List every job posting it advertises, each with the number N "
+    "of the link (#N) that leads to that posting and the posting's title as the mail states "
+    "it. Leave out links to searches, settings, the sender's home page, profiles and social "
+    "media. Answer an empty list when the mail advertises no posting. "
+    + DATA_RULE.format(tag="mail"))
 CAREER_SITE_PATH = re.compile(r"^/job/[^/]+/\d+(?:-[a-z]{2}_[A-Z]{2})?/?$")
 BLOCK_TAGS = {"p", "div", "li", "ul", "ol", "br", "tr", "td", "th", "table", "section", "article",
               "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "pre", "center"}
@@ -188,8 +199,78 @@ def _host(url: str) -> str:
     return (urlsplit(url).hostname or "").lower()
 
 
+class FinderError(Exception):
+    """The finder could not read the mail: "screening failed" or "finder failed" (a 502 the
+    user can retry)."""
+
+
+class _Pick(BaseModel):
+    link: int = Field(description="The number N of the link (#N) that leads to the posting")
+    title: str = Field(description="The posting's title as the mail states it")
+
+
+class _Picks(BaseModel):
+    postings: list[_Pick] = Field(description="Every job posting the mail lists, in mail order")
+
+
+def model_view(items: list[str | Link]) -> tuple[str, list[Link]]:
+    """The text the model reads, at most `MAX_MODEL_TEXT` characters, and its numbered links:
+    each link the drop list keeps is written `[text](#N host/path)`, every other link as its
+    text. Every URL in a text keeps its host and path only, with opaque segments as `…`."""
+    lines, numbered = [], []
+    for item in items:
+        if isinstance(item, Link) and not dropped(item):
+            numbered.append(item)
+            lines.append(f"[{_mask_urls(item.text)}](#{len(numbered)} {_host_path(item.url)})")
+        else:
+            lines.append(_mask_urls(item.text if isinstance(item, Link) else item))
+    return "\n".join(line for line in lines if line)[:MAX_MODEL_TEXT], numbered
+
+
+def _host_path(url: str) -> str:
+    parts = urlsplit(url)
+    path = "/".join("…" if opaque(segment) else segment for segment in parts.path.split("/"))
+    return f"{(parts.hostname or '').lower()}{path}"
+
+
+def _mask_urls(text: str) -> str:
+    return TEXT_URL.sub(lambda match: _host_path(match.group(0)), text)
+
+
 def _model_path(items: list[str | Link], model, guard, hosts: dict[str, int]) -> Found:
-    raise NotImplementedError
+    """design.md → Model fallback: nothing to read after the drop list, screening off, held by
+    the guard, or the `intake` model's picks grouped by cleaned link. Raises `FinderError`."""
+    text, numbered = model_view(items)
+    if not numbered:
+        return Found([], [], [], hosts=hosts)
+    if guard.classifier is None:
+        return Found([], [], [], model_skipped="screening off", hosts=hosts)
+    try:
+        flagged = guard.screen(text).flagged
+    except Exception:
+        raise FinderError("screening failed") from None
+    if flagged:
+        return Found([], [], [], held=True, hosts=hosts)
+    try:
+        picks = model.with_structured_output(_Picks).invoke([
+            SystemMessage(MODEL_INSTRUCTIONS), HumanMessage(data_block("mail", text))]).postings
+    except Exception:
+        raise FinderError("finder failed") from None
+    groups: dict[str, list[tuple[int, str]]] = {}
+    for pick in sorted(picks, key=lambda pick: pick.link):
+        title = _clean(pick.title)
+        if 1 <= pick.link <= len(numbered) and title and not URL_TEXT.fullmatch(title):
+            groups.setdefault(clean_link(numbered[pick.link - 1].url), []).append(
+                (pick.link, title))
+    entries = []
+    for url, picked in groups.items():
+        titles = list(dict.fromkeys(title for _, title in picked))
+        distinct = {" ".join(title.casefold().split()) for title in titles}
+        entries += ([Entry(url, titles[0])] if len(distinct) == 1 else
+                    [Entry(url, title, ambiguous=True) for title in titles])
+    entries.sort(key=lambda entry: next(n for n, t in groups[entry.url] if t == entry.title))
+    return Found(entries[:MAX_ENTRIES], ["model"], [], truncated=len(entries) > MAX_ENTRIES,
+                 hosts=hosts)
 
 
 def read_mail(html: str | None, text: str) -> list[str | Link]:

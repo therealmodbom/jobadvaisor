@@ -37,7 +37,7 @@ TDD per task: a failing test first, then the code. Fixtures are anonymized real 
   - `unread_hosts` as `{host, links}` (sorted, no path or query, at most 10, links counted after `strip_query`) for a LinkedIn fixture pasted together with another sender's mail;
   - a read host with a further kept link no rule reads (a career-site job plus a second posting on the same host under another path) listed with its count;
   - no model or classifier call (fakes that fail when called).
-- [ ] 2.4 Model fallback (design.md → Model fallback, steps 1 to 6). Verify with tests using a fake model and a fake classifier:
+- [x] 2.4 Model fallback (design.md → Model fallback, steps 1 to 6). Verify with tests using a fake model and a fake classifier:
   - screening off gives `model_skipped: "screening off"` and calls no model;
   - the no-postings fixture gives no entries and calls neither classifier nor model;
   - the model input holds no `TOKEN` and no `?`, also for the URL printed in the text and in a link's text, and the token in a path is masked;
