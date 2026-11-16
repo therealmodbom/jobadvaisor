@@ -13,7 +13,15 @@ from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict, Field, StrictStr, ValidationError, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictStr,
+    ValidationError,
+    model_validator,
+)
 from starlette.exceptions import HTTPException
 
 from jobadvaisor.agent import AgentContext, Reply, answer
@@ -42,6 +50,8 @@ from jobadvaisor.data.writer import (
     write_login_wall_hosts,
 )
 from jobadvaisor.index import LabelIndex, PostingIndex, state_path
+from jobadvaisor.intake import alert_mail
+from jobadvaisor.intake.alert_runs import AlertRunBusyError, AlertRuns, RunEntry
 from jobadvaisor.intake.entries import parse_entries, preview, tables_left_out
 from jobadvaisor.intake.imports import ImportBusyError, Imports
 from jobadvaisor.intake.ladder import login_wall_hosts
@@ -81,6 +91,52 @@ class BatchBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     urls: list[StrictStr] = Field(min_length=1)
+
+
+MAX_MAIL = 2_000_000  # characters per part of a pasted mail
+
+
+class AlertMailBody(BaseModel):
+    """`POST /alert-mails/preview` body: the pasted mail's `html` part (null when the clipboard
+    had none) and its plain `text`; not both empty."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    html: StrictStr | None = Field(None, max_length=MAX_MAIL)
+    text: StrictStr = Field("", max_length=MAX_MAIL)
+
+    @model_validator(mode="after")
+    def not_empty(self) -> Self:
+        """Reject a paste that holds nothing."""
+        if not (self.html or "").strip() and not self.text.strip():
+            raise ValueError("paste a mail")
+        return self
+
+
+class AlertRunEntryBody(BaseModel):
+    """One chosen entry: an http(s) `url`, its `title`, and `force` to store a text duplicate
+    anyway (default false)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    url: StrictStr
+    title: StrictStr = ""
+    force: StrictBool = False
+
+    @model_validator(mode="after")
+    def http_url(self) -> Self:
+        """Reject a link that is no http(s) address."""
+        if not HTTP_URL.fullmatch(self.url.strip()):
+            raise ValueError("url must be an http or https address")
+        return self
+
+
+class AlertRunBody(BaseModel):
+    """`POST /alert-mails/runs` body: 1 to 100 entries."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    entries: list[AlertRunEntryBody] = Field(min_length=1, max_length=alert_mail.MAX_ENTRIES)
 
 
 class UnscreenedAnswer(BaseModel):
@@ -183,10 +239,11 @@ VERSION_FILE = REPOSITORY_ROOT / "VERSION"
 
 def create_app(runs: Runs | None = None, intake: Intake | None = None,
                agent: Agent | None = None, frontend: Path = FRONTEND_BUILD,
-               imports: Imports | None = None, backup: Backup | None = None) -> FastAPI:
-    """The app over `runs`, `intake`, `agent` (conversation → reply), `imports` and `backup`,
-    by default those of the configured data repository (imports over `intake`, the backup of
-    `intake.root` with that repository's state directory); the default
+               imports: Imports | None = None, backup: Backup | None = None,
+               alert_runs: AlertRuns | None = None) -> FastAPI:
+    """The app over `runs`, `intake`, `agent` (conversation → reply), `imports`, `backup` and
+    `alert_runs`, by default those of the configured data repository (imports and alert runs
+    over `intake`, the backup of `intake.root` with that repository's state directory); the default
     agent is built on its first message. The built frontend in `frontend` is served at `/`
     after the API routes, so they take precedence; without a build (no `index.html`) the API
     runs alone."""
@@ -194,6 +251,8 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
     if runs is None or intake is None:
         runs, intake = runs or configured_runs(settings), intake or configured_intake(settings)
     imports = imports or Imports(intake)
+    alert_runs = alert_runs or AlertRuns(intake)
+    mail_record = state_path(settings, intake.root) / "alert-mails.jsonl"
     backup = backup or Backup(intake.root, state_path(settings, intake.root))
     if agent is None:
         configured = cache(lambda: configured_agent(Settings()))
@@ -546,6 +605,39 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
         404 for an unknown import (state is in memory, a restart forgets it)."""
         state = imports.read(import_id)
         return state or problem(404, "not found", f"no import {import_id}")
+
+    @app.post("/alert-mails/preview")
+    def preview_alert_mail(body: AlertMailBody) -> dict:
+        """The postings a pasted alert mail lists, nothing fetched: `{entries: [{url, title,
+        duplicate: {posting_id, title} | null, login_walled, ambiguous}], read_by,
+        unread_hosts: [{host, links}], held, model_skipped, screening, truncated}`. 502
+        `screening failed` or `finder failed` (the user can retry); 422 `invalid request` for
+        an empty paste or a part over 2,000,000 characters."""
+        try:
+            answer = alert_mail.preview(intake, body.html, body.text, mail_record)
+        except alert_mail.FinderError as error:
+            return problem(502, str(error), "reading the mail failed; try again")
+        return answer | {"screening": intake.guard.classifier is not None}
+
+    @app.post("/alert-mails/runs", status_code=202)
+    def start_alert_run(body: AlertRunBody) -> dict:
+        """Add the chosen entries in the background, each link cleaned again first; answers
+        `{run_id}` at once. 409 `{error: "alert run in progress", detail, run_id}` while a run
+        computes, so the client can follow it; 422 `invalid request`."""
+        entries = [RunEntry(alert_mail.clean_link(entry.url.strip()), entry.title, entry.force)
+                   for entry in body.entries]
+        try:
+            return {"run_id": alert_runs.start(entries)}
+        except AlertRunBusyError as error:
+            return JSONResponse({"error": "alert run in progress", "detail": str(error),
+                                 "run_id": error.run_id}, status_code=409)
+
+    @app.get("/alert-mails/runs/{run_id}")
+    def read_alert_run(run_id: str) -> dict:
+        """A run's state (`AlertRuns.read`): `{run_id, status, error, total, done, entries:
+        [{url, title, state, posting_id?, duplicate_by?, attempts?, reason?}]}`. 404 for an
+        unknown run (state is in memory, a restart forgets it)."""
+        return alert_runs.read(run_id) or problem(404, "not found", f"no alert run {run_id}")
 
     def stored_answer(posting_id: str, posting: Posting, duplicate_by: str | None,
                       attempts: list | None) -> JSONResponse:

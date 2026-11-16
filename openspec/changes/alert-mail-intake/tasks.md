@@ -79,7 +79,7 @@ TDD per task: a failing test first, then the code. Fixtures are anonymized real 
 
 ## 5. API
 
-- [ ] 5.1 `POST /alert-mails/preview`, `POST /alert-mails/runs` and `GET /alert-mails/runs/{run_id}` in `api/app.py`, with the bodies and errors from design.md, and the run's links cleaned again on start. Verify with `test_api.py` tests for:
+- [x] 5.1 `POST /alert-mails/preview`, `POST /alert-mails/runs` and `GET /alert-mails/runs/{run_id}` in `api/app.py`, with the bodies and errors from design.md, and the run's links cleaned again on start. Verify with `test_api.py` tests for:
   - a preview of a rule fixture, with a stored posting marked, and `unread_hosts` in the answer;
   - `held` with a flagging classifier, and `model_skipped` without a classifier;
   - 502 `screening failed` from a raising classifier, and 502 `finder failed` from a failing model;
