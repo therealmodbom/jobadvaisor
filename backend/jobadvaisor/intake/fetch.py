@@ -10,12 +10,13 @@ from urllib.parse import urldefrag, urljoin, urlsplit
 
 import httpx
 
-from jobadvaisor.intake.links import navigation_allowed
+from jobadvaisor.intake.links import navigation_allowed, public_link
 
 # The cleaned link of the alert-mail entry being added (`design.md` → Cleaning): a fetch that
 # starts at it checks every redirect hop with `navigation_allowed` before requesting it.
 guarded_link: ContextVar[str | None] = ContextVar("guarded_link", default=None)
 REFUSED_REDIRECT = "redirect with personal parameters"
+REFUSED_HOST = "redirect to a non-public address"
 MAX_REDIRECTS = 10
 
 MIN_PAGE_TEXT = 600  # characters; less is a teaser, a portal entry, a cookie wall or a challenge
@@ -85,9 +86,17 @@ def download_plain(url: str, http: httpx.Client | None = None) -> tuple[str, str
         http.event_hooks = hooks
 
 
+def _refusal(url: str) -> str | None:
+    """Why a hop to `url` must not be sent (`REFUSED_HOST`, `REFUSED_REDIRECT`), or `None`. The
+    guarded start link itself is exempt from the host rule: the API checked it already."""
+    if url != guarded_link.get() and not public_link(url):
+        return REFUSED_HOST
+    return None if navigation_allowed(url) else REFUSED_REDIRECT
+
+
 def _check_hop(request: httpx.Request) -> None:
-    if not navigation_allowed(str(request.url)):
-        raise FetchError(REFUSED_REDIRECT)
+    if reason := _refusal(str(request.url)):
+        raise FetchError(reason)
 
 
 def _download_plain(url: str, http: httpx.Client) -> tuple[str, str]:
@@ -113,8 +122,8 @@ def _download_plain(url: str, http: httpx.Client) -> tuple[str, str]:
 def download_rendered(url: str) -> tuple[str, str]:
     """The address after redirects and the HTML of `url` rendered in headless Chromium until
     the network is idle. While `guarded_link` is `url`, a main-frame navigation that fails
-    `navigation_allowed` is aborted before it is sent (`FetchError(REFUSED_REDIRECT)`). Raises
-    `FetchError` naming the failure."""
+    `_refusal` is aborted before it is sent (`FetchError(REFUSED_REDIRECT)` or `REFUSED_HOST`).
+    Raises `FetchError` naming the failure."""
     require_http(url)
     from playwright.sync_api import Error, sync_playwright
 
@@ -128,8 +137,8 @@ def download_rendered(url: str) -> tuple[str, str]:
         if not request.is_navigation_request() or request.frame.parent_frame is not None:
             route.continue_()
             return
-        if not navigation_allowed(request.url):
-            refused.append(request.url)
+        if reason := _refusal(request.url):
+            refused.append(reason)
             route.abort()
             return
         response = route.fetch(max_redirects=0)
@@ -138,8 +147,8 @@ def download_rendered(url: str) -> tuple[str, str]:
             route.fulfill(response=response)
             return
         target = urljoin(request.url, location)
-        if not navigation_allowed(target):
-            refused.append(target)
+        if reason := _refusal(target):
+            refused.append(reason)
             route.abort()
             return
         hops.append(target)
@@ -160,7 +169,7 @@ def download_rendered(url: str) -> tuple[str, str]:
                                             timeout=TIMEOUT_SECONDS * 1000)
                     except Error:
                         if refused:
-                            raise FetchError(REFUSED_REDIRECT) from None
+                            raise FetchError(refused[0]) from None
                         raise
                     if not hops:
                         break
@@ -168,7 +177,7 @@ def download_rendered(url: str) -> tuple[str, str]:
                 else:
                     raise FetchError("too many redirects")
                 if refused:
-                    raise FetchError(REFUSED_REDIRECT)
+                    raise FetchError(refused[0])
                 if response is not None and response.status >= 400:
                     raise FetchError(f"HTTP {response.status}")
                 html, final_url = tab.content(), tab.url

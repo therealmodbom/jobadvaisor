@@ -119,6 +119,17 @@ def test_failing_model_is_a_finder_error():
         run(fixture("unknown-jobid.html"), Failing())
 
 
+def test_links_beyond_the_model_text_limit_are_not_numbered_and_the_cut_is_reported():
+    filler = "<p>" + "Neuigkeiten aus der Branche. " * 1200 + "</p>"
+    html = JOB_LINK + filler + (
+        '<a href="https://jobs.example.net/de_DE/externaljobs/JobDetail?jobId=700002">Berater</a>')
+    text, numbered = model_view(read_mail(html, ""))
+    assert len(text) <= 30_000 and [link.text for link in numbered] == ["Produktmanager"]
+    model = answer((1, "Produktmanager"), (2, "Berater"))
+    found = run(html, model)
+    assert [e.title for e in found.entries] == ["Produktmanager"] and found.truncated
+
+
 JOB_LINK = ('<a href="https://jobs.example.net/de_DE/externaljobs/JobDetail?jobId=700001">'
             "Produktmanager</a>")
 

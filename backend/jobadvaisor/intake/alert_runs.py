@@ -76,7 +76,13 @@ class AlertRuns:
             self._state[run_id] = {
                 "run_id": run_id, "status": "running", "error": None, "total": len(entries),
                 "entries": [{"url": e.url, "title": e.title, "state": "waiting"} for e in entries]}
-        self._executor.submit(self._run, run_id, entries)
+        try:
+            self._executor.submit(self._run, run_id, entries)
+        except Exception:
+            with self._lock:
+                self._computing = None
+                del self._state[run_id]
+            raise
         return run_id
 
     def read(self, run_id: str) -> dict | None:

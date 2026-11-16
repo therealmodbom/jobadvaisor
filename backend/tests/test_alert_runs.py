@@ -47,6 +47,19 @@ def fake_add(outcomes: dict, seen: list | None = None):
     return add
 
 
+def test_a_failed_submit_does_not_block_later_runs(runs, monkeypatch):
+    real = runs._executor.submit
+    def broken(*args):
+        raise RuntimeError("executor down")
+
+    monkeypatch.setattr(runs._executor, "submit", broken)
+    with pytest.raises(RuntimeError):
+        runs.start([RunEntry(LINKS[0], "A")])
+    monkeypatch.setattr(runs._executor, "submit", real)
+    monkeypatch.setattr(runs_module, "add_from_url", fake_add({LINKS[0]: ("p1", None)}))
+    assert finished(runs, runs.start([RunEntry(LINKS[0], "A")]))["status"] == "done"
+
+
 def test_the_guard_holds_each_entry_link_and_is_cleared_after(runs, monkeypatch):
     seen = []
     monkeypatch.setattr(runs_module, "add_from_url", fake_add(

@@ -194,7 +194,7 @@ export function AlertMailView({ onUrl, onText, onPdf }: { onUrl: () => void; onT
     setStartError(false)
     try {
       const { run_id: id } = await api<{ run_id: string }>('/alert-mails/runs', { method: 'POST', json: { entries } })
-      storedRun.set(id, row && runId ? { id: runId, index: row.index } : undefined)
+      storedRun.set(id, row && runId ? { id: storedRun.getBase()?.id ?? runId, index: row.index } : undefined)
       setForced(row ?? null)
       setPollFailed(false)
       setProgress({ run_id: id, status: 'running', error: null, total: entries.length, done: 0,

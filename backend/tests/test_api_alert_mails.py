@@ -109,6 +109,14 @@ def test_preview_rejects_empty_and_oversized_input(tmp_path, root, body):
     assert answer.status_code == 422 and answer.json()["error"] == "invalid request"
 
 
+@pytest.mark.parametrize("html", ["", "   "])
+def test_a_blank_html_part_falls_back_to_the_text(tmp_path, root, html):
+    text = "Senior Dev\nhttps://www.linkedin.com/jobs/view/4100000123"
+    answer = client(tmp_path, root).post("/alert-mails/preview", json={"html": html, "text": text})
+    assert [e["url"] for e in answer.json()["entries"]] == [
+        "https://www.linkedin.com/jobs/view/4100000123"]
+
+
 def fake_add(outcomes):
     def add(intake, url, *, allow_text_duplicate=False):
         posting_id, reason = outcomes[url]

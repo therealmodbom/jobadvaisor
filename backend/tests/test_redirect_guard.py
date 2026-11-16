@@ -41,6 +41,16 @@ def test_plain_redirect_to_a_tokenised_address_is_never_requested():
     assert seen == [START]
 
 
+@pytest.mark.parametrize("target", ["http://169.254.169.254/latest", "http://127.1:8000/",
+                                    "http://localhost/admin", "http://10.0.0.5/job/1"])
+def test_plain_redirect_to_a_non_public_address_is_never_requested(target):
+    seen = []
+    client = mock_client({START: httpx.Response(302, headers={"Location": target})}, seen)
+    with guarded(START), pytest.raises(FetchError, match="redirect to a non-public address"):
+        download_plain(START, client)
+    assert seen == [START]
+
+
 def test_plain_redirect_to_the_same_path_with_a_slash_is_followed():
     seen = []
     client = mock_client({START: httpx.Response(301, headers={"Location": START + "/"})}, seen)
@@ -60,15 +70,18 @@ def test_other_fetches_follow_redirects_as_before(guard):
 
 
 @pytest.fixture
-def redirecting_site():
+def redirecting_site(monkeypatch):
     """A local server: `/start` answers 302 to `/target?sid=TOKEN-1`, `/clean` 302 to
-    `/page/`; every request path is logged."""
+    `/page/`, `/metadata` 302 to a link-local address; every request path is logged. The
+    loopback server counts as public here: only link-local addresses are refused."""
+    monkeypatch.setattr("jobadvaisor.intake.fetch.public_link", lambda url: "169.254" not in url)
     log = []
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             log.append(self.path)
-            targets = {"/start": "/target?sid=TOKEN-1", "/clean": "/page/", "/chain": "/start"}
+            targets = {"/start": "/target?sid=TOKEN-1", "/clean": "/page/", "/chain": "/start",
+                       "/metadata": "http://169.254.169.254/latest"}
             if self.path in targets:
                 self.send_response(302)
                 self.send_header("Location", targets[self.path])
@@ -93,6 +106,13 @@ def test_rendered_redirect_to_a_tokenised_address_is_never_requested(redirecting
     with guarded(f"{base}/start"), pytest.raises(FetchError, match="personal parameters"):
         download_rendered(f"{base}/start")
     assert not any(path.startswith("/target") for path in log)
+
+
+def test_rendered_redirect_to_a_non_public_address_is_never_requested(redirecting_site):
+    base, log = redirecting_site
+    with guarded(f"{base}/metadata"), pytest.raises(FetchError, match="non-public address"):
+        download_rendered(f"{base}/metadata")
+    assert log == ["/metadata"]
 
 
 def test_rendered_second_hop_is_checked_too(redirecting_site):

@@ -614,7 +614,8 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
         `screening failed` or `finder failed` (the user can retry); 422 `invalid request` for
         an empty paste or a part over 2,000,000 characters."""
         try:
-            answer = alert_mail.preview(intake, body.html, body.text, mail_record)
+            answer = alert_mail.preview(
+                intake, body.html if (body.html or "").strip() else None, body.text, mail_record)
         except alert_mail.FinderError as error:
             return problem(502, str(error), "reading the mail failed; try again")
         return answer | {"screening": intake.guard.classifier is not None}

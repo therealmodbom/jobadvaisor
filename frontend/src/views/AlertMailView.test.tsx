@@ -514,6 +514,34 @@ test('after a reload the forced row sits in its original report again', async ()
   expect(rows[1]).toHaveTextContent('Hinzugefügt')
 })
 
+test('after a second stored-anyway run and a reload the report still comes from the original run', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  const ids = ['r2', 'r3']
+  const routes = {
+    'GET /postings/p-9': { body: { posting: { title: 'Lead Engineer Video', company: 'Musterdienst GmbH' } } },
+    'GET /alert-mails/runs/r1': { body: run([
+      row(1, 'duplicate', { posting_id: 'p-9', duplicate_by: 'text' }),
+      row(2, 'duplicate', { posting_id: 'p-9', duplicate_by: 'text' }),
+      row(3, 'stored', { posting_id: 'p-3' }),
+    ], { status: 'done' }) },
+    'POST /alert-mails/runs': () => ({ status: 202, body: { run_id: ids.shift() } }),
+    'GET /alert-mails/runs/r2': { body: run([row(1, 'stored', { posting_id: 'p-10' })], { run_id: 'r2', status: 'done' }) },
+    'GET /alert-mails/runs/r3': { body: run([row(2, 'stored', { posting_id: 'p-11' })], { run_id: 'r3', status: 'done' }) },
+  }
+  stubApi(routes)
+  const first = view()
+  for (let round = 0; round < 2; round++) {
+    await userEvent.click((await screen.findAllByRole('button', { name: 'Trotzdem als neue Anzeige speichern' }))[0])
+    await userEvent.click(await screen.findByRole('button', { name: 'Ja, als neue Anzeige speichern' }))
+    await waitFor(() => expect(screen.getAllByText('Hinzugefügt').length).toBeGreaterThan(round + 1))
+  }
+  first.unmount()
+  stubApi(routes)
+  view()
+  await waitFor(() => expect(rowsOf(screen.getByRole('list', { name: 'Stand je Anzeige' }))).toHaveLength(3))
+})
+
 test('two open confirmations do not share an id', async () => {
   sessionStorage.setItem(RUN_KEY, 'r1')
   stubApi({

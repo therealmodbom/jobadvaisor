@@ -2,10 +2,8 @@
 job alert mail lists, as title and cleaned link, read by fixed link rules or, for other senders,
 by the intake model choosing link numbers. Nothing is fetched here."""
 
-import ipaddress
 import json
 import re
-import socket
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -19,7 +17,7 @@ from pydantic import BaseModel, Field
 from jobadvaisor.intake.bundesagentur import reference_number
 from jobadvaisor.intake.duplicates import normalize_url
 from jobadvaisor.intake.ladder import is_login_walled, login_wall_hosts
-from jobadvaisor.intake.links import linkedin_job_id, strip_query
+from jobadvaisor.intake.links import linkedin_job_id, public_link, strip_query
 from jobadvaisor.intake.postings import Intake, read_policy_pack
 from jobadvaisor.tools.prompts import DATA_RULE, data_block
 
@@ -179,14 +177,15 @@ def find_postings(html: str | None, text: str, *, model, guard) -> Found:
     """The postings the mail (`read_mail`) lists. When any link matches a rule, the rules read
     the mail without a model call, and `unread_hosts` names the hosts of other kept links.
     Otherwise the `model` reads it behind the content `guard` (`_model_path`)."""
-    links = [item for item in read_mail(html, text) if isinstance(item, Link)]
+    items = read_mail(html, text)
+    links = [item for item in items if isinstance(item, Link)]
     hosts: dict[str, int] = {}
     for link in links:
         host = _host(link.url)
         hosts[host] = hosts.get(host, 0) + 1
     matched = [(link, rule_for(link.url)) for link in links]
     if not any(found for _, found in matched):
-        return _model_path(read_mail(html, text), model, guard, hosts)
+        return _model_path(items, model, guard, hosts)
     groups: dict[tuple[str, str], list[Link]] = {}
     unread: dict[str, set[str]] = {}
     for link, found in matched:
@@ -226,15 +225,26 @@ class _Picks(BaseModel):
 def model_view(items: list[str | Link]) -> tuple[str, list[Link]]:
     """The text the model reads, at most `MAX_MODEL_TEXT` characters, and its numbered links:
     each link the drop list keeps is written `[text](#N host/path)`, every other link as its
-    text. Every URL in a text keeps its host and path only, with opaque segments as `…`."""
-    lines, numbered = [], []
+    text. Every URL in a text keeps its host and path only, with opaque segments as `…`. The
+    view ends before the first item that no longer fits, so a link the model never sees has no
+    number."""
+    lines, numbered, size = [], [], 0
     for item in items:
         if isinstance(item, Link) and not dropped(item):
-            numbered.append(item)
-            lines.append(f"[{_mask_urls(item.text)}](#{len(numbered)} {_host_path(item.url)})")
+            line = f"[{_mask_urls(item.text)}](#{len(numbered) + 1} {_host_path(item.url)})"
+            keep = True
         else:
-            lines.append(_mask_urls(item.text if isinstance(item, Link) else item))
-    return "\n".join(line for line in lines if line)[:MAX_MODEL_TEXT], numbered
+            line = _mask_urls(item.text if isinstance(item, Link) else item)
+            keep = False
+        if not line:
+            continue
+        if size + len(line) + 1 > MAX_MODEL_TEXT:
+            break
+        lines.append(line)
+        size += len(line) + 1
+        if keep:
+            numbered.append(item)
+    return "\n".join(lines), numbered
 
 
 def _host_path(url: str) -> str:
@@ -283,8 +293,9 @@ def _model_path(items: list[str | Link], model, guard, hosts: dict[str, int]) ->
         entries += ([Entry(url, titles[0])] if len(distinct) == 1 else
                     [Entry(url, title, ambiguous=True) for title in titles])
     entries.sort(key=lambda entry: next(n for n, t in groups[entry.url] if t == entry.title))
-    return Found(entries[:MAX_ENTRIES], ["model"], [], truncated=len(entries) > MAX_ENTRIES,
-                 hosts=hosts)
+    cut = len(numbered) < sum(isinstance(i, Link) and not dropped(i) for i in items)
+    return Found(entries[:MAX_ENTRIES], ["model"], [], hosts=hosts,
+                 truncated=len(entries) > MAX_ENTRIES or cut)
 
 
 def read_mail(html: str | None, text: str) -> list[str | Link]:
@@ -299,27 +310,6 @@ def read_mail(html: str | None, text: str) -> list[str | Link]:
         if item:
             out.append(item)
     return out
-
-
-def public_link(url: str) -> bool:
-    """Whether `url` is an absolute http(s) address on a public host: not `localhost`, not a
-    single-label host, and no IP address in a loopback, private, link-local or reserved range,
-    in any form the resolver reads (`127.1`, `0x7f.0.0.1`, `0177.0.0.1`, `2130706433`)."""
-    try:
-        parts = urlsplit(url)
-        host = (parts.hostname or "").rstrip(".").lower()
-    except ValueError:
-        return False
-    if parts.scheme.lower() not in ("http", "https") or not host:
-        return False
-    try:
-        return ipaddress.ip_address(host).is_global
-    except ValueError:
-        pass
-    try:
-        return ipaddress.ip_address(socket.inet_aton(host)).is_global
-    except OSError:
-        return "." in host and host != "localhost" and not host.endswith(".localhost")
 
 
 def _clean(text: str) -> str:
