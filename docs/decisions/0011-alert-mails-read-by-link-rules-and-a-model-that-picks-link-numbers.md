@@ -6,12 +6,21 @@ Accepted, 2026-11-13.
 
 ## Context
 
-A job alert mail lists several postings, each behind one or more links. Its links carry recipient-specific parameters, some of them login tokens, so a link must never reach a model provider, the content guard's classifier or the trace store as it stands ([ADR 0012](0012-links-from-a-mail-cleaned-by-an-allow-list.md)). A pasted mail is a body only, without the sender's address, so the sender can be identified only by the shape of its links. The mail is untrusted content (posting-intake, "Untrusted content screened"), and the rendered HTML of one alert can run to around 90 KB.
+The user pastes a job alert mail that lists several postings. For each posting the app needs a title and a link to the posting's page. Two facts make this hard:
+
+- **The links are personal.** A link in an alert mail carries parameters for the recipient, and some are login tokens: anyone holding the link can sign in as the recipient. Such a link must not reach the model provider, the content guard's classifier or the trace store, and not the data repository ([ADR 0012](0012-links-from-a-mail-cleaned-by-an-allow-list.md)).
+- **The sender is unknown.** A paste is a mail body without the sender's address, so a sender can be told only by the shape of its links. The mail is also untrusted content (posting-intake, "Untrusted content screened"), and the rendered HTML of one alert can run to around 90 KB.
+
+There are two ways to find the posting links. A *rule* is code for one known sender: it recognizes a posting link by its host and path (for example `linkedin.com/jobs/view/<id>`), reads the posting's ID from it and rebuilds the plain URL. It is exact and free, but exists only for senders someone wrote it for. A *model* can read any mail, but it is slower, costs money and sees what it is given.
 
 ## Decision
 
-- **Fixed link rules for known senders.** A rule recognises a posting link by its host and path, names the posting's ID, and rebuilds the posting's URL from that ID. A mail with at least one link a rule reads is read by the rules alone, and no model is called.
-- **A model for every other mail, and it only picks link numbers.** The mail is reduced to its visible text, with each link replaced by a number. The model answers with link numbers and titles. A number the mail does not hold is dropped, and a URL the model writes is ignored. The model reads a mail only after the content guard has screened it.
+- **Rules first, for known senders.** Three rules exist: LinkedIn, the Bundesagentur für Arbeit and a career-site platform used by many employers. If at least one link in the mail matches a rule, the mail counts as coming from a known sender. The rules then read the whole mail, and no model is called. Reason: a known sender needs no model, and nothing personal leaves the app.
+- **A model for every other mail, and it never sees a link target.**
+  - The mail is reduced to its visible text. Each link is replaced by a number, its text, and its host and path, for example `[Senior Developer](#3 example.com/jobs/…)`. No query reaches the model.
+  - The model answers with link numbers and titles, such as "3: Senior Developer". The app takes the real, cleaned URL from its own copy of the mail.
+  - A number the mail does not hold is dropped, and a URL the model writes is ignored.
+  - The model reads a mail only after the content guard has screened it.
 
 ## Alternatives considered
 
@@ -20,6 +29,7 @@ A job alert mail lists several postings, each behind one or more links. Its link
 
 ## Consequences
 
+- The worst a wrong model answer can do is pick the wrong link number. The pick list shows every entry before anything is fetched, so the user can deselect it.
 - A mail with at least one link a rule reads lists only the postings the rules read. A mail from an unknown sender that also holds one LinkedIn job link lists only that job. Alert mails come from one sender each, so this is accepted.
 - With screening off, mails from unknown senders are not read at all.
 - Adding a sender is code: a rule, a fictional fixture and an eval case.
