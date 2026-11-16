@@ -121,12 +121,12 @@ TDD per task: a failing test first, then the code. Fixtures are anonymized real 
 - [x] 8.1 `evals/alert_mail.py`:
   - *postings found* and *links correct* as DeepEval custom metrics without a judge, loaded through `load_deepeval(state_path(…))`;
   - the empty-case and `held` scoring from design.md;
-  - figures per rule and for the model, with each case's figures and the guard's name;
-  - a model factory, so the model cases report `skipped` with the reason when no `intake` model or no classifier is configured, while the rule cases run;
+  - figures for the model on the mails no rule reads, with each case's figures and the guard's name;
+  - a model factory, so the model cases report `skipped` with the reason when no `intake` model or no classifier is configured;
   - registered as `alert_mail` in `evals/__main__.py`.
 
-  Verify with `test_eval_alert_mail.py` using the `deepeval` fixture and a fake model: rule cases at 1.0 for both metrics, the no-postings case at 1.0, the report's shape, and the skipped model cases.
-- [x] 8.2 A default-run `pytest` test runs the rule cases and the no-postings case of the eval without DeepEval. Verify that it is collected by `uv run pytest` and fails when a fixture's expected title is changed.
+  Verify with `test_eval_alert_mail.py` using the `deepeval` fixture and a fake model: only the three model cases in the report, its shape, and the skipped model cases.
+- [x] 8.2 A regression test (`test_alert_mail_regression.py`) runs the rule cases and the no-postings case in the default `pytest`, without DeepEval and without a model, apart from the eval (`AGENTS.md` → Evaluation). Verify that it is collected by `uv run pytest` and fails when a fixture's expected title is changed.
 
 ## 9. Documentation and issues
 
@@ -143,7 +143,7 @@ TDD per task: a failing test first, then the code. Fixtures are anonymized real 
 
 - [x] 10.1 Full suite: backend `uv run ruff check`, `uv run pytest`, `uv run pytest -m e2e`; frontend `npm run lint`, `npm test`, `npm run build`. Add one e2e walkthrough first: paste a rule fixture's HTML (a synthetic paste event carrying `text/html`), see the pick list with one stored entry marked, add the rest with fake fetchers, and see them stored. Verify that all pass.
 - [x] 10.2 Browser click test at desktop and phone width on the demo persona, with a pasted anonymized fixture mail, including one failing entry. Verify by screenshots in the PR, and name what the test cannot show: a real mail client's clipboard and real alert senders.
-- [ ] 10.3 Paid eval run of `alert_mail` (model cases, with the configured classifier), on request, with its cost measured and named first. Verify that the report is quoted in the PR.
+- [ ] 10.3 Paid eval run of `alert_mail` (the model cases, with the configured classifier), once per model to compare, on request, with its cost measured and named first. Verify that the report is quoted in the PR.
 - [ ] 10.4 Review:
   - a fresh review agent without history checks the diff against the specs and tasks;
   - `/code-review high` runs on the diff;

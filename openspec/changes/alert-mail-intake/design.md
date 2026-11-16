@@ -189,13 +189,13 @@ An alert run and a list import may compute at the same time. Both store through 
   - a case that expects nothing and returns nothing scores 1.0 on both;
   - a case that expects `held` scores 1.0 on both when the answer is held, and 0.0 otherwise;
   - ambiguous entries count as returned.
-  - Both are reported per rule and for the model, with each case's figures and the name of the guard that ran.
+  - Both are reported for the model, with each case's figures and the name of the guard that ran.
 - Framework:
   - The two metrics are DeepEval custom metrics without an LLM judge (`BaseMetric`, as `extraction_accuracy.py` does). They are scored with DeepEval's evaluate through `load_deepeval(state_path(settings, repository.root))`, and the test uses the `deepeval` fixture of `tests/conftest.py`.
   - Case loading and the per-rule grouping stay custom, as in the extractor benchmark.
-  - The eval is `alert_mail` in `evals/__main__.py`. It receives a model factory, not a model, because `_run` turns a `ModelNotConfiguredError` raised at the entry into a skip of the whole eval. The model cases build the model themselves and report `skipped` with the reason on that error, while the rule cases run anyway.
+  - The eval is `alert_mail` in `evals/__main__.py`. It receives a model factory, not a model, because `_run` turns a `ModelNotConfiguredError` raised at the entry into a skip of the whole eval. The model cases build the model themselves and report `skipped` with the reason on that error.
 - Screening: the injection case expects `held` with a classifier configured. Without one, the model cases report `skipped` (screening off), which is what the spec asks.
-- Default test run: a `pytest` test runs the rule cases and the no-postings case without DeepEval, so a rule regression fails CI.
+- Eval and regression test are separate (`AGENTS.md` → Evaluation). The eval measures the model on the mails no rule reads (the two unknown senders and the injection case), once per model, so its figures compare models. The rule is deterministic: the mails the rules read and the mail without postings are a regression test in the default `pytest` (`test_alert_mail_regression.py`), which needs no model and fails CI when a rule or an expected title changes.
 - Cost: the paid part is three model cases, one classifier call and at most one `intake` call each. The run happens once at the change's wrap-up, on request, with its cost measured and named first.
 
 ## Risks / Trade-offs

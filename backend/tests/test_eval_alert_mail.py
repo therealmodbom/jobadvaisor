@@ -1,5 +1,6 @@
-"""The alert-mail eval (`design.md` → Eval): postings found and links correct, per rule and for
-the model."""
+"""The alert-mail eval (`design.md` → Eval): how well a model picks the postings of a mail no rule
+reads, as postings found and links correct. The rule cases are a regression test
+(`test_alert_mail_regression.py`), not part of the eval."""
 
 import json
 import re
@@ -10,12 +11,11 @@ from test_guard import THRESHOLDS, StubClassifier
 
 from jobadvaisor.evals import alert_mail
 from jobadvaisor.evals.__main__ import EVALS
-from jobadvaisor.intake.alert_mail import Entry, Found, find_postings
+from jobadvaisor.intake.alert_mail import Entry, Found
 from jobadvaisor.llm import ModelNotConfiguredError
 from jobadvaisor.tools.guard import ContentGuard
 
-RULE_CASES = {"linkedin-digest", "linkedin-single", "ba-list", "ba-plain", "career-site-a",
-              "career-site-b"}
+MODEL_CASES = {"unknown-jobid", "unknown-redirect", "injection"}
 
 
 def not_configured():
@@ -33,25 +33,21 @@ def test_scores(expected, found, scores):
     assert alert_mail.scores(expected, found) == scores
 
 
-def test_rule_cases_score_one_and_model_cases_are_skipped_without_a_model(deepeval):
+def test_the_eval_runs_only_the_model_cases_and_skips_them_without_a_model(deepeval):
     report = alert_mail.run(not_configured, ContentGuard(StubClassifier(), THRESHOLDS), "m",
                             deepeval)
-    cases = {case["case"]: case for case in report["cases"]}
-    assert {name for name, case in cases.items() if case.get("postings_found") == 1.0
-            and case.get("links_correct") == 1.0} == RULE_CASES | {"no-postings"}
-    assert all("not set" in cases[name]["skipped"]
-               for name in ("unknown-jobid", "unknown-redirect", "injection"))
-    assert report["groups"]["linkedin"] == {"cases": 2, "postings_found": 1.0,
-                                            "links_correct": 1.0}
-    assert set(report["groups"]) == {"linkedin", "bundesagentur", "career_site", "model"}
+    assert {case["case"] for case in report["cases"]} == MODEL_CASES
+    assert all("not set" in case["skipped"] for case in report["cases"])
+    assert report["figures"]["cases"] == 0 and "not set" in report["figures"]["skipped"]
     assert report["eval"] == "alert_mail" and report["guard"] == "stub"
+    assert "groups" not in report
 
 
 def test_model_cases_are_skipped_with_screening_off(deepeval):
     report = alert_mail.run(lambda: FakeStructuredModel(), ContentGuard(None, {}), "m", deepeval)
-    cases = {case["case"]: case for case in report["cases"]}
-    assert cases["unknown-jobid"]["skipped"] == "screening off"
-    assert cases["no-postings"]["postings_found"] == 1.0 and report["guard"] is None
+    assert {case["case"]: case["skipped"] for case in report["cases"]} == {
+        name: "screening off" for name in MODEL_CASES}
+    assert report["guard"] is None
 
 
 def test_model_cases_are_scored_with_a_model(deepeval):
@@ -70,22 +66,8 @@ def test_model_cases_are_scored_with_a_model(deepeval):
             return Runnable()
 
     report = alert_mail.run(Picker, ContentGuard(StubClassifier(), THRESHOLDS), "m", deepeval)
-    model = report["groups"]["model"]
-    assert model["cases"] == 4 and 0 < model["links_correct"] < 1
-
-
-@pytest.mark.parametrize("case", sorted(RULE_CASES | {"no-postings"}))
-def test_default_run_rule_cases_match_their_fixture(case):
-    """Runs in the default `pytest`, without DeepEval: a rule regression or a changed expected
-    title fails CI."""
-    mail = next(mail for mail in alert_mail.load_cases() if mail.name == case)
-    found = find_postings(mail.html, mail.text, model=None, guard=ContentGuard(None, {}))
-    assert [{"url": e.url, "title": e.title} for e in found.entries] == mail.expected
-
-
-def test_cases_cover_every_fixture():
-    assert {mail.name for mail in alert_mail.load_cases()} == RULE_CASES | {
-        "no-postings", "unknown-jobid", "unknown-redirect", "injection"}
+    figures = report["figures"]
+    assert figures["cases"] == 3 and 0 < figures["links_correct"] < 1
 
 
 def test_alert_mail_is_registered():

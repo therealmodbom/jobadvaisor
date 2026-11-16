@@ -1,14 +1,14 @@
-"""The alert-mail eval (`openspec/changes/alert-mail-intake/design.md` → Eval): the finder on
-anonymized alert mails, scored as *postings found* and *links correct* with two DeepEval
-metrics without a judge, per rule and for the model.
+"""The alert-mail eval (`openspec/changes/alert-mail-intake/design.md` → Eval): how well a model
+picks the postings of an anonymized alert mail that no rule reads, scored as *postings found*
+and *links correct* with two DeepEval metrics without a judge. It measures the model, so it
+runs once per model and its figures are compared between models; the mails the rules read are
+the regression test `tests/test_alert_mail_regression.py`.
 
 Each case is `fixtures/intake/alert-mails/<case>.html` or `.txt` with `<case>.json`: the
-expected `[{url, title}]` after cleaning, or `{"held": true}`. Links are compared exactly; a
-case's group is the rule that reads its links, else `model`.
+expected `[{url, title}]` after cleaning, or `{"held": true}`. Links are compared exactly.
 """
 
 import json
-from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass
 from statistics import mean
@@ -67,12 +67,14 @@ def scores(expected: list[dict] | dict, found: Found) -> tuple[float, float]:
     return (hit / len(wanted) if wanted else 1.0, hit / len(got) if got else 1.0)
 
 
-def group(case: Case) -> str:
-    """The rule that reads the case's first matching link, else `model`."""
-    for item in read_mail(case.html, case.text):
-        if isinstance(item, Link) and (found := rule_for(item.url)):
-            return found[0].name
-    return "model"
+def needs_model(case: Case) -> bool:
+    """Whether the finder has to ask a model for this mail: no rule reads one of its links and
+    links are left after the drop list. The other mails are the rules' regression test
+    (`tests/test_alert_mail_regression.py`), which measures no model."""
+    items = read_mail(case.html, case.text)
+    if any(isinstance(item, Link) and rule_for(item.url) for item in items):
+        return False
+    return bool(model_view(items)[1])
 
 
 def _metric(deepeval: DeepEval, name: str, index: int):
@@ -113,30 +115,27 @@ class _Url:
 
 def run(model_factory: Callable[[], BaseChatModel], guard: ContentGuard, model_name: str,
         deepeval: DeepEval) -> dict:
-    """The report: each case's figures, or `skipped` with the reason for a model case when no
-    classifier or no `intake` model is configured (`model_factory` raises
-    `ModelNotConfiguredError`), and the mean figures per group. Rule cases run regardless."""
+    """The report for the model `model_name` on the mails no rule reads: each case's figures, or
+    `skipped` with the reason when no classifier or no `intake` model is configured
+    (`model_factory` raises `ModelNotConfiguredError`), and the mean `figures`. Comparing
+    models or prompt versions means running it once per model and comparing these figures."""
     rows, test_cases, names = [], [], []
-    for case in load_cases():
-        kind = group(case)
-        needs_model = kind == "model" and model_view(read_mail(case.html, case.text))[1]
-        model = None
-        if needs_model and guard.classifier is None:
-            rows.append({"case": case.name, "group": kind, "skipped": "screening off"})
+    for case in (case for case in load_cases() if needs_model(case)):
+        if guard.classifier is None:
+            rows.append({"case": case.name, "skipped": "screening off"})
             continue
-        if needs_model:
-            try:
-                model = model_factory()
-            except ModelNotConfiguredError as error:
-                rows.append({"case": case.name, "group": kind, "skipped": str(error)})
-                continue
+        try:
+            model = model_factory()
+        except ModelNotConfiguredError as error:
+            rows.append({"case": case.name, "skipped": str(error)})
+            continue
         try:
             found = find_postings(case.html, case.text, model=model, guard=guard)
         except Exception as error:  # a failed case scores 0 and the eval goes on
             found = Found([], [], [])
-            rows.append({"case": case.name, "group": kind, "error": type(error).__name__})
+            rows.append({"case": case.name, "error": type(error).__name__})
         else:
-            rows.append({"case": case.name, "group": kind})
+            rows.append({"case": case.name})
         names.append(len(rows) - 1)
         test_cases.append(deepeval.LLMTestCase(
             input=case.name, expected_output=json.dumps(case.expected),
@@ -150,18 +149,14 @@ def run(model_factory: Callable[[], BaseChatModel], guard: ContentGuard, model_n
         for row_index, test_result in zip(names, result.test_results, strict=True):
             for metric in test_result.metrics_data:
                 rows[row_index][metric.name] = metric.score
-    groups = defaultdict(list)
-    for row in rows:
-        groups[row["group"]].append(row)
     return {"eval": "alert_mail", "model": model_name,
             "guard": guard.classifier.name if guard.classifier else None,
-            "groups": {name: _figures(members) for name, members in groups.items()},
-            "cases": rows}
+            "figures": _figures(rows), "cases": rows}
 
 
 def _figures(rows: list[dict]) -> dict:
     scored = [row for row in rows if "postings_found" in row]
     if not scored:
-        return {"cases": 0, "skipped": rows[0].get("skipped")}
+        return {"cases": 0, "skipped": rows[0].get("skipped") if rows else None}
     return {"cases": len(scored)} | {metric: mean(row[metric] for row in scored)
                                      for metric in METRICS}

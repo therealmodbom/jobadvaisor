@@ -85,6 +85,8 @@ A significant, non-obvious decision (a real alternative was rejected) gets an AD
 
 Every LLM-backed behavior ships with an automated quality eval in its own change. A structural or mocked test does not count. The mechanism per rule (prompt, retrieval, graph node, guardrail, decision model) is chosen case by case and backed by an eval result.
 
+**Evals and regression tests are two things.** An eval or benchmark measures an LLM: how well a model or a prompt does a task, so that the figures can be compared between models, prompt versions and over time. It lives in `evals/`, runs on request or at a change's wrap-up, and its paid runs name their cost first. A regression test pins the behavior of deterministic code (rules, parsers, graph wiring) to a fixture, runs in the default `pytest` and needs no model. It may report through DeepEval, but it is never an eval and never sits in `evals/`: a figure that is always 1.0 for the same code measures nothing. A fixture belongs to one of the two, and a test names which.
+
 ## Issue tracking
 
 Open points and deferred work are GitHub Issues in this repository. Labels: `bug`, `enhancement`, `documentation`, `housekeeping`, `priority:high|medium|low`.
