@@ -241,6 +241,58 @@ export type ImportState = {
   tables_left_out: { name: string; entries: number }[]
 }
 
+/** `POST /alert-mails/preview` body: the pasted mail's `html` part (null when the clipboard had
+ * none) and its plain `text`. */
+export type AlertMailBody = { html: string | null; text: string }
+
+/** One posting the finder found in a mail, links already cleaned. `duplicate` names the stored
+ * posting the link matches, `login_walled` marks a host the app never fetches, and `ambiguous`
+ * a link several different postings share. */
+export type AlertEntry = {
+  url: string
+  title: string
+  duplicate: { posting_id: string; title: string } | null
+  login_walled: boolean
+  ambiguous: boolean
+}
+
+/** `POST /alert-mails/preview`: the postings found (at most 100, `truncated` when there were more),
+ * the finder that read the mail (`read_by`: rule names or `model`), the hosts of links no rule
+ * read, `held` (the content guard held the mail), `model_skipped` (a reason when the model could
+ * not run, e.g. `screening off`) and `screening` (a classifier is configured). */
+export type AlertPreview = {
+  entries: AlertEntry[]
+  read_by: string[]
+  unread_hosts: { host: string; links: number }[]
+  held: boolean
+  model_skipped: string | null
+  screening: boolean
+  truncated: boolean
+}
+
+/** One entry of an alert run: `state` is where it is; a stored or duplicate entry has its
+ * `posting_id`, a duplicate its `duplicate_by`, a failed one its `attempts` or an English
+ * `reason` (not shown). */
+export type AlertRunEntry = {
+  url: string
+  title: string
+  state: 'waiting' | 'running' | 'stored' | 'duplicate' | 'failed'
+  posting_id?: string
+  duplicate_by?: 'url' | 'text' | 'similar_text'
+  attempts?: Attempt[]
+  reason?: string
+}
+
+/** `GET /alert-mails/runs/{id}`: progress of an alert run. `error` is a code, never shown. */
+export type AlertRunState = {
+  run_id: string
+  status: 'running' | 'done' | 'failed'
+  error: string | null
+  total: number
+  done: number
+  entries: AlertRunEntry[]
+}
+
 /** One entry of the `POST /postings/batch` answer, in the order the links were sent. A failed
  * link has `detail` (English, not shown) and, when fetching was tried, its `attempts`. */
 export type BatchResult =

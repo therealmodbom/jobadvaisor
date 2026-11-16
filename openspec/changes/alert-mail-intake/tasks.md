@@ -92,7 +92,7 @@ TDD per task: a failing test first, then the code. Fixtures are anonymized real 
 
 ## 6. Design artifact session (gate for the UI)
 
-- [ ] 6.1 Design the alert-mail source in a Design artifact on the "JobAdvAIsor Design System", before group 7 starts:
+- [x] 6.1 Design the alert-mail source in a Design artifact on the "JobAdvAIsor Design System", before group 7 starts:
   - the source button;
   - the paste field with its hint and "Stellen finden", the finding state, and the screening line;
   - the pick list with new, stored, login-walled, not-addable and deselected rows, the truncation note, and the note for links that were not read;
@@ -104,8 +104,8 @@ TDD per task: a failing test first, then the code. Fixtures are anonymized real 
 
 ## 7. Frontend
 
-- [ ] 7.1 API types in `api.ts` and the paste handling: `onPaste` keeps `text/html` and shows `text/plain`, a new paste replaces both, and clearing drops both. Verify with Vitest tests that dispatch a paste with both flavors, with plain text only, and a second paste.
-- [ ] 7.2 `AlertMailView` as designed in 6.1:
+- [x] 7.1 API types in `api.ts` and the paste handling: `onPaste` keeps `text/html` and shows `text/plain`, a new paste replaces both, and clearing drops both. Verify with Vitest tests that dispatch a paste with both flavors, with plain text only, and a second paste.
+- [x] 7.2 `AlertMailView` as designed in 6.1:
   - the preview call with its states (found, nothing found, screening off, held, 502 with retry and the mail kept);
   - the pick list (new preselected; stored marked, linked and disabled; login-walled not preselected; not-addable disabled with the text option; the count in the action; the truncation note; the note naming the hosts of links that were not read, with their counts);
   - the run, polled every second, with per-row states, attempts and the text and PDF buttons;
@@ -114,7 +114,7 @@ TDD per task: a failing test first, then the code. Fixtures are anonymized real 
   - "Andere Mail einfügen".
 
   Move `AttemptList` to a shared component. Verify with component tests for each state, and with tests that switching the source away and back keeps a run polling, and that a remount with a stored run ID attaches to the run.
-- [ ] 7.3 `IntakeView` gains the source "Alert-Mail", and mounts `AlertMailView` beside `ImportView`, outside the form, hidden while another source shows, with `switchTo('text')` and `switchTo('pdf')` as its callbacks. Verify with the existing `IntakeView` tests plus one for the new source and one for the text button switching the source.
+- [x] 7.3 `IntakeView` gains the source "Alert-Mail", and mounts `AlertMailView` beside `ImportView`, outside the form, hidden while another source shows, with `switchTo('text')` and `switchTo('pdf')` as its callbacks. Verify with the existing `IntakeView` tests plus one for the new source and one for the text button switching the source.
 
 ## 8. Eval
 

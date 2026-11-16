@@ -1,7 +1,9 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Check, CircleAlert, LoaderCircle, ShieldAlert, ShieldCheck, ShieldOff, Upload, X } from 'lucide-react'
 import { api, ApiError, type Attempt, type BatchResult, type IntakeAnswer, type Posting } from '@/api'
+import { AttemptList } from '@/components/attempts'
 import { PostingFields } from '@/components/posting'
+import { AlertMailView } from '@/views/AlertMailView'
 import { ImportView } from '@/views/ImportView'
 import { ErrorWithRetry, Loading } from '@/components/states'
 import { Button } from '@/components/ui/button'
@@ -9,7 +11,7 @@ import { Input, Textarea } from '@/components/ui/input'
 import { categoryNames } from '@/lib/german'
 import { cn } from '@/lib/utils'
 
-type Source = 'url' | 'text' | 'pdf'
+type Source = 'url' | 'text' | 'pdf' | 'mail'
 type Status =
   | { kind: 'idle' }
   | { kind: 'running' }
@@ -18,17 +20,7 @@ type Status =
   | { kind: 'done'; answer: IntakeAnswer }
   | { kind: 'batch'; results: BatchResult[] }
 
-const SOURCES: [Source, string][] = [['url', 'Link(s)'], ['text', 'Text einfügen'], ['pdf', 'PDF']]
-
-const STEPS: Record<string, string> = {
-  bundesagentur: 'Jobbörse der Bundesagentur',
-  plain: 'Einfacher Abruf',
-  rendered: 'Abruf im Browser',
-  login_wall: 'Seite mit Login-Pflicht',
-  'loop:fetch_plain': 'Weitere Seite, einfacher Abruf',
-  'loop:fetch_rendered': 'Weitere Seite, Abruf im Browser',
-  'loop:search_alternative_source': 'Websuche nach einer anderen Quelle',
-}
+const SOURCES: [Source, string][] = [['url', 'Link(s)'], ['text', 'Text einfügen'], ['pdf', 'PDF'], ['mail', 'Alert-Mail']]
 
 /** German text for a failed intake request; the API's own detail is English and stays out. */
 function intakeError(error: unknown): string {
@@ -40,11 +32,12 @@ function intakeError(error: unknown): string {
   return 'Beim Speichern ist ein Fehler aufgetreten.'
 }
 
-/** The intake view: submit a posting by link (several at once, one per line), text or PDF, check
- * the fields the app filled, release a flagged posting, and edit the hosts that are never
- * fetched anonymously. With `list` (route `#/importieren`) it shows the source "Liste", the list
- * import (`ImportView`), which stays mounted while another source shows, so an import keeps
- * polling; choosing "Liste" or leaving it changes the route. */
+/** The intake view: submit a posting by link (several at once, one per line), text or PDF, or by a
+ * pasted job alert mail (the source "Alert-Mail", `AlertMailView`), check the fields the app
+ * filled, release a flagged posting, and edit the hosts that are never fetched anonymously.
+ * With `list` (route `#/importieren`) it shows the source "Liste", the list import
+ * (`ImportView`). Both views stay mounted while another source shows, so an import or an alert
+ * run keeps polling; choosing "Liste" or leaving it changes the route. */
 export function IntakeView({ list = false }: { list?: boolean }) {
   const [source, setSource] = useState<Source>('url')
   const [url, setUrl] = useState('')
@@ -96,8 +89,8 @@ export function IntakeView({ list = false }: { list?: boolean }) {
       <div>
         <h1 className="text-3xl leading-tight font-bold tracking-tight">Anzeige hinzufügen</h1>
         <p className="mt-1.5 text-muted-foreground">
-          Gib einen Link, den Anzeigentext oder ein PDF an, oder importiere eine ganze Liste. Titel,
-          Firma und Ort werden ausgefüllt, du prüfst sie danach.
+          Gib einen Link, den Anzeigentext oder ein PDF an, füge eine Alert-Mail ein oder importiere
+          eine ganze Liste. Titel, Firma und Ort werden ausgefüllt, du prüfst sie danach.
         </p>
       </div>
 
@@ -116,7 +109,11 @@ export function IntakeView({ list = false }: { list?: boolean }) {
 
       <div hidden={!list}><ImportView /></div>
 
-      <div hidden={list} className="flex flex-col gap-6">
+      <div hidden={list || source !== 'mail'}>
+        <AlertMailView onUrl={() => switchTo('url')} onText={() => switchTo('text')} onPdf={() => switchTo('pdf')} />
+      </div>
+
+      <div hidden={list || source === 'mail'} className="flex flex-col gap-6">
         <form onSubmit={submit} className="flex flex-col gap-4 rounded-xl border bg-card p-5 shadow-card">
           {source === 'url' && (
             <div className="flex flex-col gap-1.5">
@@ -213,22 +210,6 @@ function FailedLink({ attempts, onText, onPdf, onRetry }: {
         <Button type="button" variant="outline" onClick={onRetry}>Link erneut versuchen</Button>
       </div>
     </section>
-  )
-}
-
-/** The steps tried for a link, one line each, with their outcome in German. */
-function AttemptList({ attempts, className }: { attempts: Attempt[]; className?: string }) {
-  return (
-    <ol className={cn('flex list-decimal flex-col gap-1 pl-5', className)}>
-      {attempts.map((attempt, index) => (
-        <li key={index}>
-          {STEPS[attempt.step] ?? attempt.step}:{' '}
-          {attempt.outcome === 'skipped' ? 'übersprungen'
-            : attempt.outcome === 'ok' ? 'keine Anzeige gefunden'
-              : <>fehlgeschlagen <span lang="en" className="text-sm text-muted-foreground">({attempt.outcome})</span></>}
-        </li>
-      ))}
-    </ol>
   )
 }
 
