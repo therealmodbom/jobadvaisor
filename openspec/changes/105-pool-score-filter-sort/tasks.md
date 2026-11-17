@@ -24,6 +24,14 @@
 ## 4. Verification
 
 - [x] 4.1 Run `npm --prefix frontend test`, `npm --prefix frontend run lint`, `npm --prefix frontend run build`, `env -C backend uv run pytest -q`, `env -C backend uv run ruff check .` and the e2e suite; all pass
-- [ ] 4.2 Click through the built app in Chrome with the demo persona, at desktop width and at 390 × 844: the range, „ohne Score“, each sort, the reset, J/K in a sorted list, and the selects by keyboard alone; no sideways scroll on the phone; report what the browser check cannot show
+- [x] 4.2 Click through the built app in Chrome with the demo persona, at desktop width and at 390 × 844: the range, „ohne Score“, each sort, the reset, J/K in a sorted list, and the selects by keyboard alone; no sideways scroll on the phone; report what the browser check cannot show. Done 2026-11-17 on a demo copy with made-up scores for 40 postings, served by the backend at the built frontend. Results:
+  - 7 to 9 sorted by score ascending listed exactly the 7s, 8s and 9s in that order.
+  - „ohne Score“ to „ohne Score“ listed the 101 unscored postings and nothing else.
+  - The rating sort gave strong yes, plain yes, weak yes, weak no, plain no, strong no, then unrated.
+  - J moved to the second row of the sorted list.
+  - „Filter zurücksetzen“ after an empty result restored the full range and „Offen“ and kept the sort.
+  - At 390 px, `scrollWidth` equals `clientWidth`, with labels above the selects as designed.
+  
+  Not shown by the browser: keyboard operation of the native selects, since Playwright cannot drive the system's dropdown popup (the selects are focusable and reachable by Tab), and a rating in place under a sort, which was not clicked because a rating may call the embedding model; Vitest task 2.2 covers it.
 - [ ] 4.3 Name the cost of retaking `docs/images/pool.png` (one scoring pass over a fresh demo persona copy, AGENTS.md → README screenshot) and retake it after the go; verify the picture shows the new filter bar, filtered to „Noch nicht bewertet“
 - [x] 4.4 Update the „Current state“ section of `AGENTS.md` with this change and drop its oldest entry; verify the section holds the last two changes
