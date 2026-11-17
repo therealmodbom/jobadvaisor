@@ -19,7 +19,7 @@
 
 ## 3. End to end
 
-- [ ] 3.1 Test first, then add one e2e test to `backend/tests/e2e/test_score_walkthrough.py`: remove one score file (as the posting-page test does) so one posting is unscored again, set „von“ and „bis“ to „ohne Score“ and see only that posting; then set the range to 0 to 0, see the empty result, press „Filter zurücksetzen“ and see the open postings again; repeat the range check at 390 px width and assert the page does not scroll sideways (`scrollWidth` not above `clientWidth`); verify `env -C backend uv run pytest -m e2e` passes after `npm --prefix frontend run build`
+- [x] 3.1 Test first, then add one e2e test to `backend/tests/e2e/test_score_walkthrough.py`: remove one score file (as the posting-page test does) so one posting is unscored again, set „von“ and „bis“ to „ohne Score“ and see only that posting; then set the range to 0 to 0, see the empty result, press „Filter zurücksetzen“ and see the open postings again; repeat the range check at 390 px width and assert the page does not scroll sideways (`scrollWidth` not above `clientWidth`); verify `env -C backend uv run pytest -m e2e` passes after `npm --prefix frontend run build`
 
 ## 4. Verification
 
