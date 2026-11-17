@@ -14,6 +14,7 @@ SCORES_ROOT = REPOSITORY_ROOT / "fixtures" / "readme-scores"
 
 @pytest.fixture(scope="module")
 def demo():
+    """The committed demo persona, loaded once per module."""
     return load(FIXTURE_DIRECTORY)
 
 
@@ -24,6 +25,7 @@ def _scores() -> dict[str, Score]:
 
 
 def test_every_score_file_validates():
+    """Every fixture file parses as a `Score`, and the directory is not empty."""
     assert _scores()
 
 
@@ -37,9 +39,13 @@ def test_files_are_exactly_the_unrated_scorable_demo_postings(demo):
         f"missing: {sorted(expected - actual)}, extra: {sorted(actual - expected)}")
 
 
-def test_example_ids_are_rated_demo_postings(demo):
+def test_example_ids_are_three_other_rated_demo_postings(demo):
+    """Each score names three distinct demo postings with a verdict, none of them itself."""
     for posting_id, score in _scores().items():
-        assert score.example_ids, posting_id
-        for example_id in score.example_ids:
+        ids = score.example_ids
+        assert len(set(ids)) == len(ids) == 3, (posting_id, ids)
+        assert posting_id not in ids, posting_id
+        for example_id in ids:
             assert example_id in demo.postings, (posting_id, example_id)
-            assert demo.labels[example_id].verdict, (posting_id, example_id)
+            label = demo.labels.get(example_id)
+            assert label is not None and label.verdict, (posting_id, example_id)
