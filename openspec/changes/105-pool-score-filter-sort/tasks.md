@@ -2,7 +2,7 @@
 
 ## 0. Gate
 
-- [ ] 0.1 The owner approves the Design artifact [Pool: Score-Bereich und Sortierung](https://claude.ai/artifact/JgVJS42vMhjcTwkAYmt76T) (desktop, desktop with range and sort, phone); verify: the approval is noted here with its date, and any change it asked for is in `design.md` and the artifact
+- [x] 0.1 The owner approves the Design artifact [Pool: Score-Bereich und Sortierung](https://claude.ai/artifact/JgVJS42vMhjcTwkAYmt76T) (desktop, desktop with range and sort, phone); verify: the approval is noted here with its date, and any change it asked for is in `design.md` and the artifact. Approved unchanged on 2026-11-17; the same answer confirmed that „ohne Score“ to 5 lists the unscored postings and those scored 0 to 5.
 
 ## 1. Order and range logic
 
