@@ -7,7 +7,7 @@ import { EmptyState, ErrorWithRetry, Loading } from '@/components/states'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { addedLabel, STATUSES } from '@/lib/german'
-import { FULL_RANGE, inRange, NO_SCORE, SORTS, sortRows, type Range, type Sort } from '@/lib/pool-order'
+import { FULL_RANGE, inRange, NO_SCORE, SORTS, sortRows, TOP_SCORE, type ScoreRange, type Sort } from '@/lib/pool-order'
 import { LEVELS, strayPaste, useRating, type Rating } from '@/lib/rating'
 import { useScore, type ScoreCall } from '@/lib/score'
 import { cn, without } from '@/lib/utils'
@@ -284,7 +284,7 @@ const SELECT = 'min-h-11 rounded-lg border border-input bg-card px-2.5 text-[15p
 
 /** The steps of the score range as `option`s: "ohne Score" (-1), then 0 to 10. */
 function StepOptions() {
-  return Array.from({ length: 12 }, (_, index) => index + NO_SCORE).map((step) => (
+  return Array.from({ length: TOP_SCORE - NO_SCORE + 1 }, (_, index) => index + NO_SCORE).map((step) => (
     <option key={step} value={step}>{step === NO_SCORE ? 'ohne Score' : step}</option>
   ))
 }
@@ -306,7 +306,7 @@ export function PoolView({ active = true }: { active?: boolean }) {
   const [loadFailed, setLoadFailed] = useState(false)
   const [filter, setFilter] = useState('open')
   const [text, setText] = useState('')
-  const [range, setRange] = useState<Range>(FULL_RANGE)
+  const [range, setRange] = useState<ScoreRange>(FULL_RANGE)
   const [sort, setSort] = useState<Sort>('rank')
   const [saving, setSaving] = useState<Record<string, boolean>>({})
   const [failed, setFailed] = useState<Record<string, Status>>({})
@@ -427,7 +427,7 @@ export function PoolView({ active = true }: { active?: boolean }) {
     setTouched(new Set())
   }
   /** Set the range, ends kept in order; nothing rated or scored here stays outside it. */
-  function pickRange(next: Range) {
+  function pickRange(next: ScoreRange) {
     epoch.current++
     setRange(next)
     setTouched(new Set())
@@ -612,16 +612,14 @@ export function PoolView({ active = true }: { active?: boolean }) {
               </select>
             </div>
           </div>
-          <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
-            <div role="group" aria-label="Filter" className="flex flex-wrap gap-1.5">
-              {FILTERS.map((entry) => (
-                <button key={entry.id} type="button" aria-pressed={filter === entry.id} onClick={() => pick(entry.id)}
-                        className={cn('min-h-11 rounded-lg border px-3.5 font-bold',
-                          filter === entry.id ? 'border-primary bg-primary text-primary-foreground' : 'bg-card')}>
-                  {entry.label}
-                </button>
-              ))}
-            </div>
+          <div role="group" aria-label="Filter" className="flex flex-wrap gap-1.5">
+            {FILTERS.map((entry) => (
+              <button key={entry.id} type="button" aria-pressed={filter === entry.id} onClick={() => pick(entry.id)}
+                      className={cn('min-h-11 rounded-lg border px-3.5 font-bold',
+                        filter === entry.id ? 'border-primary bg-primary text-primary-foreground' : 'bg-card')}>
+                {entry.label}
+              </button>
+            ))}
           </div>
           {shown.length === 0 ? (
             <div className="flex flex-wrap items-center gap-4 rounded-xl border bg-card p-5">

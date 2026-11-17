@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { row, label } from '@/test-fixtures'
-import { FULL_RANGE, inRange, sortRows, type Range } from '@/lib/pool-order'
+import { FULL_RANGE, inRange, sortRows, type ScoreRange } from '@/lib/pool-order'
 
 const scored = (id: string, score: number) => row(id, id, { score })
 const ids = (rows: { posting_id: string }[]) => rows.map((entry) => entry.posting_id)
@@ -14,7 +14,7 @@ describe('inRange', () => {
     row('excluded', 'x', { state: 'excluded', score: 8 }),
     row('held', 'h', { state: 'held', score: 8 }),
   ]
-  const keep = (range: Range) => ids(rows.filter((entry) => inRange(entry, range)))
+  const keep = (range: ScoreRange) => ids(rows.filter((entry) => inRange(entry, range)))
 
   it('keeps every row in the full range, excluded and held included', () => {
     expect(keep(FULL_RANGE)).toEqual(ids(rows))
