@@ -1214,6 +1214,50 @@ test('a finished pass reloads the pool and the scored rows leave "ohne Score", e
   expect(await titles()).toEqual([NEW])
 })
 
+test('the pool with the score range and sort controls has no accessibility violations', async () => {
+  stubApi({ 'GET /pool': { body: POOL } })
+  const { container } = render(<PoolView />)
+  await titles()
+  expect(screen.getByRole('group', { name: 'Score' })).toBeVisible()
+  expect(sortSelect()).toBeVisible()
+  await userEvent.selectOptions(von(), '3')
+  await userEvent.selectOptions(sortSelect(), 'score-desc')
+  expect(await axe(container)).toHaveNoViolations()
+})
+
+test('J, K and Enter follow the sorted order', async () => {
+  const rows = [
+    makeRow('d', 'Vierte (m/w/d)', { added_at: '2026-10-04T08:00:00+00:00', label: label('positive') }),
+    makeRow('a', 'Dritte (m/w/d)', { added_at: '2026-10-03T08:00:00+00:00' }),
+    makeRow('c', 'Zweite (m/w/d)', { added_at: '2026-10-02T08:00:00+00:00', label: label('negative') }),
+    makeRow('b', 'Erste (m/w/d)', { added_at: '2026-10-01T08:00:00+00:00' }),
+  ]
+  stubApi({ 'GET /pool': { body: poolWith({ rows }) } })
+  render(<PoolView />)
+  await titles()
+  await userEvent.selectOptions(sortSelect(), 'added-asc')
+  expect(await titles()).toEqual(['Erste (m/w/d)', 'Zweite (m/w/d)', 'Dritte (m/w/d)', 'Vierte (m/w/d)'])
+  sortSelect().blur() // the shortcuts are off while the select has focus
+  await userEvent.keyboard('j')
+  await vi.waitFor(() => expect(document.getElementById('row-c')).toHaveFocus())
+  await userEvent.keyboard('{Enter}')
+  await vi.waitFor(() => expect(document.getElementById('row-a')).toHaveFocus())
+  await userEvent.keyboard('k')
+  await vi.waitFor(() => expect(document.getElementById('row-c')).toHaveFocus())
+})
+
+test('keys typed into the range and sort selects trigger no shortcut', async () => {
+  const calls = stubApi({ 'GET /pool': { body: POOL } })
+  render(<PoolView />)
+  await titles()
+  for (const select of [von, bis, sortSelect]) {
+    select().focus()
+    await userEvent.keyboard('2j')
+  }
+  expect(puts(calls)).toHaveLength(0)
+  expect(document.activeElement).toBe(sortSelect())
+})
+
 test('"Filter zurücksetzen" resets the range as well and keeps the sort', async () => {
   stubApi({ 'GET /pool': { body: POOL } })
   render(<PoolView />)
