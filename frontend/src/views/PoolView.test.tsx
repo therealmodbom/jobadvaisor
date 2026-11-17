@@ -1346,18 +1346,33 @@ test('keys typed into the range and sort selects trigger no shortcut', async () 
   expect(document.activeElement).toBe(sortSelect())
 })
 
-test('"Filter zurücksetzen" resets the range as well and keeps the sort', async () => {
-  stubApi({ 'GET /pool': { body: POOL } })
+test('"Filter zurücksetzen" resets the range as well and keeps the sort, visible in the order', async () => {
+  const rows = [
+    makeRow('a', 'Mitte (m/w/d)', { score: 1, added_at: '2026-10-02T08:00:00+00:00' }),
+    makeRow('b', 'Neu (m/w/d)', { score: 5, added_at: '2026-10-03T08:00:00+00:00' }),
+    makeRow('c', 'Alt (m/w/d)', { score: 6, added_at: '2026-10-01T08:00:00+00:00' }),
+  ]
+  stubApi({ 'GET /pool': { body: poolWith({ rows }) } })
   render(<PoolView />)
-  await titles()
+  expect(await titles()).toEqual(['Mitte (m/w/d)', 'Neu (m/w/d)', 'Alt (m/w/d)'])
   await userEvent.selectOptions(sortSelect(), 'added-asc')
-  await userEvent.selectOptions(von(), '0')
-  await userEvent.selectOptions(bis(), '0')
+  await userEvent.selectOptions(von(), '3')
+  await userEvent.selectOptions(bis(), '3')
   await userEvent.click(await screen.findByRole('button', { name: 'Filter zurücksetzen' }))
-  expect(await titles()).toHaveLength(9)
+  expect(await titles()).toEqual(['Alt (m/w/d)', 'Mitte (m/w/d)', 'Neu (m/w/d)'])
   expect(von()).toHaveValue('-1')
   expect(bis()).toHaveValue('10')
   expect(sortSelect()).toHaveValue('added-asc')
+})
+
+test('picking "Rangfolge" again after another sort brings the server order back', async () => {
+  stubApi({ 'GET /pool': { body: POOL } })
+  render(<PoolView />)
+  const ranked = await titles()
+  await userEvent.selectOptions(sortSelect(), 'score-asc')
+  expect(await titles()).not.toEqual(ranked)
+  await userEvent.selectOptions(sortSelect(), 'rank')
+  expect(await titles()).toEqual(ranked)
 })
 
 test('a status change still removes a row rated here from the list it no longer fits', async () => {
@@ -1365,10 +1380,28 @@ test('a status change still removes a row rated here from the list it no longer 
   render(<PoolView />)
   await titles()
   await userEvent.click(button('Noch nicht bewertet'))
+  await userEvent.selectOptions(von(), '7')
+  await userEvent.selectOptions(bis(), '9')
+  expect(await titles()).toEqual([ENGINEER])
   await userEvent.click(button(`Ja, auf jeden Fall: ${ENGINEER}`))
-  await vi.waitFor(() => expect(button(`Ja, auf jeden Fall: ${ENGINEER}`)).toHaveAttribute('aria-pressed', 'true'))
+  await vi.waitFor(() => corrections(4))
+  expect(await titles()).toEqual([ENGINEER])
   await userEvent.selectOptions(row(ENGINEER).getByRole('combobox', { name: /Status/ }), 'applied')
   await vi.waitFor(() => expect(screen.queryByText(ENGINEER)).toBeNull())
+})
+
+test('a status change removes a row scored here that lies outside the range', async () => {
+  stubApi({ 'GET /pool': { body: POOL }, 'PATCH /postings/n1': { body: {} },
+    'POST /postings/n1/score': { body: scoreAnswer(baseRow('n1'), { state: 'scored', score: 9 }, { counter: AFTER }) } })
+  render(<PoolView />)
+  await titles()
+  await userEvent.click(button('Noch nicht bewertet'))
+  await userEvent.selectOptions(bis(), NO_SCORE)
+  await userEvent.click(row(NEW).getByRole('button', { name: 'Score berechnen' }))
+  await vi.waitFor(() => corrections(4))
+  expect(await titles()).toContain(NEW) // 9 lies outside "ohne Score": the row stays only as touched
+  await userEvent.selectOptions(row(NEW).getByRole('combobox', { name: /Status/ }), 'applied')
+  await vi.waitFor(() => expect(screen.queryByText(NEW)).toBeNull())
 })
 
 test('a "Stichprobe" row sorted by score sits by its score and keeps its mark', async () => {
