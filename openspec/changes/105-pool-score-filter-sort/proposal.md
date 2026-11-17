@@ -9,7 +9,7 @@ The pool shows several hundred postings in the server's ranking, filterable only
 - The pool gets a score range from „ohne Score“ through 0 to 10. „ohne Score“ is a step below 0 and selects the postings a scoring pass would still score. „0 bis 0“ means score 0. A range that starts at 0 or higher hides every posting without a score; an excluded or held posting counts as having none, even with a stored score. The full range hides nothing.
 - The pool gets a sort choice: the server ranking (default), score, the user's own rating and the added date, each ascending and descending. Postings without a value for the key come last in both directions. Ties keep the server ranking.
 - The range and the sort combine with the state filters and the text search. „Filter zurücksetzen“ also resets the range, but not the sort.
-- A posting rated or scored in the view keeps its place and stays listed until the user changes the state filter or the range. A finished pass reloads the pool, so scored postings leave „ohne Score“ then.
+- A posting rated or scored in the view keeps its place and stays listed until the user changes the state filter or the range; the text search still applies to it. A finished pass reloads the pool, so scored postings leave „ohne Score“ then.
 - Under a sort other than the ranking, „Stichprobe“ postings keep their mark but lose their fixed places.
 - J, K and Enter follow the shown order. The controls work on a phone and by keyboard.
 - Look and position are settled in a Design artifact on the JobAdvAIsor design system, linked from `design.md`.

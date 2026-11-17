@@ -3,7 +3,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Filters
-The pool SHALL be filterable by text in title or company and by state, including "noch nicht bewertet" (no rating from the user), "bewertet", "beworben" and "erledigt", and by origin ("Herkunft": imported postings of every status). The text filter, the state filter and the score range SHALL combine: a posting is listed only when it passes all three. "Filter zurücksetzen" SHALL reset all three and SHALL leave the sort as it is.
+The pool SHALL be filterable by text in title or company and by state, including "noch nicht bewertet" (no rating from the user), "bewertet", "beworben" and "erledigt", and by origin ("Herkunft": imported postings of every status). The text filter, the state filter and the score range SHALL combine: a posting is listed only when it passes all three, except as "Changed postings keep their place" states. "Filter zurücksetzen" SHALL reset all three and SHALL leave the sort as it is.
 
 #### Scenario: Text filter
 - **WHEN** the user types a company name into the text filter
@@ -107,7 +107,7 @@ Postings with the same value for the sort key SHALL keep their order from the ra
 - **THEN** both times they are listed in the order the ranking gives them
 
 ### Requirement: Changed postings keep their place
-A posting the user rates or scores in the pool SHALL keep its place in the shown order until the user changes the sort, the state filter or the score range, or the pool loads again. It SHALL stay listed until the user changes the state filter or the score range, even when it no longer matches them. A change of its application status SHALL still remove it from a list it no longer fits.
+A posting the user rates or scores in the pool SHALL keep its place in the shown order until the user changes the sort, the state filter or the score range, or the pool loads again. It SHALL stay listed until the user changes the state filter or the score range, even when it no longer matches them. The text filter SHALL still apply to it, and a change of its application status SHALL still remove it from a list it no longer fits.
 
 #### Scenario: Rated while sorted by rating
 - **WHEN** the pool is sorted by rating and the user rates an unrated posting "Ja, auf jeden Fall"
@@ -116,6 +116,10 @@ A posting the user rates or scores in the pool SHALL keep its place in the shown
 #### Scenario: Scored under "ohne Score"
 - **WHEN** the range is "ohne Score" to "ohne Score" and the user scores one posting with its score button
 - **THEN** the posting stays listed with its new score until the user changes the state filter or the range
+
+#### Scenario: Text filter still applies
+- **WHEN** a posting stays listed under "ohne Score" after the user scored it, and the user types a text that neither its title nor its company contains
+- **THEN** the posting is no longer listed
 
 #### Scenario: Pass finishes under "ohne Score"
 - **WHEN** the range is "ohne Score" to "ohne Score" and a scoring pass finishes
