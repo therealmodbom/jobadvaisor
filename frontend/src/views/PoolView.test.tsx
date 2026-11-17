@@ -1214,6 +1214,20 @@ test('a finished pass reloads the pool and the scored rows leave "ohne Score", e
   expect(await titles()).toEqual([NEW])
 })
 
+test('"Filter zurücksetzen" resets the range as well and keeps the sort', async () => {
+  stubApi({ 'GET /pool': { body: POOL } })
+  render(<PoolView />)
+  await titles()
+  await userEvent.selectOptions(sortSelect(), 'added-asc')
+  await userEvent.selectOptions(von(), '0')
+  await userEvent.selectOptions(bis(), '0')
+  await userEvent.click(await screen.findByRole('button', { name: 'Filter zurücksetzen' }))
+  expect(await titles()).toHaveLength(9)
+  expect(von()).toHaveValue('-1')
+  expect(bis()).toHaveValue('10')
+  expect(sortSelect()).toHaveValue('added-asc')
+})
+
 test('a status change still removes a row rated here from the list it no longer fits', async () => {
   stubApi({ 'GET /pool': { body: POOL }, 'PUT /postings/p2/rating': rateRoute('p2'), 'PATCH /postings/p2': { body: {} } })
   render(<PoolView />)

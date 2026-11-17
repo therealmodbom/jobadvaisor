@@ -608,6 +608,7 @@ export function PoolView({ active = true }: { active?: boolean }) {
               <Button variant="outline" onClick={() => {
                 pick('open')
                 setText('')
+                pickRange(FULL_RANGE)
               }}>Filter zurücksetzen</Button>
             </div>
           ) : (
