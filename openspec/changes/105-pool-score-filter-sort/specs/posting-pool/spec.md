@@ -31,7 +31,7 @@ The filter "noch nicht bewertet" SHALL list the unrated postings by score and pl
 ## ADDED Requirements
 
 ### Requirement: Score range
-The pool SHALL offer a score range with the steps "ohne Score", then 0 to 10. A range from one score to another SHALL list the postings whose score lies between both, inclusive. A range that starts at 0 or higher SHALL hide every posting without a score.
+The pool SHALL offer a score range with the steps "ohne Score", then 0 to 10. A range from one score to another SHALL list the postings whose score lies between both, inclusive. A range that starts at 0 or higher SHALL hide every posting without a score. An excluded or held posting SHALL count as having no score, even when a score is stored for it.
 
 #### Scenario: Score band
 - **WHEN** the user sets the range from 7 to 9
@@ -41,8 +41,19 @@ The pool SHALL offer a score range with the steps "ohne Score", then 0 to 10. A 
 - **WHEN** the user sets the range from 0 to 0
 - **THEN** postings scored 0 are listed, and postings without a score are not
 
+#### Scenario: Excluded with a stored score
+- **WHEN** a posting was scored 8 before an exclusion rule matched it, and the user sets the range from 7 to 9
+- **THEN** that posting is not listed
+
+### Requirement: Range ends stay in order
+The score range SHALL never end below its start: moving one end past the other SHALL move the other end with it.
+
+#### Scenario: Start moved past the end
+- **WHEN** the range is 3 to 5 and the user moves its start to 8
+- **THEN** the range becomes 8 to 8
+
 ### Requirement: Postings without a score in the range
-The step "ohne Score" SHALL select the postings a scoring pass would still score, whether or not the user rated them, including those whose stored score cannot be read. It SHALL NOT select excluded postings or postings the content guard holds. A range from "ohne Score" to a score SHALL list those postings and the postings scored up to that score.
+The step "ohne Score" SHALL select the postings a scoring pass would still score, whether or not the user rated them, including those whose stored score cannot be read. It SHALL NOT select excluded postings or postings the content guard holds. A range from "ohne Score" to a score below 10 SHALL list those postings and the postings scored up to that score.
 
 #### Scenario: Only the unscored
 - **WHEN** the user sets the range from "ohne Score" to "ohne Score"
@@ -60,7 +71,7 @@ The range SHALL be at its full extent, from "ohne Score" to 10, by default and a
 - **THEN** the range spans "ohne Score" to 10, and the pool lists every posting the state and text filters let through
 
 ### Requirement: Sort choice
-The pool SHALL offer a sort by the ranking (the default), by score, by the user's own rating and by the date a posting was added, each but the ranking ascending and descending. The sort SHALL apply to every state filter and SHALL return to the ranking after a reload.
+The pool SHALL offer a sort by the ranking (the default), by score, by the user's own rating and by the date a posting was added, each but the ranking ascending and descending. The sort SHALL apply to every state filter and SHALL return to the ranking after a reload. The requirements on the ranking describe the order under the sort by the ranking.
 
 #### Scenario: Newest first
 - **WHEN** the user sorts by added date, descending
@@ -78,7 +89,7 @@ Sorted by the user's own rating, descending, the order SHALL be "Ja, auf jeden F
 - **THEN** they are listed as "Ja, auf jeden Fall", "Ja", "Nein, eher nicht"
 
 ### Requirement: Postings without a value come last
-Under a sort by score or by rating, postings without a value for that key SHALL be listed after all others, in both directions. A posting whose label holds no verdict SHALL count as unrated.
+Under a sort by score or by rating, postings without a value for that key SHALL be listed after all others, in both directions. An excluded or held posting SHALL count as having no score, and a posting whose label holds no verdict SHALL count as unrated.
 
 #### Scenario: Unscored last, ascending
 - **WHEN** the pool is sorted by score, ascending
@@ -96,7 +107,7 @@ Postings with the same value for the sort key SHALL keep their order from the ra
 - **THEN** both times they are listed in the order the ranking gives them
 
 ### Requirement: Changed postings keep their place
-A posting the user rates or scores in the pool SHALL keep its place in the shown order until the user changes the sort, the state filter or the score range, or the pool loads again. It SHALL stay listed until the user changes the state filter or the score range, even when it no longer matches them.
+A posting the user rates or scores in the pool SHALL keep its place in the shown order until the user changes the sort, the state filter or the score range, or the pool loads again. It SHALL stay listed until the user changes the state filter or the score range, even when it no longer matches them. A change of its application status SHALL still remove it from a list it no longer fits.
 
 #### Scenario: Rated while sorted by rating
 - **WHEN** the pool is sorted by rating and the user rates an unrated posting "Ja, auf jeden Fall"

@@ -6,7 +6,7 @@ The pool shows several hundred postings in the server's ranking, filterable only
 
 ## What Changes
 
-- The pool gets a score range from „ohne Score“ through 0 to 10. „ohne Score“ is a step below 0 and selects the postings a scoring pass would still score. „0 bis 0“ means score 0. A range that starts at 0 or higher hides every posting without a score. The full range hides nothing.
+- The pool gets a score range from „ohne Score“ through 0 to 10. „ohne Score“ is a step below 0 and selects the postings a scoring pass would still score. „0 bis 0“ means score 0. A range that starts at 0 or higher hides every posting without a score; an excluded or held posting counts as having none, even with a stored score. The full range hides nothing.
 - The pool gets a sort choice: the server ranking (default), score, the user's own rating and the added date, each ascending and descending. Postings without a value for the key come last in both directions. Ties keep the server ranking.
 - The range and the sort combine with the state filters and the text search. „Filter zurücksetzen“ also resets the range, but not the sort.
 - A posting rated or scored in the view keeps its place and stays listed until the user changes the state filter or the range. A finished pass reloads the pool, so scored postings leave „ohne Score“ then.
@@ -29,7 +29,7 @@ None.
 
 - Frontend: `frontend/src/views/PoolView.tsx` (filter, order, controls), a small pure module for the range and the sort with its own Vitest, `PoolView.test.tsx`, `test-fixtures.ts`.
 - e2e: one click through the range control in the existing pool walkthrough.
-- `docs/images/pool.png` is retaken if the filter bar changes visibly (paid scoring pass, a few cents; asked before it runs).
+- `docs/images/pool.png` is retaken, since the filter bar changes visibly (paid scoring pass, a few cents; asked before it runs).
 - No backend code change, no API change, no data format change, no new dependency.
 
 ## Non-goals

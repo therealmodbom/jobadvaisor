@@ -440,7 +440,7 @@ When a run is refused because another one computes, the view SHALL show that run
 - **THEN** the view says the run is no longer known and offers to paste the mail again
 
 ### Requirement: Score range and sort controls
-The pool view SHALL show the score range and the sort choice with the text and state filters. Both SHALL be operable by keyboard alone and usable at a phone's width without scrolling sideways. Their look and position SHALL follow the design linked from the change's `design.md`.
+The pool view SHALL show the score range and the sort choice in one row with the text filter, above the state filters, stacked at a phone's width. Both SHALL be operable by keyboard alone and usable at a phone's width without scrolling sideways.
 
 #### Scenario: Keyboard only
 - **WHEN** the user sets the range and the sort using only the keyboard
