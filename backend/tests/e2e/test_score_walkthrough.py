@@ -175,5 +175,6 @@ def test_the_score_range_narrows_the_pool_and_resets_at_desktop_and_phone_width(
     expect(pool_row(page, RATED)).to_have_count(0)
     for control in (von, bis, page.get_by_role("combobox", name="Sortierung")):
         expect(control).to_be_in_viewport()
-    assert page.evaluate("document.documentElement.scrollWidth <= document.documentElement.clientWidth")
+    assert page.evaluate(
+        "document.documentElement.scrollWidth <= document.documentElement.clientWidth")
     page.set_viewport_size({"width": 1280, "height": 720})
