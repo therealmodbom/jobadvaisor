@@ -12,7 +12,8 @@ fresh git repository. The model parts record and raise, so no model is called an
 needed; data repository and state directory live inside the temporary directory, which is
 removed when the script ends. The images are 1280 x 800 viewport shots in light mode, Europe/Berlin
 time and reduced motion. Exit code 1 (and a list of what happened) when a model part was reached,
-the server answered with status 500 or higher or the page reported an error.
+the server answered with status 500 or higher, the page reported an error, an open unrated posting
+has no usable score or an expected element is missing or outside the viewport.
 """
 
 import json
@@ -105,11 +106,21 @@ def start_server(root: Path, reached: list[str]) -> tuple[uvicorn.Server, thread
 
 def first_unrated_scored(root_url: str) -> dict:
     """The first row of `GET /pool` that is unrated (no verdict) and scored: the row the pool
-    image selects at the top. Raises `StopIteration` when there is none."""
+    image selects at the top. Raises `ValueError` naming the posting IDs when an open, unrated row
+    is `unscored` or has a `score_problem` (it would show "noch kein Score"), and when no row
+    qualifies."""
     with urllib.request.urlopen(f"{root_url}/pool") as response:
         rows = json.load(response)["rows"]
-    return next(row for row in rows if row["state"] == "scored" and row["status"] == "open"
-                and not (row["label"] and row["label"]["verdict"]))
+    unrated = [row for row in rows if row["status"] == "open"
+               and not (row["label"] and row["label"]["verdict"])]
+    broken = [row["posting_id"] for row in unrated
+              if row["state"] == "unscored" or row["score_problem"]]
+    if broken:
+        raise ValueError(f"open unrated postings without a usable score: {broken}")
+    scored = [row for row in unrated if row["state"] == "scored"]
+    if not scored:
+        raise ValueError("no open, unrated, scored posting in the pool")
+    return scored[0]
 
 
 def take_images(row: dict, problems: list[str]) -> None:
@@ -126,19 +137,23 @@ def take_images(row: dict, problems: list[str]) -> None:
             f"server error: {response.status} {response.request.method} {response.url}"))
 
         def shoot(name: str) -> None:
-            expect(page.get_by_role("button", name="Gesichert")).to_be_visible()
+            backup = page.get_by_role("button", name="Gesichert")
+            expect(backup).to_be_visible()
+            expect(backup).to_be_enabled()
             page.evaluate("document.fonts.ready.then(() => true)")
             page.screenshot(path=OUT / name)
 
         page.goto(f"{URL}/#/pool")
         page.get_by_role("button", name=FILTER).click()
         first = page.get_by_role("list", name="Anzeigen").get_by_role("listitem").first
-        expect(first.get_by_role("heading", name=row["title"])).to_be_visible()
+        expect(first.locator(f"a[href='#/anzeigen/{row['posting_id']}']")).to_be_visible()
         shoot("pool.png")
 
         page.goto(f"{URL}/#/anzeigen/{row['posting_id']}")
         expect(page.get_by_role("heading", level=1, name=row["title"])).to_be_visible()
-        expect(page.get_by_text("Verglichen mit:")).to_be_visible()
+        compared = page.get_by_text("Verglichen mit:")
+        expect(compared).to_be_visible()
+        expect(compared.locator("xpath=..").get_by_role("listitem").last).to_be_in_viewport(ratio=1)
         shoot("posting.png")
         browser.close()
 

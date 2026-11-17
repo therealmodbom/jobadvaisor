@@ -1,11 +1,11 @@
 {
   "schema_version": "1",
   "score": 10,
-  "reasoning": "Kotlin Multiplatform auf mittlerem Niveau im Bildungsbereich, voll remote bei einem Scale-up mit Kotlin im Stack. Das trifft alle Wünsche aus dem Profil.",
+  "reasoning": "Kotlin Multiplatform auf mittlerem Niveau im Bildungsbereich, voll remote bei einem Scale-up mit Kotlin im Stack. Mobile-Rolle, mittleres Niveau und Kotlin-Stack passen genau zum Profil.",
   "example_ids": [
     "demo-113",
     "demo-101",
     "demo-033"
   ],
-  "scored_at": "2026-03-20T09:00:00Z"
+  "scored_at": "2026-05-26T09:00:00Z"
 }
