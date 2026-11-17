@@ -7,6 +7,7 @@ import { EmptyState, ErrorWithRetry, Loading } from '@/components/states'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { addedLabel, STATUSES } from '@/lib/german'
+import { FULL_RANGE, inRange, NO_SCORE, SORTS, sortRows, TOP_SCORE, type ScoreRange, type Sort } from '@/lib/pool-order'
 import { LEVELS, strayPaste, useRating, type Rating } from '@/lib/rating'
 import { useScore, type ScoreCall } from '@/lib/score'
 import { cn, without } from '@/lib/utils'
@@ -278,6 +279,16 @@ function Row({ row, chips, rating, selected, onSelect, onLevel, saving, failed, 
   )
 }
 
+/** The look of the pool's selects: the status control's, on the card background like the text field. */
+const SELECT = 'min-h-11 rounded-lg border border-input bg-card px-2.5 text-[15px]'
+
+/** The steps of the score range as `option`s: "ohne Score" (-1), then 0 to 10. */
+function StepOptions() {
+  return Array.from({ length: TOP_SCORE - NO_SCORE + 1 }, (_, index) => index + NO_SCORE).map((step) => (
+    <option key={step} value={step}>{step === NO_SCORE ? 'ohne Score' : step}</option>
+  ))
+}
+
 const END = 'Keine weitere unbewertete Anzeige.'
 
 /** The ID of the next row after `from` (the first when `from` is unknown) that `unrated` accepts,
@@ -295,24 +306,61 @@ export function PoolView({ active = true }: { active?: boolean }) {
   const [loadFailed, setLoadFailed] = useState(false)
   const [filter, setFilter] = useState('open')
   const [text, setText] = useState('')
+  const [range, setRange] = useState<ScoreRange>(FULL_RANGE)
+  const [sort, setSort] = useState<Sort>('rank')
   const [saving, setSaving] = useState<Record<string, boolean>>({})
   const [failed, setFailed] = useState<Record<string, Status>>({})
   /** The posting the shortcut keys act on; `null` until one is chosen (then the first unrated). */
   const [selected, setSelected] = useState<string | null>(null)
-  /** Postings rated here: they stay in the "Noch nicht bewertet" list until the filter changes. */
+  /** Postings rated or scored here: they stay in the "Noch nicht bewertet" list and outside the
+   * score range until the state filter or the range changes. */
   const [touched, setTouched] = useState<ReadonlySet<string>>(new Set())
+  /** The shown order: posting IDs, sorted when the pool loaded or the sort, the state filter or the
+   * range changed (`orderKey`), so a posting rated or scored here keeps its place. */
+  const [order, setOrder] = useState<string[]>([])
+  const [orderKey, setOrderKey] = useState('')
+  /** Counts the loads that arrived; part of `orderKey`. */
+  const [loads, setLoads] = useState(0)
   const [focusRequest, setFocusRequest] = useState<{ id: string; target: 'row' | 'reasons' | 'note' } | null>(null)
   /** Polite message when Enter finds no further unrated posting; it alternates a trailing space
    * so the same text is announced again. */
   const [end, setEnd] = useState('')
   /** Polite announcement of a status change, whose row may leave the shown list. */
   const [announce, setAnnounce] = useState('')
+  /** Counts the changes of the state filter or the range (`pick`, `pickRange`). */
+  const epoch = useRef(0)
+  /** Per posting, the epoch in which its last rating request and its last score request were sent,
+   * kept apart because both can be in flight at once. An answer joins `touched` only if the epoch
+   * has not moved on since: `pick` and `pickRange` clear `touched`, and a late answer must not
+   * bring a row back into a list it no longer fits. */
+  const sentRating = useRef(new Map<string, number>())
+  const sentScore = useRef(new Map<string, number>())
+  /** Add `id` to `touched` unless a filter or the range changed since its request in `sent` left. */
+  const touch = (sent: Map<string, number>, id: string) => {
+    const since = sent.get(id) ?? epoch.current
+    sent.delete(id)
+    if (since === epoch.current) setTouched((current) => new Set(current).add(id))
+  }
   const rating = useRating((answer: RatingAnswer) => {
     const id = answer.row.posting_id
     setPool((current) => current && { ...current, counter: answer.counter, next_pass: answer.next_pass,
       rows: current.rows.map((row) => (row.posting_id === id ? answer.row : row)) })
-    setTouched((current) => new Set(current).add(id))
+    touch(sentRating.current, id)
   })
+  /** Record the epoch of `id`'s rating request when `result` shows one was sent (a promise); an
+   * action that sends nothing leaves the epoch of a request still in flight alone. */
+  const sent = <T,>(id: string, result: T) => {
+    if (result instanceof Promise) sentRating.current.set(id, epoch.current)
+    return result
+  }
+  /** `rating` for the rows: every action that sends a rating records its epoch. */
+  const tracked: Rating = {
+    ...rating,
+    level: (row, verdict, strength) => sent(row.posting_id, rating.level(row, verdict, strength)),
+    chip: (row, chip) => sent(row.posting_id, rating.chip(row, chip)),
+    saveNote: (row) => sent(row.posting_id, rating.saveNote(row)),
+    retry: (row) => sent(row.posting_id, rating.retry(row)),
+  }
   useEffect(() => {
     if (focusRequest) document.getElementById(`${focusRequest.target}-${focusRequest.id}`)?.focus()
   }, [focusRequest])
@@ -324,6 +372,7 @@ export function PoolView({ active = true }: { active?: boolean }) {
     api<Pool>('/pool').then((next) => {
       if (mine !== latest.current) return
       setPool(next)
+      setLoads((count) => count + 1)
       setLoadFailed(false)
     }, () => {
       if (mine === latest.current) setLoadFailed(true)
@@ -338,6 +387,7 @@ export function PoolView({ active = true }: { active?: boolean }) {
     const id = scored.row.posting_id
     setPool((current) => current && { ...current, counter: scored.counter, next_pass: scored.next_pass,
       rows: current.rows.map((row) => (row.posting_id === id ? { ...scored.row, exploration: row.exploration } : row)) })
+    touch(sentScore.current, id)
   }, load)
   const { clearBusy } = score
   /** A finished pass reloads the pool and drops the rows' "scoring in progress" messages: they
@@ -369,19 +419,37 @@ export function PoolView({ active = true }: { active?: boolean }) {
 
   const keep = FILTERS.find((entry) => entry.id === filter)!.keep
   const needle = text.trim().toLowerCase()
-  const shown = pool?.rows.filter((row) => (keep(row) || (filter === 'unrated' && row.status === 'open' && touched.has(row.posting_id)))
-    && (!needle || `${row.title} ${row.company}`.toLowerCase().includes(needle))) ?? []
+  // Take the order afresh when the pool loaded or the sort, the state filter or the range changed
+  // (render-time sync, no effect); a rating or score in between changes a row but not its place.
+  const key = `${loads}|${sort}|${filter}|${range.from}|${range.to}`
+  if (pool && key !== orderKey) {
+    setOrderKey(key)
+    setOrder(sortRows(pool.rows, sort).map((row) => row.posting_id))
+  }
+  const byId = new Map(pool?.rows.map((row) => [row.posting_id, row]))
+  const shown = order.flatMap((id) => byId.get(id) ?? []).filter((row) => {
+    const mine = touched.has(row.posting_id)
+    return (keep(row) || (mine && filter === 'unrated' && row.status === 'open'))
+      && (mine || inRange(row, range)) && (!needle || `${row.title} ${row.company}`.toLowerCase().includes(needle))
+  })
   const unrated = (row: PoolRow) => row.status === 'open' && rating.view(row).verdict === null
   const current = shown.some((row) => row.posting_id === selected) ? selected : nextUnrated(shown, undefined, unrated) ?? shown[0]?.posting_id
 
-  /** Give the filter its rows afresh: nothing rated here stays in it. */
+  /** Give the filter its rows afresh: nothing rated or scored here stays in it. */
   function pick(id: string) {
+    epoch.current++
     setFilter(id)
+    setTouched(new Set())
+  }
+  /** Set the range, ends kept in order; nothing rated or scored here stays outside it. */
+  function pickRange(next: ScoreRange) {
+    epoch.current++
+    setRange(next)
     setTouched(new Set())
   }
   /** Send a level; the posting stays open and its reasons take focus, so reasons can follow. */
   function rate(row: PoolRow, verdict: Verdict, strength: Strength) {
-    void rating.level(row, verdict, strength)
+    void tracked.level(row, verdict, strength)
     setSelected(row.posting_id)
     setFocusRequest({ id: row.posting_id, target: 'reasons' })
   }
@@ -423,7 +491,7 @@ export function PoolView({ active = true }: { active?: boolean }) {
       if (event.shiftKey && digit) {
         const chip = pool.reason_chips[Number(digit) - 1]
         if (!chip) return
-        void rating.chip(row, chip.id)
+        void tracked.chip(row, chip.id)
         // Keep acting on this posting even after its derived verdict moves the default on.
         setSelected(row.posting_id)
       } else if (event.shiftKey) {
@@ -531,15 +599,40 @@ export function PoolView({ active = true }: { active?: boolean }) {
               <label htmlFor="pool-text" className="text-sm font-bold">Titel oder Firma</label>
               <Input id="pool-text" type="search" value={text} onChange={(event) => setText(event.target.value)} className="w-64 bg-card" />
             </div>
-            <div role="group" aria-label="Filter" className="flex flex-wrap gap-1.5">
-              {FILTERS.map((entry) => (
-                <button key={entry.id} type="button" aria-pressed={filter === entry.id} onClick={() => pick(entry.id)}
-                        className={cn('min-h-11 rounded-lg border px-3.5 font-bold',
-                          filter === entry.id ? 'border-primary bg-primary text-primary-foreground' : 'bg-card')}>
-                  {entry.label}
-                </button>
-              ))}
+            <fieldset className="min-w-0">
+              <legend className="mb-1 p-0 text-sm font-bold">Score</legend>
+              <div className="flex items-end gap-2">
+                <div className="flex flex-col gap-1">
+                  <label htmlFor="pool-from" className="text-sm text-muted-foreground">von</label>
+                  <select id="pool-from" value={range.from} className={SELECT}
+                          onChange={(event) => { const from = Number(event.target.value); pickRange({ from, to: Math.max(from, range.to) }) }}>
+                    <StepOptions />
+                  </select>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label htmlFor="pool-to" className="text-sm text-muted-foreground">bis</label>
+                  <select id="pool-to" value={range.to} className={SELECT}
+                          onChange={(event) => { const to = Number(event.target.value); pickRange({ from: Math.min(to, range.from), to }) }}>
+                    <StepOptions />
+                  </select>
+                </div>
+              </div>
+            </fieldset>
+            <div className="flex min-w-0 flex-col gap-1">
+              <label htmlFor="pool-sort" className="text-sm font-bold">Sortierung</label>
+              <select id="pool-sort" value={sort} onChange={(event) => setSort(event.target.value as Sort)} className={cn(SELECT, 'max-w-full')}>
+                {SORTS.map(({ id, label }) => <option key={id} value={id}>{label}</option>)}
+              </select>
             </div>
+          </div>
+          <div role="group" aria-label="Filter" className="flex flex-wrap gap-1.5">
+            {FILTERS.map((entry) => (
+              <button key={entry.id} type="button" aria-pressed={filter === entry.id} onClick={() => pick(entry.id)}
+                      className={cn('min-h-11 rounded-lg border px-3.5 font-bold',
+                        filter === entry.id ? 'border-primary bg-primary text-primary-foreground' : 'bg-card')}>
+                {entry.label}
+              </button>
+            ))}
           </div>
           {shown.length === 0 ? (
             <div className="flex flex-wrap items-center gap-4 rounded-xl border bg-card p-5">
@@ -547,6 +640,7 @@ export function PoolView({ active = true }: { active?: boolean }) {
               <Button variant="outline" onClick={() => {
                 pick('open')
                 setText('')
+                pickRange(FULL_RANGE)
               }}>Filter zurücksetzen</Button>
             </div>
           ) : (
@@ -554,12 +648,12 @@ export function PoolView({ active = true }: { active?: boolean }) {
               <Legend />
               <ul className="flex flex-col gap-3" aria-label="Anzeigen">
                 {shown.map((row) => (
-                  <Row key={row.posting_id} row={row} chips={pool.reason_chips} rating={rating}
+                  <Row key={row.posting_id} row={row} chips={pool.reason_chips} rating={tracked}
                        selected={row.posting_id === current} onSelect={() => setSelected(row.posting_id)}
                        onLevel={(verdict, strength) => rate(row, verdict, strength)} saving={!!saving[row.posting_id]}
                        failed={failed[row.posting_id]} onStatus={(status) => setStatus(row.posting_id, status)}
                        screening={pool.screening} scoreCall={score.call(row.posting_id)}
-                       onScore={() => void score.run(row.posting_id)} />
+                       onScore={() => { sentScore.current.set(row.posting_id, epoch.current); void score.run(row.posting_id) }} />
                 ))}
               </ul>
             </>

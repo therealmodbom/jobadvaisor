@@ -442,6 +442,9 @@ const rateRoute = (id: string, counter = AFTER) => (call: { body: unknown }) =>
   ratingAnswer(POOL.rows.find((entry) => entry.posting_id === id)!, call.body as RatingBody, counter)
 const puts = (calls: Call[]) => calls.filter((call) => call.method === 'PUT' && call.path.endsWith('/rating'))
 const button = (name: string) => screen.getByRole('button', { name })
+/** Expects the shown correction counter to read `count`: only a stored answer changes it. */
+const corrections = (count: number) =>
+  expect(screen.getByText(/Korrekturen seit der letzten Bewertung/)).toHaveTextContent(`der Anzeigen: ${count}`)
 
 test('a chip on a posting without a verdict gives it the derived verdict and the counter follows', async () => {
   const calls = stubApi({ 'GET /pool': { body: POOL }, 'PUT /postings/p2/rating': rateRoute('p2') })
@@ -1063,4 +1066,386 @@ test('the pool with score buttons has no accessibility violations', async () => 
   const { container } = render(<PoolView />)
   await titles()
   expect(await axe(container)).toHaveNoViolations()
+})
+
+// --- score range and sort -------------------------------------------------------------------
+
+const DATA_ANALYST = 'Data Analyst (m/w/d)'
+const von = () => screen.getByRole('combobox', { name: 'von' })
+const bis = () => screen.getByRole('combobox', { name: 'bis' })
+const sortSelect = () => screen.getByRole('combobox', { name: 'Sortierung' })
+const NO_SCORE = 'ohne Score'
+
+test('the score range lists only the rows within it, combined with the state and the text filter', async () => {
+  stubApi({ 'GET /pool': { body: POOL } })
+  render(<PoolView />)
+  await titles()
+  expect(screen.getByRole('group', { name: 'Score' })).toContainElement(von())
+  await userEvent.selectOptions(von(), '7')
+  await userEvent.selectOptions(bis(), '9')
+  expect(await titles()).toEqual([DATA_ANALYST, ENGINEER])
+  await userEvent.click(button('Noch nicht bewertet'))
+  expect(await titles()).toEqual([ENGINEER])
+  await userEvent.click(button('Offen'))
+  await userEvent.type(screen.getByLabelText('Titel oder Firma'), 'analyst')
+  expect(await titles()).toEqual([DATA_ANALYST])
+})
+
+test('"ohne Score" to "ohne Score" lists only the unscored rows', async () => {
+  stubApi({ 'GET /pool': { body: POOL } })
+  render(<PoolView />)
+  await titles()
+  await userEvent.selectOptions(bis(), NO_SCORE)
+  expect(await titles()).toEqual([NEW, 'Buchhalter (m/w/d)'])
+})
+
+test('a range from 0 to 0 lists a row scored 0 and no unscored one', async () => {
+  stubApi({ 'GET /pool': { body: poolWith({ rows: [makeRow('z', 'Null (m/w/d)', { score: 0 }), ...POOL.rows] }) } })
+  render(<PoolView />)
+  await titles()
+  await userEvent.selectOptions(von(), '0')
+  await userEvent.selectOptions(bis(), '0')
+  expect(await titles()).toEqual(['Null (m/w/d)'])
+})
+
+test('moving "von" above "bis" pulls "bis" up, and "bis" below "von" pulls "von" down', async () => {
+  stubApi({ 'GET /pool': { body: POOL } })
+  render(<PoolView />)
+  await titles()
+  await userEvent.selectOptions(von(), '3')
+  await userEvent.selectOptions(bis(), '5')
+  await userEvent.selectOptions(von(), '8')
+  expect(von()).toHaveValue('8')
+  expect(bis()).toHaveValue('8')
+  await userEvent.selectOptions(bis(), '2')
+  expect(von()).toHaveValue('2')
+  expect(bis()).toHaveValue('2')
+})
+
+test('focus stays on the select after a range or sort change', async () => {
+  stubApi({ 'GET /pool': { body: POOL } })
+  render(<PoolView />)
+  await titles()
+  for (const [select, value] of [[von, '3'], [bis, '6'], [sortSelect, 'added-asc']] as const) {
+    await userEvent.selectOptions(select(), value)
+    expect(select()).toHaveFocus()
+  }
+})
+
+test('the sort select offers the ranking and six orders and sorts the list', async () => {
+  stubApi({ 'GET /pool': { body: POOL } })
+  render(<PoolView />)
+  await titles()
+  expect(within(sortSelect()).getAllByRole('option').map((option) => option.textContent)).toEqual([
+    'Rangfolge', 'Score: höchster zuerst', 'Score: niedrigster zuerst', 'Deine Bewertung: beste zuerst',
+    'Deine Bewertung: schlechteste zuerst', 'Hinzugefügt: neueste zuerst', 'Hinzugefügt: älteste zuerst'])
+  expect(sortSelect()).toHaveValue('rank')
+  await userEvent.selectOptions(sortSelect(), 'Score: höchster zuerst')
+  expect((await titles()).slice(0, 3)).toEqual([DATA_ANALYST, ENGINEER, 'Importierte Stelle (m/w/d)'])
+})
+
+test('sorted by rating, a row rated here keeps its place until the sort changes', async () => {
+  stubApi({ 'GET /pool': { body: POOL }, 'PUT /postings/p2/rating': rateRoute('p2') })
+  render(<PoolView />)
+  await titles()
+  await userEvent.selectOptions(sortSelect(), 'rating-desc')
+  const before = await titles()
+  expect(before.slice(0, 3)).toEqual([DATA_ANALYST, 'Junior Controller (m/w/d)', ENGINEER])
+  await userEvent.click(button(`Ja, auf jeden Fall: ${ENGINEER}`))
+  await vi.waitFor(() => corrections(4)) // the stored answer (the pressed state is optimistic)
+  expect(await titles()).toEqual(before)
+  await userEvent.selectOptions(sortSelect(), 'rating-asc')
+  await userEvent.selectOptions(sortSelect(), 'rating-desc')
+  expect((await titles())[0]).toEqual(ENGINEER)
+})
+
+test('sorted by rating, a row rated here moves to its place when the state filter changes', async () => {
+  stubApi({ 'GET /pool': { body: POOL }, 'PUT /postings/p2/rating': rateRoute('p2') })
+  render(<PoolView />)
+  await titles()
+  await userEvent.selectOptions(sortSelect(), 'rating-desc')
+  const before = await titles()
+  await userEvent.click(button(`Ja, auf jeden Fall: ${ENGINEER}`))
+  await vi.waitFor(() => corrections(4))
+  expect(await titles()).toEqual(before)
+  await userEvent.click(button('Bewertet'))
+  await userEvent.click(button('Offen'))
+  expect((await titles())[0]).toEqual(ENGINEER)
+})
+
+test('sorted by score, a row scored here moves to its place when the range changes', async () => {
+  stubApi({ 'GET /pool': { body: POOL },
+    'POST /postings/p3/score': { body: scoreAnswer(baseRow('p3'), { score: 9 }) } })
+  render(<PoolView />)
+  await titles()
+  await userEvent.selectOptions(sortSelect(), 'score-desc')
+  const before = await titles()
+  await userEvent.click(row('Datenjournalist (m/w/d)').getByRole('button', { name: 'Neu berechnen' }))
+  expect(await row('Datenjournalist (m/w/d)').findByText('9')).toBeVisible()
+  expect(await titles()).toEqual(before)
+  await userEvent.selectOptions(von(), '0')
+  await userEvent.selectOptions(von(), NO_SCORE)
+  expect((await titles())[0]).toEqual('Datenjournalist (m/w/d)')
+})
+
+test('a new load takes the order afresh: a new row and changed scores are sorted in', async () => {
+  let loads = 0
+  const fresh = [makeRow('z', 'Neu hinzu (m/w/d)', { score: 10 }),
+    ...POOL.rows.map((entry) => (entry.posting_id === 'p3' ? { ...entry, score: 9 } : entry))]
+  stubApi({ 'GET /pool': () => ({ body: ++loads === 1 ? POOL : poolWith({ rows: fresh }) }) })
+  const { rerender } = render(<PoolView active />)
+  await titles()
+  await userEvent.selectOptions(sortSelect(), 'score-desc')
+  expect((await titles())[0]).toEqual(DATA_ANALYST)
+  rerender(<PoolView active={false} />)
+  rerender(<PoolView active />)
+  await vi.waitFor(async () => expect((await titles()).slice(0, 3))
+    .toEqual(['Neu hinzu (m/w/d)', 'Datenjournalist (m/w/d)', DATA_ANALYST]))
+})
+
+/** An answer held back until `release` is called, for a request the user outpaces. */
+function late() {
+  let release: (answer: { body: unknown; status?: number }) => void = () => {}
+  const answer = new Promise<{ body: unknown; status?: number }>((resolve) => { release = resolve })
+  return { answer, release }
+}
+
+test('a score answering after the range changed does not bring its row back into the range', async () => {
+  const held = late()
+  stubApi({ 'GET /pool': { body: POOL }, 'POST /postings/n1/score': held.answer })
+  render(<PoolView />)
+  await titles()
+  await userEvent.selectOptions(bis(), NO_SCORE)
+  expect(await titles()).toEqual([NEW, 'Buchhalter (m/w/d)'])
+  await userEvent.click(row(NEW).getByRole('button', { name: 'Score berechnen' }))
+  await userEvent.selectOptions(von(), '7')
+  await userEvent.selectOptions(bis(), '9')
+  expect(await titles()).toEqual([DATA_ANALYST, ENGINEER])
+  await act(async () => held.release({ body: scoreAnswer(baseRow('n1'), { state: 'scored', score: 3 }, { counter: AFTER }) }))
+  await vi.waitFor(() => corrections(4))
+  expect(await titles()).toEqual([DATA_ANALYST, ENGINEER])
+})
+
+test('a rating answering after the range changed does not bring its row back into the range', async () => {
+  const held = late()
+  stubApi({ 'GET /pool': { body: POOL }, 'PUT /postings/p3/rating': held.answer })
+  render(<PoolView />)
+  await titles()
+  await userEvent.selectOptions(von(), '3')
+  await userEvent.selectOptions(bis(), '3')
+  expect(await titles()).toEqual(['Datenjournalist (m/w/d)'])
+  await userEvent.click(button('Ja, auf jeden Fall: Datenjournalist (m/w/d)'))
+  await userEvent.selectOptions(von(), '7')
+  await userEvent.selectOptions(bis(), '9')
+  expect(await titles()).toEqual([DATA_ANALYST, ENGINEER])
+  const body = { verdict: 'positive' as const, strength: 'strong' as const, chips: [], note: null }
+  await act(async () => held.release(ratingAnswer(baseRow('p3'), body, AFTER)))
+  await vi.waitFor(() => corrections(4))
+  expect(await titles()).toEqual([DATA_ANALYST, ENGINEER])
+})
+
+test('a chip answering after the range changed does not bring its row back into the range', async () => {
+  const held = late()
+  stubApi({ 'GET /pool': { body: POOL }, 'PUT /postings/p3/rating': held.answer })
+  render(<PoolView />)
+  await titles()
+  await userEvent.selectOptions(von(), '3')
+  await userEvent.selectOptions(bis(), '3')
+  expect(await titles()).toEqual(['Datenjournalist (m/w/d)'])
+  await userEvent.click(button('great stack'))
+  await userEvent.selectOptions(von(), '7')
+  await userEvent.selectOptions(bis(), '9')
+  expect(await titles()).toEqual([DATA_ANALYST, ENGINEER])
+  const body = { chips: ['great-stack'], note: null }
+  await act(async () => held.release(ratingAnswer(baseRow('p3'), body, AFTER)))
+  await vi.waitFor(() => corrections(4))
+  expect(await titles()).toEqual([DATA_ANALYST, ENGINEER])
+})
+
+test('a level click that sends nothing does not let a pending score bring its row back', async () => {
+  const held = late()
+  const strong = { ...baseRow('p1'), label: label('positive', ['great-stack'], 'strong') }
+  stubApi({ 'GET /pool': { body: poolWith({ rows: POOL.rows.map((entry) => (entry.posting_id === 'p1' ? strong : entry)) }) },
+    'POST /postings/p1/score': held.answer })
+  render(<PoolView />)
+  await titles()
+  await userEvent.selectOptions(von(), '7')
+  await userEvent.selectOptions(bis(), '9')
+  await userEvent.click(row(DATA_ANALYST).getByRole('button', { name: 'Neu berechnen' }))
+  await userEvent.selectOptions(von(), '8')
+  expect(await titles()).toEqual([DATA_ANALYST])
+  await userEvent.click(button(`Ja, auf jeden Fall: ${DATA_ANALYST}`))
+  await act(async () => held.release({ body: scoreAnswer(strong, { score: 3 }, { counter: AFTER }) }))
+  await vi.waitFor(() => corrections(4))
+  expect(screen.queryByRole('heading', { name: DATA_ANALYST })).toBeNull()
+})
+
+test('sorted by score, a row scored again by its button keeps its place until the sort changes', async () => {
+  const calls = stubApi({ 'GET /pool': { body: POOL },
+    'POST /postings/p3/score': { body: scoreAnswer(baseRow('p3'), { score: 9 }) } })
+  render(<PoolView />)
+  await titles()
+  await userEvent.selectOptions(sortSelect(), 'score-desc')
+  const before = await titles()
+  await userEvent.click(row('Datenjournalist (m/w/d)').getByRole('button', { name: 'Neu berechnen' }))
+  expect(await row('Datenjournalist (m/w/d)').findByText('9')).toBeVisible()
+  expect(await titles()).toEqual(before)
+  await userEvent.selectOptions(sortSelect(), 'score-asc')
+  await userEvent.selectOptions(sortSelect(), 'score-desc')
+  expect((await titles())[0]).toEqual('Datenjournalist (m/w/d)')
+  expect(calls.filter((call) => call.method === 'POST')).toHaveLength(1)
+})
+
+test('under "ohne Score" a row scored here stays with its score until the range changes, the text filter still hides it', async () => {
+  stubApi({ 'GET /pool': { body: POOL },
+    'POST /postings/n1/score': { body: scoreAnswer(baseRow('n1'), { state: 'scored', score: 9 }) } })
+  render(<PoolView />)
+  await titles()
+  await userEvent.selectOptions(bis(), NO_SCORE)
+  expect(await titles()).toEqual([NEW, 'Buchhalter (m/w/d)'])
+  await userEvent.click(row(NEW).getByRole('button', { name: 'Score berechnen' }))
+  expect(await row(NEW).findByText('9')).toBeVisible()
+  expect(await titles()).toEqual([NEW, 'Buchhalter (m/w/d)'])
+  await userEvent.type(screen.getByLabelText('Titel oder Firma'), 'buchhalter')
+  expect(await titles()).toEqual(['Buchhalter (m/w/d)'])
+  await userEvent.clear(screen.getByLabelText('Titel oder Firma'))
+  await userEvent.selectOptions(bis(), '10')
+  await userEvent.selectOptions(bis(), NO_SCORE)
+  expect(await titles()).toEqual(['Buchhalter (m/w/d)'])
+})
+
+test('a finished pass reloads the pool and the scored rows leave "ohne Score", except one rated here before', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  let reloads = 0
+  const scoredNow = { state: 'scored' as const, score: 5 }
+  stubApi({
+    'GET /pool': () => ({ body: ++reloads === 1 ? POOL : poolWith({ rows: POOL.rows.map((entry) =>
+      ['n1', 'broken'].includes(entry.posting_id) ? { ...entry, ...scoredNow } : entry) }) }),
+    'PUT /postings/n1/rating': rateRoute('n1'),
+    'POST /pool/passes': { status: 202, body: { pass_id: 'ps1' } },
+    'GET /pool/passes/ps1': { body: pass({ status: 'done', done: 12 }) },
+  })
+  render(<PoolView />)
+  await titles()
+  await act(async () => { fireEvent.change(bis(), { target: { value: String(-1) } }) })
+  expect(await titles()).toEqual([NEW, 'Buchhalter (m/w/d)'])
+  await act(async () => button(`Ja, auf jeden Fall: ${NEW}`).click())
+  await vi.waitFor(() => corrections(4))
+  await act(async () => button('Neue Anzeigen bewerten (12)').click())
+  await tick()
+  await vi.waitFor(() => expect(reloads).toBe(2))
+  await vi.waitFor(() => expect(screen.queryByText('Buchhalter (m/w/d)')).toBeNull())
+  expect(await titles()).toEqual([NEW])
+})
+
+test('the pool with the score range and sort controls has no accessibility violations', async () => {
+  stubApi({ 'GET /pool': { body: POOL } })
+  const { container } = render(<PoolView />)
+  await titles()
+  expect(screen.getByRole('group', { name: 'Score' })).toBeVisible()
+  expect(sortSelect()).toBeVisible()
+  await userEvent.selectOptions(von(), '3')
+  await userEvent.selectOptions(sortSelect(), 'score-desc')
+  expect(await axe(container)).toHaveNoViolations()
+})
+
+test('J, K and Enter follow the sorted order', async () => {
+  const rows = [
+    makeRow('d', 'Vierte (m/w/d)', { added_at: '2026-10-04T08:00:00+00:00', label: label('positive') }),
+    makeRow('a', 'Dritte (m/w/d)', { added_at: '2026-10-03T08:00:00+00:00' }),
+    makeRow('c', 'Zweite (m/w/d)', { added_at: '2026-10-02T08:00:00+00:00', label: label('negative') }),
+    makeRow('b', 'Erste (m/w/d)', { added_at: '2026-10-01T08:00:00+00:00' }),
+  ]
+  stubApi({ 'GET /pool': { body: poolWith({ rows }) } })
+  render(<PoolView />)
+  await titles()
+  await userEvent.selectOptions(sortSelect(), 'added-asc')
+  expect(await titles()).toEqual(['Erste (m/w/d)', 'Zweite (m/w/d)', 'Dritte (m/w/d)', 'Vierte (m/w/d)'])
+  sortSelect().blur() // the shortcuts are off while the select has focus
+  await userEvent.keyboard('j')
+  await vi.waitFor(() => expect(document.getElementById('row-c')).toHaveFocus())
+  await userEvent.keyboard('{Enter}')
+  await vi.waitFor(() => expect(document.getElementById('row-a')).toHaveFocus())
+  await userEvent.keyboard('k')
+  await vi.waitFor(() => expect(document.getElementById('row-c')).toHaveFocus())
+})
+
+test('keys typed into the range and sort selects trigger no shortcut', async () => {
+  const calls = stubApi({ 'GET /pool': { body: POOL } })
+  render(<PoolView />)
+  await titles()
+  for (const select of [von, bis, sortSelect]) {
+    select().focus()
+    await userEvent.keyboard('2j')
+  }
+  expect(puts(calls)).toHaveLength(0)
+  expect(document.activeElement).toBe(sortSelect())
+})
+
+test('"Filter zurücksetzen" resets the range as well and keeps the sort, visible in the order', async () => {
+  const rows = [
+    makeRow('a', 'Mitte (m/w/d)', { score: 1, added_at: '2026-10-02T08:00:00+00:00' }),
+    makeRow('b', 'Neu (m/w/d)', { score: 5, added_at: '2026-10-03T08:00:00+00:00' }),
+    makeRow('c', 'Alt (m/w/d)', { score: 6, added_at: '2026-10-01T08:00:00+00:00' }),
+  ]
+  stubApi({ 'GET /pool': { body: poolWith({ rows }) } })
+  render(<PoolView />)
+  expect(await titles()).toEqual(['Mitte (m/w/d)', 'Neu (m/w/d)', 'Alt (m/w/d)'])
+  await userEvent.selectOptions(sortSelect(), 'added-asc')
+  await userEvent.selectOptions(von(), '3')
+  await userEvent.selectOptions(bis(), '3')
+  await userEvent.click(await screen.findByRole('button', { name: 'Filter zurücksetzen' }))
+  expect(await titles()).toEqual(['Alt (m/w/d)', 'Mitte (m/w/d)', 'Neu (m/w/d)'])
+  expect(von()).toHaveValue('-1')
+  expect(bis()).toHaveValue('10')
+  expect(sortSelect()).toHaveValue('added-asc')
+})
+
+test('picking "Rangfolge" again after another sort brings the server order back', async () => {
+  stubApi({ 'GET /pool': { body: POOL } })
+  render(<PoolView />)
+  const ranked = await titles()
+  await userEvent.selectOptions(sortSelect(), 'score-asc')
+  expect(await titles()).not.toEqual(ranked)
+  await userEvent.selectOptions(sortSelect(), 'rank')
+  expect(await titles()).toEqual(ranked)
+})
+
+test('a status change still removes a row rated here from the list it no longer fits', async () => {
+  stubApi({ 'GET /pool': { body: POOL }, 'PUT /postings/p2/rating': rateRoute('p2'), 'PATCH /postings/p2': { body: {} } })
+  render(<PoolView />)
+  await titles()
+  await userEvent.click(button('Noch nicht bewertet'))
+  await userEvent.selectOptions(von(), '7')
+  await userEvent.selectOptions(bis(), '9')
+  expect(await titles()).toEqual([ENGINEER])
+  await userEvent.click(button(`Ja, auf jeden Fall: ${ENGINEER}`))
+  await vi.waitFor(() => corrections(4))
+  expect(await titles()).toEqual([ENGINEER])
+  await userEvent.selectOptions(row(ENGINEER).getByRole('combobox', { name: /Status/ }), 'applied')
+  await vi.waitFor(() => expect(screen.queryByText(ENGINEER)).toBeNull())
+})
+
+test('a status change removes a row scored here that lies outside the range', async () => {
+  stubApi({ 'GET /pool': { body: POOL }, 'PATCH /postings/n1': { body: {} },
+    'POST /postings/n1/score': { body: scoreAnswer(baseRow('n1'), { state: 'scored', score: 9 }, { counter: AFTER }) } })
+  render(<PoolView />)
+  await titles()
+  await userEvent.click(button('Noch nicht bewertet'))
+  await userEvent.selectOptions(bis(), NO_SCORE)
+  await userEvent.click(row(NEW).getByRole('button', { name: 'Score berechnen' }))
+  await vi.waitFor(() => corrections(4))
+  expect(await titles()).toContain(NEW) // 9 lies outside "ohne Score": the row stays only as touched
+  await userEvent.selectOptions(row(NEW).getByRole('combobox', { name: /Status/ }), 'applied')
+  await vi.waitFor(() => expect(screen.queryByText(NEW)).toBeNull())
+})
+
+test('a "Stichprobe" row sorted by score sits by its score and keeps its mark', async () => {
+  stubApi({ 'GET /pool': { body: POOL } })
+  render(<PoolView />)
+  await titles()
+  await userEvent.selectOptions(sortSelect(), 'score-desc')
+  const listed = await titles()
+  expect(listed.slice(0, 5)).toEqual([DATA_ANALYST, ENGINEER, 'Importierte Stelle (m/w/d)', 'Datenjournalist (m/w/d)', 'Junior Controller (m/w/d)'])
+  expect(row('Datenjournalist (m/w/d)').getByText('Stichprobe')).toBeVisible()
 })
