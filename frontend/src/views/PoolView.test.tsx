@@ -1140,3 +1140,97 @@ test('the sort select offers the ranking and six orders and sorts the list', asy
   await userEvent.selectOptions(sortSelect(), 'Score: höchster zuerst')
   expect((await titles()).slice(0, 3)).toEqual([DATA_ANALYST, ENGINEER, 'Importierte Stelle (m/w/d)'])
 })
+
+test('sorted by rating, a row rated here keeps its place until the sort changes', async () => {
+  stubApi({ 'GET /pool': { body: POOL }, 'PUT /postings/p2/rating': rateRoute('p2') })
+  render(<PoolView />)
+  await titles()
+  await userEvent.selectOptions(sortSelect(), 'rating-desc')
+  const before = await titles()
+  expect(before.slice(0, 3)).toEqual([DATA_ANALYST, 'Junior Controller (m/w/d)', ENGINEER])
+  await userEvent.click(button(`Ja, auf jeden Fall: ${ENGINEER}`))
+  await vi.waitFor(() => expect(button(`Ja, auf jeden Fall: ${ENGINEER}`)).toHaveAttribute('aria-pressed', 'true'))
+  expect(await titles()).toEqual(before)
+  await userEvent.selectOptions(sortSelect(), 'rating-asc')
+  await userEvent.selectOptions(sortSelect(), 'rating-desc')
+  expect((await titles())[0]).toEqual(ENGINEER)
+})
+
+test('sorted by score, a row scored again by its button keeps its place until the sort changes', async () => {
+  const calls = stubApi({ 'GET /pool': { body: POOL },
+    'POST /postings/p3/score': { body: scoreAnswer(baseRow('p3'), { score: 9 }) } })
+  render(<PoolView />)
+  await titles()
+  await userEvent.selectOptions(sortSelect(), 'score-desc')
+  const before = await titles()
+  await userEvent.click(row('Datenjournalist (m/w/d)').getByRole('button', { name: 'Neu berechnen' }))
+  expect(await row('Datenjournalist (m/w/d)').findByText('9')).toBeVisible()
+  expect(await titles()).toEqual(before)
+  await userEvent.selectOptions(sortSelect(), 'score-asc')
+  await userEvent.selectOptions(sortSelect(), 'score-desc')
+  expect((await titles())[0]).toEqual('Datenjournalist (m/w/d)')
+  expect(calls.filter((call) => call.method === 'POST')).toHaveLength(1)
+})
+
+test('under "ohne Score" a row scored here stays with its score until the range changes, the text filter still hides it', async () => {
+  stubApi({ 'GET /pool': { body: POOL },
+    'POST /postings/n1/score': { body: scoreAnswer(baseRow('n1'), { state: 'scored', score: 9 }) } })
+  render(<PoolView />)
+  await titles()
+  await userEvent.selectOptions(bis(), NO_SCORE)
+  expect(await titles()).toEqual([NEW, 'Buchhalter (m/w/d)'])
+  await userEvent.click(row(NEW).getByRole('button', { name: 'Score berechnen' }))
+  expect(await row(NEW).findByText('9')).toBeVisible()
+  expect(await titles()).toEqual([NEW, 'Buchhalter (m/w/d)'])
+  await userEvent.type(screen.getByLabelText('Titel oder Firma'), 'buchhalter')
+  expect(await titles()).toEqual(['Buchhalter (m/w/d)'])
+  await userEvent.clear(screen.getByLabelText('Titel oder Firma'))
+  await userEvent.selectOptions(bis(), '10')
+  await userEvent.selectOptions(bis(), NO_SCORE)
+  expect(await titles()).toEqual(['Buchhalter (m/w/d)'])
+})
+
+test('a finished pass reloads the pool and the scored rows leave "ohne Score", except one rated here before', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  let reloads = 0
+  const scoredNow = { state: 'scored' as const, score: 5 }
+  stubApi({
+    'GET /pool': () => ({ body: ++reloads === 1 ? POOL : poolWith({ rows: POOL.rows.map((entry) =>
+      ['n1', 'broken'].includes(entry.posting_id) ? { ...entry, ...scoredNow } : entry) }) }),
+    'PUT /postings/n1/rating': rateRoute('n1'),
+    'POST /pool/passes': { status: 202, body: { pass_id: 'ps1' } },
+    'GET /pool/passes/ps1': { body: pass({ status: 'done', done: 12 }) },
+  })
+  render(<PoolView />)
+  await titles()
+  await act(async () => { fireEvent.change(bis(), { target: { value: String(-1) } }) })
+  expect(await titles()).toEqual([NEW, 'Buchhalter (m/w/d)'])
+  await act(async () => button(`Ja, auf jeden Fall: ${NEW}`).click())
+  await vi.waitFor(() => expect(button(`Ja, auf jeden Fall: ${NEW}`)).toHaveAttribute('aria-pressed', 'true'))
+  await act(async () => button('Neue Anzeigen bewerten (12)').click())
+  await tick()
+  await vi.waitFor(() => expect(reloads).toBe(2))
+  await vi.waitFor(() => expect(screen.queryByText('Buchhalter (m/w/d)')).toBeNull())
+  expect(await titles()).toEqual([NEW])
+})
+
+test('a status change still removes a row rated here from the list it no longer fits', async () => {
+  stubApi({ 'GET /pool': { body: POOL }, 'PUT /postings/p2/rating': rateRoute('p2'), 'PATCH /postings/p2': { body: {} } })
+  render(<PoolView />)
+  await titles()
+  await userEvent.click(button('Noch nicht bewertet'))
+  await userEvent.click(button(`Ja, auf jeden Fall: ${ENGINEER}`))
+  await vi.waitFor(() => expect(button(`Ja, auf jeden Fall: ${ENGINEER}`)).toHaveAttribute('aria-pressed', 'true'))
+  await userEvent.selectOptions(row(ENGINEER).getByRole('combobox', { name: /Status/ }), 'applied')
+  await vi.waitFor(() => expect(screen.queryByText(ENGINEER)).toBeNull())
+})
+
+test('a "Stichprobe" row sorted by score sits by its score and keeps its mark', async () => {
+  stubApi({ 'GET /pool': { body: POOL } })
+  render(<PoolView />)
+  await titles()
+  await userEvent.selectOptions(sortSelect(), 'score-desc')
+  const listed = await titles()
+  expect(listed.slice(0, 5)).toEqual([DATA_ANALYST, ENGINEER, 'Importierte Stelle (m/w/d)', 'Datenjournalist (m/w/d)', 'Junior Controller (m/w/d)'])
+  expect(row('Datenjournalist (m/w/d)').getByText('Stichprobe')).toBeVisible()
+})

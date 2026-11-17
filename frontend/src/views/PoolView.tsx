@@ -312,8 +312,15 @@ export function PoolView({ active = true }: { active?: boolean }) {
   const [failed, setFailed] = useState<Record<string, Status>>({})
   /** The posting the shortcut keys act on; `null` until one is chosen (then the first unrated). */
   const [selected, setSelected] = useState<string | null>(null)
-  /** Postings rated here: they stay in the "Noch nicht bewertet" list until the filter changes. */
+  /** Postings rated or scored here: they stay in the "Noch nicht bewertet" list and outside the
+   * score range until the state filter or the range changes. */
   const [touched, setTouched] = useState<ReadonlySet<string>>(new Set())
+  /** The shown order: posting IDs, sorted when the pool loaded or the sort, the state filter or the
+   * range changed (`orderKey`), so a posting rated or scored here keeps its place. */
+  const [order, setOrder] = useState<string[]>([])
+  const [orderKey, setOrderKey] = useState('')
+  /** Counts the loads that arrived; part of `orderKey`. */
+  const [loads, setLoads] = useState(0)
   const [focusRequest, setFocusRequest] = useState<{ id: string; target: 'row' | 'reasons' | 'note' } | null>(null)
   /** Polite message when Enter finds no further unrated posting; it alternates a trailing space
    * so the same text is announced again. */
@@ -337,6 +344,7 @@ export function PoolView({ active = true }: { active?: boolean }) {
     api<Pool>('/pool').then((next) => {
       if (mine !== latest.current) return
       setPool(next)
+      setLoads((count) => count + 1)
       setLoadFailed(false)
     }, () => {
       if (mine === latest.current) setLoadFailed(true)
@@ -351,6 +359,7 @@ export function PoolView({ active = true }: { active?: boolean }) {
     const id = scored.row.posting_id
     setPool((current) => current && { ...current, counter: scored.counter, next_pass: scored.next_pass,
       rows: current.rows.map((row) => (row.posting_id === id ? { ...scored.row, exploration: row.exploration } : row)) })
+    setTouched((current) => new Set(current).add(id))
   }, load)
   const { clearBusy } = score
   /** A finished pass reloads the pool and drops the rows' "scoring in progress" messages: they
@@ -382,14 +391,30 @@ export function PoolView({ active = true }: { active?: boolean }) {
 
   const keep = FILTERS.find((entry) => entry.id === filter)!.keep
   const needle = text.trim().toLowerCase()
-  const shown = sortRows(pool?.rows ?? [], sort).filter((row) => (keep(row) || (filter === 'unrated' && row.status === 'open' && touched.has(row.posting_id)))
-    && inRange(row, range) && (!needle || `${row.title} ${row.company}`.toLowerCase().includes(needle)))
+  // Take the order afresh when the pool loaded or the sort, the state filter or the range changed
+  // (render-time sync, no effect); a rating or score in between changes a row but not its place.
+  const key = `${loads}|${sort}|${filter}|${range.from}|${range.to}`
+  if (pool && key !== orderKey) {
+    setOrderKey(key)
+    setOrder(sortRows(pool.rows, sort).map((row) => row.posting_id))
+  }
+  const byId = new Map(pool?.rows.map((row) => [row.posting_id, row]))
+  const shown = order.flatMap((id) => byId.get(id) ?? []).filter((row) => {
+    const mine = touched.has(row.posting_id)
+    return (keep(row) || (mine && filter === 'unrated' && row.status === 'open'))
+      && (mine || inRange(row, range)) && (!needle || `${row.title} ${row.company}`.toLowerCase().includes(needle))
+  })
   const unrated = (row: PoolRow) => row.status === 'open' && rating.view(row).verdict === null
   const current = shown.some((row) => row.posting_id === selected) ? selected : nextUnrated(shown, undefined, unrated) ?? shown[0]?.posting_id
 
-  /** Give the filter its rows afresh: nothing rated here stays in it. */
+  /** Give the filter its rows afresh: nothing rated or scored here stays in it. */
   function pick(id: string) {
     setFilter(id)
+    setTouched(new Set())
+  }
+  /** Set the range, ends kept in order; nothing rated or scored here stays outside it. */
+  function pickRange(next: Range) {
+    setRange(next)
     setTouched(new Set())
   }
   /** Send a level; the posting stays open and its reasons take focus, so reasons can follow. */
@@ -549,12 +574,12 @@ export function PoolView({ active = true }: { active?: boolean }) {
               <div className="flex items-center gap-2">
                 <label htmlFor="pool-from" className="text-[15px]">von</label>
                 <select id="pool-from" value={range.from} className={SELECT}
-                        onChange={(event) => { const from = Number(event.target.value); setRange({ from, to: Math.max(from, range.to) }) }}>
+                        onChange={(event) => { const from = Number(event.target.value); pickRange({ from, to: Math.max(from, range.to) }) }}>
                   <StepOptions />
                 </select>
                 <label htmlFor="pool-to" className="text-[15px]">bis</label>
                 <select id="pool-to" value={range.to} className={SELECT}
-                        onChange={(event) => { const to = Number(event.target.value); setRange({ from: Math.min(to, range.from), to }) }}>
+                        onChange={(event) => { const to = Number(event.target.value); pickRange({ from: Math.min(to, range.from), to }) }}>
                   <StepOptions />
                 </select>
               </div>
