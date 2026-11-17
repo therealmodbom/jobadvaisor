@@ -1,0 +1,11 @@
+{
+  "schema_version": "1",
+  "score": 10,
+  "reasoning": "Kotlin Multiplatform auf mittlerem Niveau im Bildungsbereich, voll remote bei einem Scale-up mit Kotlin im Stack. Das trifft alle Wünsche aus dem Profil.",
+  "example_ids": [
+    "demo-113",
+    "demo-101",
+    "demo-033"
+  ],
+  "scored_at": "2026-03-20T09:00:00Z"
+}

@@ -1,0 +1,11 @@
+{
+  "schema_version": "1",
+  "score": 4,
+  "reasoning": "Mobile QA mit Kotlin, hybrid in Eastmere. Standort und Stack passen, Rolle und Bankwesen eher nicht.",
+  "example_ids": [
+    "demo-050",
+    "demo-056",
+    "demo-125"
+  ],
+  "scored_at": "2026-03-20T09:00:00Z"
+}
