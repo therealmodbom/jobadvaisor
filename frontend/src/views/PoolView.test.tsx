@@ -1064,3 +1064,79 @@ test('the pool with score buttons has no accessibility violations', async () => 
   await titles()
   expect(await axe(container)).toHaveNoViolations()
 })
+
+// --- score range and sort -------------------------------------------------------------------
+
+const DATA_ANALYST = 'Data Analyst (m/w/d)'
+const von = () => screen.getByRole('combobox', { name: 'von' })
+const bis = () => screen.getByRole('combobox', { name: 'bis' })
+const sortSelect = () => screen.getByRole('combobox', { name: 'Sortierung' })
+const NO_SCORE = 'ohne Score'
+
+test('the score range lists only the rows within it, combined with the state and the text filter', async () => {
+  stubApi({ 'GET /pool': { body: POOL } })
+  render(<PoolView />)
+  await titles()
+  expect(screen.getByRole('group', { name: 'Score' })).toContainElement(von())
+  await userEvent.selectOptions(von(), '7')
+  await userEvent.selectOptions(bis(), '9')
+  expect(await titles()).toEqual([DATA_ANALYST, ENGINEER])
+  await userEvent.click(button('Noch nicht bewertet'))
+  expect(await titles()).toEqual([ENGINEER])
+  await userEvent.click(button('Offen'))
+  await userEvent.type(screen.getByLabelText('Titel oder Firma'), 'analyst')
+  expect(await titles()).toEqual([DATA_ANALYST])
+})
+
+test('"ohne Score" to "ohne Score" lists only the unscored rows', async () => {
+  stubApi({ 'GET /pool': { body: POOL } })
+  render(<PoolView />)
+  await titles()
+  await userEvent.selectOptions(bis(), NO_SCORE)
+  expect(await titles()).toEqual([NEW, 'Buchhalter (m/w/d)'])
+})
+
+test('a range from 0 to 0 lists a row scored 0 and no unscored one', async () => {
+  stubApi({ 'GET /pool': { body: poolWith({ rows: [makeRow('z', 'Null (m/w/d)', { score: 0 }), ...POOL.rows] }) } })
+  render(<PoolView />)
+  await titles()
+  await userEvent.selectOptions(von(), '0')
+  await userEvent.selectOptions(bis(), '0')
+  expect(await titles()).toEqual(['Null (m/w/d)'])
+})
+
+test('moving "von" above "bis" pulls "bis" up, and "bis" below "von" pulls "von" down', async () => {
+  stubApi({ 'GET /pool': { body: POOL } })
+  render(<PoolView />)
+  await titles()
+  await userEvent.selectOptions(von(), '3')
+  await userEvent.selectOptions(bis(), '5')
+  await userEvent.selectOptions(von(), '8')
+  expect(von()).toHaveValue('8')
+  expect(bis()).toHaveValue('8')
+  await userEvent.selectOptions(bis(), '2')
+  expect(von()).toHaveValue('2')
+  expect(bis()).toHaveValue('2')
+})
+
+test('focus stays on the select after a range or sort change', async () => {
+  stubApi({ 'GET /pool': { body: POOL } })
+  render(<PoolView />)
+  await titles()
+  for (const [select, value] of [[von, '3'], [bis, '6'], [sortSelect, 'added-asc']] as const) {
+    await userEvent.selectOptions(select(), value)
+    expect(select()).toHaveFocus()
+  }
+})
+
+test('the sort select offers the ranking and six orders and sorts the list', async () => {
+  stubApi({ 'GET /pool': { body: POOL } })
+  render(<PoolView />)
+  await titles()
+  expect(within(sortSelect()).getAllByRole('option').map((option) => option.textContent)).toEqual([
+    'Rangfolge', 'Score: höchster zuerst', 'Score: niedrigster zuerst', 'Deine Bewertung: beste zuerst',
+    'Deine Bewertung: schlechteste zuerst', 'Hinzugefügt: neueste zuerst', 'Hinzugefügt: älteste zuerst'])
+  expect(sortSelect()).toHaveValue('rank')
+  await userEvent.selectOptions(sortSelect(), 'Score: höchster zuerst')
+  expect((await titles()).slice(0, 3)).toEqual([DATA_ANALYST, ENGINEER, 'Importierte Stelle (m/w/d)'])
+})

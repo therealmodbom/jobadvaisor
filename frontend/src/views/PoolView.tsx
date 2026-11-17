@@ -7,6 +7,7 @@ import { EmptyState, ErrorWithRetry, Loading } from '@/components/states'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { addedLabel, STATUSES } from '@/lib/german'
+import { FULL_RANGE, inRange, NO_SCORE, SORTS, sortRows, type Range, type Sort } from '@/lib/pool-order'
 import { LEVELS, strayPaste, useRating, type Rating } from '@/lib/rating'
 import { useScore, type ScoreCall } from '@/lib/score'
 import { cn, without } from '@/lib/utils'
@@ -278,6 +279,16 @@ function Row({ row, chips, rating, selected, onSelect, onLevel, saving, failed, 
   )
 }
 
+/** The look of the pool's selects: the status control's, on the card background like the text field. */
+const SELECT = 'min-h-11 rounded-lg border border-input bg-card px-2.5 text-[15px]'
+
+/** The steps of the score range as `option`s: "ohne Score" (-1), then 0 to 10. */
+function StepOptions() {
+  return Array.from({ length: 12 }, (_, index) => index + NO_SCORE).map((step) => (
+    <option key={step} value={step}>{step === NO_SCORE ? 'ohne Score' : step}</option>
+  ))
+}
+
 const END = 'Keine weitere unbewertete Anzeige.'
 
 /** The ID of the next row after `from` (the first when `from` is unknown) that `unrated` accepts,
@@ -295,6 +306,8 @@ export function PoolView({ active = true }: { active?: boolean }) {
   const [loadFailed, setLoadFailed] = useState(false)
   const [filter, setFilter] = useState('open')
   const [text, setText] = useState('')
+  const [range, setRange] = useState<Range>(FULL_RANGE)
+  const [sort, setSort] = useState<Sort>('rank')
   const [saving, setSaving] = useState<Record<string, boolean>>({})
   const [failed, setFailed] = useState<Record<string, Status>>({})
   /** The posting the shortcut keys act on; `null` until one is chosen (then the first unrated). */
@@ -369,8 +382,8 @@ export function PoolView({ active = true }: { active?: boolean }) {
 
   const keep = FILTERS.find((entry) => entry.id === filter)!.keep
   const needle = text.trim().toLowerCase()
-  const shown = pool?.rows.filter((row) => (keep(row) || (filter === 'unrated' && row.status === 'open' && touched.has(row.posting_id)))
-    && (!needle || `${row.title} ${row.company}`.toLowerCase().includes(needle))) ?? []
+  const shown = sortRows(pool?.rows ?? [], sort).filter((row) => (keep(row) || (filter === 'unrated' && row.status === 'open' && touched.has(row.posting_id)))
+    && inRange(row, range) && (!needle || `${row.title} ${row.company}`.toLowerCase().includes(needle)))
   const unrated = (row: PoolRow) => row.status === 'open' && rating.view(row).verdict === null
   const current = shown.some((row) => row.posting_id === selected) ? selected : nextUnrated(shown, undefined, unrated) ?? shown[0]?.posting_id
 
@@ -531,6 +544,29 @@ export function PoolView({ active = true }: { active?: boolean }) {
               <label htmlFor="pool-text" className="text-sm font-bold">Titel oder Firma</label>
               <Input id="pool-text" type="search" value={text} onChange={(event) => setText(event.target.value)} className="w-64 bg-card" />
             </div>
+            <fieldset className="min-w-0">
+              <legend className="mb-1 p-0 text-sm font-bold">Score</legend>
+              <div className="flex items-center gap-2">
+                <label htmlFor="pool-from" className="text-[15px]">von</label>
+                <select id="pool-from" value={range.from} className={SELECT}
+                        onChange={(event) => { const from = Number(event.target.value); setRange({ from, to: Math.max(from, range.to) }) }}>
+                  <StepOptions />
+                </select>
+                <label htmlFor="pool-to" className="text-[15px]">bis</label>
+                <select id="pool-to" value={range.to} className={SELECT}
+                        onChange={(event) => { const to = Number(event.target.value); setRange({ from: Math.min(to, range.from), to }) }}>
+                  <StepOptions />
+                </select>
+              </div>
+            </fieldset>
+            <div className="flex min-w-0 flex-col gap-1">
+              <label htmlFor="pool-sort" className="text-sm font-bold">Sortierung</label>
+              <select id="pool-sort" value={sort} onChange={(event) => setSort(event.target.value as Sort)} className={cn(SELECT, 'max-w-full')}>
+                {SORTS.map(({ id, label }) => <option key={id} value={id}>{label}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
             <div role="group" aria-label="Filter" className="flex flex-wrap gap-1.5">
               {FILTERS.map((entry) => (
                 <button key={entry.id} type="button" aria-pressed={filter === entry.id} onClick={() => pick(entry.id)}
