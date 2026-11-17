@@ -571,17 +571,21 @@ export function PoolView({ active = true }: { active?: boolean }) {
             </div>
             <fieldset className="min-w-0">
               <legend className="mb-1 p-0 text-sm font-bold">Score</legend>
-              <div className="flex items-center gap-2">
-                <label htmlFor="pool-from" className="text-[15px]">von</label>
-                <select id="pool-from" value={range.from} className={SELECT}
-                        onChange={(event) => { const from = Number(event.target.value); pickRange({ from, to: Math.max(from, range.to) }) }}>
-                  <StepOptions />
-                </select>
-                <label htmlFor="pool-to" className="text-[15px]">bis</label>
-                <select id="pool-to" value={range.to} className={SELECT}
-                        onChange={(event) => { const to = Number(event.target.value); pickRange({ from: Math.min(to, range.from), to }) }}>
-                  <StepOptions />
-                </select>
+              <div className="flex items-end gap-2">
+                <div className="flex flex-col gap-1">
+                  <label htmlFor="pool-from" className="text-sm text-muted-foreground">von</label>
+                  <select id="pool-from" value={range.from} className={SELECT}
+                          onChange={(event) => { const from = Number(event.target.value); pickRange({ from, to: Math.max(from, range.to) }) }}>
+                    <StepOptions />
+                  </select>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label htmlFor="pool-to" className="text-sm text-muted-foreground">bis</label>
+                  <select id="pool-to" value={range.to} className={SELECT}
+                          onChange={(event) => { const to = Number(event.target.value); pickRange({ from: Math.min(to, range.from), to }) }}>
+                    <StepOptions />
+                  </select>
+                </div>
               </div>
             </fieldset>
             <div className="flex min-w-0 flex-col gap-1">
