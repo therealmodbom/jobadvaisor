@@ -6,7 +6,7 @@
 
 ## 1. Order and range logic
 
-- [ ] 1.1 Test first, then add `inRange(row, range)` and the full range to `frontend/src/lib/pool-order.ts`, with docstrings; verify Vitest cases: full range keeps excluded, held and unscored rows; 7 to 9 keeps 7, 8, 9 and drops 6, 10 and null, and drops an excluded and a held row that carry a stored 8; 0 to 0 keeps 0 and drops null; „ohne Score“ to „ohne Score“ keeps `unscored` rows (rated, unrated, with a `score_problem`) and drops excluded, held and scored ones; „ohne Score“ to 5 keeps `unscored` rows and scores 0 to 5
+- [x] 1.1 Test first, then add `inRange(row, range)` and the full range to `frontend/src/lib/pool-order.ts`, with docstrings; verify Vitest cases: full range keeps excluded, held and unscored rows; 7 to 9 keeps 7, 8, 9 and drops 6, 10 and null, and drops an excluded and a held row that carry a stored 8; 0 to 0 keeps 0 and drops null; „ohne Score“ to „ohne Score“ keeps `unscored` rows (rated, unrated, with a `score_problem`) and drops excluded, held and scored ones; „ohne Score“ to 5 keeps `unscored` rows and scores 0 to 5
 - [ ] 1.2 Test first, then add `sortRows(rows, sort)` and the sort keys to the same module; verify Vitest cases: ranking returns the input order; score both directions with nulls last both times, and an excluded row with a stored score among the missing ones; rating both directions in the order strong yes, plain yes, weak yes, weak no, plain no, strong no, with unrated (no label, and a label without a verdict) last both times; added date both directions; equal values keep the input order in both directions; the input array is not changed
 
 ## 2. Pool view
