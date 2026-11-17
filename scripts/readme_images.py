@@ -73,10 +73,11 @@ def prepare_data(root: Path) -> None:
         "commit", "-q", "-m", "Demo persona with sample scores", cwd=root)
 
 
-def start_server(root: Path, reached: list[str]) -> uvicorn.Server:
+def start_server(root: Path, reached: list[str]) -> tuple[uvicorn.Server, threading.Thread]:
     """Serve `create_app` over the data repository `root` on `HOST:PORT` in a thread and return
-    the started server; set `.should_exit` to stop it. Every model part appends what was reached
-    to `reached` and raises `ModelReached`. Exits with a message when the port is taken."""
+    the started server and its thread; set `.should_exit` and join the thread to stop it. Every
+    model part appends what was reached to `reached` and raises `ModelReached`. Exits with a
+    message when the server does not start."""
     def reach(name: str):
         reached.append(name)
         raise ModelReached(f"model part reached: {name}")
@@ -98,8 +99,8 @@ def start_server(root: Path, reached: list[str]) -> uvicorn.Server:
     while not server.started and thread.is_alive() and time.monotonic() < deadline:
         time.sleep(0.05)
     if not server.started:
-        sys.exit("the app did not start")
-    return server
+        sys.exit(f"the app did not start (was port {PORT} taken after the check?)")
+    return server, thread
 
 
 def first_unrated_scored(root_url: str) -> dict:
@@ -158,13 +159,14 @@ def main() -> None:
         os.environ["DATA_REPOSITORY"] = str(root)  # before create_app builds its Settings
         os.environ["STATE_DIRECTORY"] = str(Path(temporary) / "state")
         prepare_data(root)
-        server = start_server(root, reached)
+        server, thread = start_server(root, reached)
         try:
             take_images(first_unrated_scored(URL), problems)
         except Exception as error:  # a reached stub usually surfaces as a timeout here
             problems.append(f"script error: {type(error).__name__}: {error}")
         finally:
             server.should_exit = True
+            thread.join(10)  # the server stops before its data directory is deleted
     problems = [f"model call: {name}" for name in reached] + problems
     if problems:
         sys.exit("README images not trusted:\n" + "\n".join(f"- {line}" for line in problems))
