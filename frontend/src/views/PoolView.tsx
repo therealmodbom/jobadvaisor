@@ -346,6 +346,14 @@ export function PoolView({ active = true }: { active?: boolean }) {
       rows: current.rows.map((row) => (row.posting_id === id ? answer.row : row)) })
     touch(id)
   })
+  /** `rating` for the rows: every action that sends a rating records its epoch first (`begin`). */
+  const tracked: Rating = {
+    ...rating,
+    level: (row, verdict, strength) => { begin(row.posting_id); return rating.level(row, verdict, strength) },
+    chip: (row, chip) => { begin(row.posting_id); return rating.chip(row, chip) },
+    saveNote: (row) => { begin(row.posting_id); return rating.saveNote(row) },
+    retry: (row) => { begin(row.posting_id); return rating.retry(row) },
+  }
   useEffect(() => {
     if (focusRequest) document.getElementById(`${focusRequest.target}-${focusRequest.id}`)?.focus()
   }, [focusRequest])
@@ -434,8 +442,7 @@ export function PoolView({ active = true }: { active?: boolean }) {
   }
   /** Send a level; the posting stays open and its reasons take focus, so reasons can follow. */
   function rate(row: PoolRow, verdict: Verdict, strength: Strength) {
-    begin(row.posting_id)
-    void rating.level(row, verdict, strength)
+    void tracked.level(row, verdict, strength)
     setSelected(row.posting_id)
     setFocusRequest({ id: row.posting_id, target: 'reasons' })
   }
@@ -477,8 +484,7 @@ export function PoolView({ active = true }: { active?: boolean }) {
       if (event.shiftKey && digit) {
         const chip = pool.reason_chips[Number(digit) - 1]
         if (!chip) return
-        begin(row.posting_id)
-        void rating.chip(row, chip.id)
+        void tracked.chip(row, chip.id)
         // Keep acting on this posting even after its derived verdict moves the default on.
         setSelected(row.posting_id)
       } else if (event.shiftKey) {
@@ -635,7 +641,7 @@ export function PoolView({ active = true }: { active?: boolean }) {
               <Legend />
               <ul className="flex flex-col gap-3" aria-label="Anzeigen">
                 {shown.map((row) => (
-                  <Row key={row.posting_id} row={row} chips={pool.reason_chips} rating={rating}
+                  <Row key={row.posting_id} row={row} chips={pool.reason_chips} rating={tracked}
                        selected={row.posting_id === current} onSelect={() => setSelected(row.posting_id)}
                        onLevel={(verdict, strength) => rate(row, verdict, strength)} saving={!!saving[row.posting_id]}
                        failed={failed[row.posting_id]} onStatus={(status) => setStatus(row.posting_id, status)}

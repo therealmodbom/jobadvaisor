@@ -1244,6 +1244,24 @@ test('a rating answering after the range changed does not bring its row back int
   expect(await titles()).toEqual([DATA_ANALYST, ENGINEER])
 })
 
+test('a chip answering after the range changed does not bring its row back into the range', async () => {
+  const held = late()
+  stubApi({ 'GET /pool': { body: POOL }, 'PUT /postings/p3/rating': held.answer })
+  render(<PoolView />)
+  await titles()
+  await userEvent.selectOptions(von(), '3')
+  await userEvent.selectOptions(bis(), '3')
+  expect(await titles()).toEqual(['Datenjournalist (m/w/d)'])
+  await userEvent.click(button('great stack'))
+  await userEvent.selectOptions(von(), '7')
+  await userEvent.selectOptions(bis(), '9')
+  expect(await titles()).toEqual([DATA_ANALYST, ENGINEER])
+  const body = { chips: ['great-stack'], note: null }
+  await act(async () => held.release(ratingAnswer(baseRow('p3'), body, AFTER)))
+  await vi.waitFor(() => corrections(4))
+  expect(await titles()).toEqual([DATA_ANALYST, ENGINEER])
+})
+
 test('sorted by score, a row scored again by its button keeps its place until the sort changes', async () => {
   const calls = stubApi({ 'GET /pool': { body: POOL },
     'POST /postings/p3/score': { body: scoreAnswer(baseRow('p3'), { score: 9 }) } })
