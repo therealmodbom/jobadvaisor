@@ -29,7 +29,7 @@ None.
 
 - Frontend: `frontend/src/views/PoolView.tsx` (filter, order, controls), a small pure module for the range and the sort with its own Vitest, `PoolView.test.tsx`, `test-fixtures.ts`.
 - e2e: one click through the range control in the existing pool walkthrough.
-- `docs/images/pool.png` is retaken, since the filter bar changes visibly (paid scoring pass, a few cents; asked before it runs).
+- `docs/images/pool.png` is not retaken in this change, as an exception to the README screenshot rule in AGENTS.md: a retake needs a full scoring pass over the demo persona. It is retaken with the script from #79 (Retake the README screenshots with a cheap script instead of a full scoring pass).
 - No backend code change, no API change, no data format change, no new dependency.
 
 ## Non-goals

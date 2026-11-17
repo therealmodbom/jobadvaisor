@@ -33,5 +33,5 @@
   - At 390 px, `scrollWidth` equals `clientWidth`, with labels above the selects as designed.
   
   Not shown by the browser: keyboard operation of the native selects, since Playwright cannot drive the system's dropdown popup (the selects are focusable and reachable by Tab), and a rating in place under a sort, which was not clicked because a rating may call the embedding model; Vitest task 2.2 covers it.
-- [ ] 4.3 Name the cost of retaking `docs/images/pool.png` (one scoring pass over a fresh demo persona copy, AGENTS.md → README screenshot) and retake it after the go; verify the picture shows the new filter bar, filtered to „Noch nicht bewertet“
+- [x] 4.3 Name the cost of retaking `docs/images/pool.png` (one scoring pass over a fresh demo persona copy, AGENTS.md → README screenshot) and retake it after the go; verify the picture shows the new filter bar, filtered to „Noch nicht bewertet“. Skipped on the owner's decision (2026-11-17), as in #46: the retake waits for the cheap script of #79, so `pool.png` still lacks the filter bar
 - [x] 4.4 Update the „Current state“ section of `AGENTS.md` with this change and drop its oldest entry; verify the section holds the last two changes

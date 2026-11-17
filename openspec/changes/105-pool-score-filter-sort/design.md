@@ -32,4 +32,4 @@ An excluded or held row can carry a stored score: `pool.py` sets `state` from th
 - [The snapshot can show a stale order after a rating, for example a newly rated row sorted among the unrated ones] → intended, and stated in the spec. Changing the sort or a filter, or the next load, puts it in place.
 - [„ohne Score“ and every numeric range hide excluded and held postings, which count as having no score] → they keep their own marks and stay visible under the full range. The spec states it.
 - [Overlap with other open work on `PoolView.tsx` or `posting-pool/spec.md`] → before opening the PR, check `git worktree list` and `gh pr list`, and bring `origin/main` in with `git merge`.
-- [The README screenshot shows the filter bar] → retaken in this change, after its cost is named and a go is given.
+- [The README screenshot shows the old filter bar] → not retaken here; #79 (Retake the README screenshots with a cheap script instead of a full scoring pass) retakes it.
