@@ -327,11 +327,24 @@ export function PoolView({ active = true }: { active?: boolean }) {
   const [end, setEnd] = useState('')
   /** Polite announcement of a status change, whose row may leave the shown list. */
   const [announce, setAnnounce] = useState('')
+  /** Counts the changes of the state filter or the range (`pick`, `pickRange`). */
+  const epoch = useRef(0)
+  /** The epoch in which the user last started a rating or score of a posting. An answer joins
+   * `touched` only if the epoch has not moved on since: `pick` and `pickRange` clear `touched`,
+   * and a late answer must not bring a row back into a list it no longer fits. */
+  const started = useRef(new Map<string, number>())
+  const begin = (id: string) => { started.current.set(id, epoch.current) }
+  /** Add `id` to `touched` unless a filter or the range changed since `begin(id)`. */
+  const touch = (id: string) => {
+    const since = started.current.get(id) ?? epoch.current
+    started.current.delete(id)
+    if (since === epoch.current) setTouched((current) => new Set(current).add(id))
+  }
   const rating = useRating((answer: RatingAnswer) => {
     const id = answer.row.posting_id
     setPool((current) => current && { ...current, counter: answer.counter, next_pass: answer.next_pass,
       rows: current.rows.map((row) => (row.posting_id === id ? answer.row : row)) })
-    setTouched((current) => new Set(current).add(id))
+    touch(id)
   })
   useEffect(() => {
     if (focusRequest) document.getElementById(`${focusRequest.target}-${focusRequest.id}`)?.focus()
@@ -359,7 +372,7 @@ export function PoolView({ active = true }: { active?: boolean }) {
     const id = scored.row.posting_id
     setPool((current) => current && { ...current, counter: scored.counter, next_pass: scored.next_pass,
       rows: current.rows.map((row) => (row.posting_id === id ? { ...scored.row, exploration: row.exploration } : row)) })
-    setTouched((current) => new Set(current).add(id))
+    touch(id)
   }, load)
   const { clearBusy } = score
   /** A finished pass reloads the pool and drops the rows' "scoring in progress" messages: they
@@ -409,16 +422,19 @@ export function PoolView({ active = true }: { active?: boolean }) {
 
   /** Give the filter its rows afresh: nothing rated or scored here stays in it. */
   function pick(id: string) {
+    epoch.current++
     setFilter(id)
     setTouched(new Set())
   }
   /** Set the range, ends kept in order; nothing rated or scored here stays outside it. */
   function pickRange(next: Range) {
+    epoch.current++
     setRange(next)
     setTouched(new Set())
   }
   /** Send a level; the posting stays open and its reasons take focus, so reasons can follow. */
   function rate(row: PoolRow, verdict: Verdict, strength: Strength) {
+    begin(row.posting_id)
     void rating.level(row, verdict, strength)
     setSelected(row.posting_id)
     setFocusRequest({ id: row.posting_id, target: 'reasons' })
@@ -461,6 +477,7 @@ export function PoolView({ active = true }: { active?: boolean }) {
       if (event.shiftKey && digit) {
         const chip = pool.reason_chips[Number(digit) - 1]
         if (!chip) return
+        begin(row.posting_id)
         void rating.chip(row, chip.id)
         // Keep acting on this posting even after its derived verdict moves the default on.
         setSelected(row.posting_id)
@@ -625,7 +642,7 @@ export function PoolView({ active = true }: { active?: boolean }) {
                        onLevel={(verdict, strength) => rate(row, verdict, strength)} saving={!!saving[row.posting_id]}
                        failed={failed[row.posting_id]} onStatus={(status) => setStatus(row.posting_id, status)}
                        screening={pool.screening} scoreCall={score.call(row.posting_id)}
-                       onScore={() => void score.run(row.posting_id)} />
+                       onScore={() => { begin(row.posting_id); void score.run(row.posting_id) }} />
                 ))}
               </ul>
             </>
