@@ -1,5 +1,6 @@
 """Browser walkthrough of scoring: a pass that scores a rated posting without a score, a score from
-a posting's page, a re-score from a pool row, and the blocked button. Real app (`create_app` served
+a posting's page, a re-score from a pool row, the blocked button, and the pool's score range at
+desktop and phone width. Real app (`create_app` served
 by uvicorn) over a temporary data repository, the built frontend in Chromium, fake models. The
 tests share one server and run in order, each building on the data of the one before; run them as
 a set: `pytest -m e2e` after `npm --prefix frontend run build`."""
@@ -156,25 +157,29 @@ def test_the_score_range_narrows_the_pool_and_resets_at_desktop_and_phone_width(
     (data_root / "scores/fresh.json").unlink()
     page.goto(f"{app_url}/#/pool")
     page.reload()
-    von = page.get_by_role("combobox", name="von")
-    bis = page.get_by_role("combobox", name="bis")
+    von = page.get_by_role("combobox", name="von", exact=True)
+    bis = page.get_by_role("combobox", name="bis", exact=True)
     expect(pool_row(page, RATED)).to_be_visible()
-    bis.select_option(label="ohne Score")
-    expect(pool_row(page, FRESH)).to_be_visible()
-    expect(pool_row(page, RATED)).to_have_count(0)
-    expect(pool_row(page, SALES)).to_have_count(0)  # excluded, not unscored
-    von.select_option(label="0")
-    bis.select_option(label="0")
-    expect(page.get_by_text("Keine Anzeige passt zu diesem Filter")).to_be_visible()
-    page.get_by_role("button", name="Filter zurücksetzen").click()
-    for title in (RATED, FRESH, SALES):
-        expect(pool_row(page, title)).to_be_visible()
-    page.set_viewport_size({"width": 390, "height": 844})
-    bis.select_option(label="ohne Score")
-    expect(pool_row(page, FRESH)).to_be_visible()
-    expect(pool_row(page, RATED)).to_have_count(0)
-    for control in (von, bis, page.get_by_role("combobox", name="Sortierung")):
-        expect(control).to_be_in_viewport()
-    assert page.evaluate(
-        "document.documentElement.scrollWidth <= document.documentElement.clientWidth")
-    page.set_viewport_size({"width": 1280, "height": 720})
+    try:
+        bis.select_option(label="ohne Score")
+        expect(pool_row(page, FRESH)).to_be_visible()
+        expect(pool_row(page, RATED)).to_have_count(0)
+        expect(pool_row(page, SALES)).to_have_count(0)  # excluded, not unscored
+        von.select_option(label="0")
+        bis.select_option(label="0")
+        expect(page.get_by_text("Keine Anzeige passt zu diesem Filter")).to_be_visible()
+        page.get_by_role("button", name="Filter zurücksetzen").click()
+        for title in (RATED, FRESH, SALES):
+            expect(pool_row(page, title)).to_be_visible()
+        page.set_viewport_size({"width": 390, "height": 844})
+        bis.select_option(label="ohne Score")
+        expect(pool_row(page, FRESH)).to_be_visible()
+        expect(pool_row(page, RATED)).to_have_count(0)
+        for control in (von, bis, page.get_by_role("combobox", name="Sortierung")):
+            expect(control).to_be_in_viewport()
+        assert page.evaluate(
+            "document.documentElement.scrollWidth <= document.documentElement.clientWidth")
+    finally:  # later tests share the page: desktop width and the full range again
+        page.set_viewport_size({"width": 1280, "height": 720})
+        von.select_option(label="ohne Score")
+        bis.select_option(label="10")
