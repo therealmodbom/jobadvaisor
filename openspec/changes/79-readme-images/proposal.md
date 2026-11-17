@@ -7,12 +7,12 @@ AGENTS.md ("README screenshot") asks every visible UI change to retake `docs/ima
 ## What Changes
 
 - A new command, `uv run --directory backend python ../scripts/readme_images.py`, regenerates every README image. It builds the frontend, copies `fixtures/demo-persona` into a temporary directory, overlays committed score files, serves the app on the copy with no model attached, takes the screenshots with Playwright and deletes the copy.
-- No model is called and no API key is needed, so a retake costs nothing. The scores in the images are seeded, not computed by the judge.
-- A new fixture, `fixtures/readme-scores/`, holds one score file for every posting that the "Noch nicht bewertet" filter lists on the demo persona. Each file has a fixed score, a short German reasoning and three rated postings as comparison examples.
+- No model is called and no API key is needed, so a retake costs nothing. The scores in the images are seeded, not computed by the judge. A model that is reached anyway, a server error or a page error fails the command.
+- A new fixture, `fixtures/readme-scores/`, holds one score file for every posting the "Noch nicht bewertet" filter lists on the demo persona that no exclusion rule blocks (15 postings). Each file has a fixed score, a short German reasoning and three rated postings as comparison examples.
 - Two images: `docs/images/pool.png` (refreshed: added-date line, score range and sort controls) and a new `docs/images/posting.png` (a posting's page with score, reasoning and comparison examples).
 - Two consecutive runs on the same machine write byte-identical images.
-- The README gets the second image. Both captions say the scores are sample data, not model output.
-- AGENTS.md "README screenshot" points at the command, states its measured runtime and its cost (none), and drops "one scoring pass (paid, a few cents)". It keeps the rule that a visible UI change retakes the images in the same PR.
+- The README gets the second image. A visible line under each image says the scores are sample data, not model output.
+- AGENTS.md "README screenshot" points at the command, names what to install first, states its measured runtime and its cost (none), and drops "one scoring pass (paid, a few cents)". It keeps the rule that a visible UI change retakes the images in the same PR.
 - A default-pytest regression test pins the fixture to the demo persona.
 
 ## Capabilities
@@ -27,7 +27,7 @@ None.
 
 ## Impact
 
-- New: `scripts/readme_images.py`, `fixtures/readme-scores/*.json` (11 files), one test in `backend/tests/`, `docs/images/posting.png`.
+- New: `scripts/readme_images.py`, `fixtures/readme-scores/*.json` (15 files), one test in `backend/tests/`, `docs/images/posting.png`.
 - Changed: `docs/images/pool.png`, `README.md` (captions, second image), `AGENTS.md` ("README screenshot").
 - Uses Playwright and uvicorn from the backend venv, plus npm for the frontend build. No new dependency.
 - The issue's precondition "a configured model key" falls away: the command runs without one.
