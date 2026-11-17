@@ -329,30 +329,37 @@ export function PoolView({ active = true }: { active?: boolean }) {
   const [announce, setAnnounce] = useState('')
   /** Counts the changes of the state filter or the range (`pick`, `pickRange`). */
   const epoch = useRef(0)
-  /** The epoch in which the user last started a rating or score of a posting. An answer joins
-   * `touched` only if the epoch has not moved on since: `pick` and `pickRange` clear `touched`,
-   * and a late answer must not bring a row back into a list it no longer fits. */
-  const started = useRef(new Map<string, number>())
-  const begin = (id: string) => { started.current.set(id, epoch.current) }
-  /** Add `id` to `touched` unless a filter or the range changed since `begin(id)`. */
-  const touch = (id: string) => {
-    const since = started.current.get(id) ?? epoch.current
-    started.current.delete(id)
+  /** Per posting, the epoch in which its last rating request and its last score request were sent,
+   * kept apart because both can be in flight at once. An answer joins `touched` only if the epoch
+   * has not moved on since: `pick` and `pickRange` clear `touched`, and a late answer must not
+   * bring a row back into a list it no longer fits. */
+  const sentRating = useRef(new Map<string, number>())
+  const sentScore = useRef(new Map<string, number>())
+  /** Add `id` to `touched` unless a filter or the range changed since its request in `sent` left. */
+  const touch = (sent: Map<string, number>, id: string) => {
+    const since = sent.get(id) ?? epoch.current
+    sent.delete(id)
     if (since === epoch.current) setTouched((current) => new Set(current).add(id))
   }
   const rating = useRating((answer: RatingAnswer) => {
     const id = answer.row.posting_id
     setPool((current) => current && { ...current, counter: answer.counter, next_pass: answer.next_pass,
       rows: current.rows.map((row) => (row.posting_id === id ? answer.row : row)) })
-    touch(id)
+    touch(sentRating.current, id)
   })
-  /** `rating` for the rows: every action that sends a rating records its epoch first (`begin`). */
+  /** Record the epoch of `id`'s rating request when `result` shows one was sent (a promise); an
+   * action that sends nothing leaves the epoch of a request still in flight alone. */
+  const sent = <T,>(id: string, result: T) => {
+    if (result instanceof Promise) sentRating.current.set(id, epoch.current)
+    return result
+  }
+  /** `rating` for the rows: every action that sends a rating records its epoch. */
   const tracked: Rating = {
     ...rating,
-    level: (row, verdict, strength) => { begin(row.posting_id); return rating.level(row, verdict, strength) },
-    chip: (row, chip) => { begin(row.posting_id); return rating.chip(row, chip) },
-    saveNote: (row) => { begin(row.posting_id); return rating.saveNote(row) },
-    retry: (row) => { begin(row.posting_id); return rating.retry(row) },
+    level: (row, verdict, strength) => sent(row.posting_id, rating.level(row, verdict, strength)),
+    chip: (row, chip) => sent(row.posting_id, rating.chip(row, chip)),
+    saveNote: (row) => sent(row.posting_id, rating.saveNote(row)),
+    retry: (row) => sent(row.posting_id, rating.retry(row)),
   }
   useEffect(() => {
     if (focusRequest) document.getElementById(`${focusRequest.target}-${focusRequest.id}`)?.focus()
@@ -380,7 +387,7 @@ export function PoolView({ active = true }: { active?: boolean }) {
     const id = scored.row.posting_id
     setPool((current) => current && { ...current, counter: scored.counter, next_pass: scored.next_pass,
       rows: current.rows.map((row) => (row.posting_id === id ? { ...scored.row, exploration: row.exploration } : row)) })
-    touch(id)
+    touch(sentScore.current, id)
   }, load)
   const { clearBusy } = score
   /** A finished pass reloads the pool and drops the rows' "scoring in progress" messages: they
@@ -646,7 +653,7 @@ export function PoolView({ active = true }: { active?: boolean }) {
                        onLevel={(verdict, strength) => rate(row, verdict, strength)} saving={!!saving[row.posting_id]}
                        failed={failed[row.posting_id]} onStatus={(status) => setStatus(row.posting_id, status)}
                        screening={pool.screening} scoreCall={score.call(row.posting_id)}
-                       onScore={() => { begin(row.posting_id); void score.run(row.posting_id) }} />
+                       onScore={() => { sentScore.current.set(row.posting_id, epoch.current); void score.run(row.posting_id) }} />
                 ))}
               </ul>
             </>

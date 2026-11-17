@@ -1262,6 +1262,24 @@ test('a chip answering after the range changed does not bring its row back into 
   expect(await titles()).toEqual([DATA_ANALYST, ENGINEER])
 })
 
+test('a level click that sends nothing does not let a pending score bring its row back', async () => {
+  const held = late()
+  const strong = { ...baseRow('p1'), label: label('positive', ['great-stack'], 'strong') }
+  stubApi({ 'GET /pool': { body: poolWith({ rows: POOL.rows.map((entry) => (entry.posting_id === 'p1' ? strong : entry)) }) },
+    'POST /postings/p1/score': held.answer })
+  render(<PoolView />)
+  await titles()
+  await userEvent.selectOptions(von(), '7')
+  await userEvent.selectOptions(bis(), '9')
+  await userEvent.click(row(DATA_ANALYST).getByRole('button', { name: 'Neu berechnen' }))
+  await userEvent.selectOptions(von(), '8')
+  expect(await titles()).toEqual([DATA_ANALYST])
+  await userEvent.click(button(`Ja, auf jeden Fall: ${DATA_ANALYST}`))
+  await act(async () => held.release({ body: scoreAnswer(strong, { score: 3 }, { counter: AFTER }) }))
+  await vi.waitFor(() => corrections(4))
+  expect(screen.queryByRole('heading', { name: DATA_ANALYST })).toBeNull()
+})
+
 test('sorted by score, a row scored again by its button keeps its place until the sort changes', async () => {
   const calls = stubApi({ 'GET /pool': { body: POOL },
     'POST /postings/p3/score': { body: scoreAnswer(baseRow('p3'), { score: 9 }) } })
