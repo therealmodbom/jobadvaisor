@@ -1,0 +1,11 @@
+{
+  "schema_version": "1",
+  "score": 5,
+  "reasoning": "Kotlin Multiplatform mit Kotlin im Stack und Büro in Northhaven. Rolle und Standort passen, die reine Präsenzpflicht und das Bankwesen aber nicht.",
+  "example_ids": [
+    "demo-048",
+    "demo-066",
+    "demo-101"
+  ],
+  "scored_at": "2026-05-26T09:00:00Z"
+}

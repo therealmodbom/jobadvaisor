@@ -4,7 +4,9 @@ A local-first AI assistant for a personal job search. It suggests postings, you 
 
 Matching a profile against a posting's text misses a lot. Many of the criteria that decide whether a job fits were never written down, so a static match produces false positives and false negatives. JobAdvAIsor learns those criteria from your decisions. Every rating, with its reasons, becomes an example for the next scoring pass. CV tailoring and cover letters follow in later steps. Scope and goals are in [docs/kickoff-brief.md](docs/kickoff-brief.md).
 
-![The "Anzeigen" pool with the demo persona: a scored posting waiting for its rating, with the reason chips open](docs/images/pool.png)
+![The "Anzeigen" pool on the demo persona, filtered to postings that are not yet rated, with the first posting selected](docs/images/pool.png)
+
+*The scores in this image are sample data.*
 
 The interface is in German, the code and the documentation are in English. It runs for one user on localhost. Your data never lives in this repository. It stays in a separate git repository that you own.
 
@@ -78,6 +80,10 @@ npm --prefix frontend run dev
 ```
 
 The "Anzeigen" pool lists every stored posting. Click "Neue Anzeigen bewerten" to run a scoring pass, which calls your model. It scores every posting that has no score yet, ones you already rated included, so your rating and the model's score sit side by side. When it finishes, the pool shows each score and ranks the postings by fit, and a posting's page shows the reasoning. To score one posting at once, press "Score berechnen" (with a score: "Neu berechnen") in its pool row or on its page; it calls the model once and replaces an earlier score. The button is disabled, with an info icon that says why, for a posting an exclusion rule matches, the content guard holds, or the guard never checked while no classifier is configured. Rate a posting in the pool or on its page at one of four levels: "Ja, auf jeden Fall" (key 1), "Ja, vielleicht" (2), "Nein, eher nicht" (3) and "Nein, auf keinen Fall" (4). Shift+1 to 9 toggle reason chips, and Enter moves to the next unrated posting. In the label file, a level is a verdict (`positive` or `negative`) plus an optional `strength` (`weak` or `strong`).
+
+![The page of one posting on the demo persona, with its score, the reasoning and the postings it was compared with](docs/images/posting.png)
+
+*The score and the reasoning in this image are sample data.*
 
 ## What the app needs
 

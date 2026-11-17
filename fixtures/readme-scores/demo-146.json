@@ -1,0 +1,11 @@
+{
+  "schema_version": "1",
+  "score": 7,
+  "reasoning": "Kotlin Multiplatform auf mittlerem Niveau, remote. Rolle und Seniorität passen, das Bankwesen und der Swift-Stack ohne Kotlin nur teils.",
+  "example_ids": [
+    "demo-033",
+    "demo-048",
+    "demo-087"
+  ],
+  "scored_at": "2026-05-26T09:00:00Z"
+}

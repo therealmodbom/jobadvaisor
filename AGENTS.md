@@ -55,14 +55,20 @@ A pull request whose branch is already checked out in a worktree cannot be check
 
 The history lives in OpenSpec, not here: `openspec/specs/` is the baseline (one folder per capability) and `openspec/changes/archive/` holds every finished change with its proposal, design and tasks. Open work is in the GitHub issues. Keep this section to a pointer plus the last two archived changes; when archiving a change, drop the oldest entry.
 
-- `alert-mail-intake` (#56, #57): the intake view's source „Alert-Mail“ takes a pasted mail (the clipboard's `text/html`), `POST /alert-mails/preview` lists its postings without a fetch, and `POST /alert-mails/runs` adds the chosen ones in a background run (`intake/alert_runs.py`, in memory, one at a time). The finder (`intake/alert_mail.py`) reads LinkedIn, Bundesagentur and career-site links by fixed rules ([ADR 0011](docs/decisions/0011-alert-mails-read-by-link-rules-and-a-model-that-picks-link-numbers.md)) and lets the `intake` model pick link numbers for other senders, only with screening on. Links are cleaned by an allow-list ([ADR 0012](docs/decisions/0012-links-from-a-mail-cleaned-by-an-allow-list.md), `intake/links.py`), and `fetch.guarded_link` checks every redirect hop before it is requested. LinkedIn job pages are duplicate-keyed by job ID. Fixtures and the `alert_mail` eval: `fixtures/intake/alert-mails/`, `evals/alert_mail.py`.
 - `pool-score-filter-sort` (#105): the pool gets a score range („von“/„bis“ selects, „ohne Score“ below 0) and a „Sortierung“ select (ranking, score, the user's rating, added date; both directions), client-side only. The pure logic is `lib/pool-order.ts` (`inRange`, `sortRows`; only a `scored` row has a score, missing values sort last, ties keep the ranking). `PoolView.tsx` takes the shown order when the pool loads or the sort, state filter or range changes, so a row rated or scored in the view keeps its place and (`touched`) stays listed until the state filter or range changes. „Filter zurücksetzen“ resets the range, not the sort. J, K and Enter follow the shown order.
+- `readme-images` (#79): `scripts/readme_images.py` rewrites the two README images, `docs/images/pool.png` (the pool filtered to „Noch nicht bewertet“ with its first posting selected) and `docs/images/posting.png` (that posting's page with score, reasoning and the „Verglichen mit“ list), in one command. It builds the frontend, serves the real app on a temporary copy of the demo persona with the score files of `fixtures/readme-scores/` laid over it, and drives it with Playwright at 1280 by 800, light mode, Europe/Berlin time, reduced motion. No model is called and no key is needed: the model parts record and raise, and the command exits 1 when one is reached, the server answers 5xx or the page reports an error. The configured data repository is never read. The README captions say the scores are sample data.
 
 The README covers setup, the demo persona, the pool workflow, the deployment and the evals. `docs/company-facts.md` and `docs/extractor-benchmark.md` hold the longer guides.
 
 ## README screenshot
 
-`docs/images/pool.png` shows the "Anzeigen" pool on the demo persona after one scoring pass, filtered to "Noch nicht bewertet". A change that visibly alters that view retakes the screenshot in the same PR: a fresh copy of `fixtures/demo-persona`, one scoring pass (paid, a few cents), a 1280 by 800 viewport, light mode.
+`docs/images/pool.png` shows the "Anzeigen" pool on the demo persona, filtered to "Noch nicht bewertet", and `docs/images/posting.png` shows the page of the posting listed first. A change that visibly alters either view retakes both images in the same PR. From the repository root:
+
+```bash
+uv run --directory backend python ../scripts/readme_images.py
+```
+
+Install first: `uv sync --directory backend`, `uv run --directory backend playwright install chromium` and `npm --prefix frontend ci` (the VS Code task "1 - Setup Worktree" does all three). The script builds the frontend itself and takes about 9 seconds from a clean `frontend/dist`. It costs nothing: no model call, no API key. The scores come from `fixtures/readme-scores/`, laid over a temporary copy of the demo persona. A second run without a UI change leaves `docs/images/` unchanged on the same machine. Another machine may render fonts slightly differently.
 
 ## Spec-driven workflow (OpenSpec)
 
