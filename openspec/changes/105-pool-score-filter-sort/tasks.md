@@ -26,4 +26,4 @@
 - [ ] 4.1 Run `npm --prefix frontend test`, `npm --prefix frontend run lint`, `npm --prefix frontend run build`, `env -C backend uv run pytest -q`, `env -C backend uv run ruff check .` and the e2e suite; all pass
 - [ ] 4.2 Click through the built app in Chrome with the demo persona, at desktop width and at 390 × 844: the range, „ohne Score“, each sort, the reset, J/K in a sorted list, and the selects by keyboard alone; no sideways scroll on the phone; report what the browser check cannot show
 - [ ] 4.3 Name the cost of retaking `docs/images/pool.png` (one scoring pass over a fresh demo persona copy, AGENTS.md → README screenshot) and retake it after the go; verify the picture shows the new filter bar, filtered to „Noch nicht bewertet“
-- [ ] 4.4 Update the „Current state“ section of `AGENTS.md` with this change and drop its oldest entry; verify the section holds the last two changes
+- [x] 4.4 Update the „Current state“ section of `AGENTS.md` with this change and drop its oldest entry; verify the section holds the last two changes
