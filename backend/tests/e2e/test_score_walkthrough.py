@@ -204,11 +204,14 @@ def test_choosing_the_all_variant_starts_nothing_and_its_main_part_rescores_ever
     page.on("request", note_pass_request)
     try:
         page.goto(f"{app_url}/#/pool")
-        expect(page.get_by_role("button", name="Anzeigen ohne Score scoren (1)")).to_be_enabled()
+        before = page.get_by_role("button", name="Anzeigen ohne Score scoren (1)")
+        expect(before).to_be_enabled()
+        width = before.bounding_box()["width"]
         page.get_by_role("button", name="Andere Variante wählen").click()
         page.get_by_role("menuitemradio", name="Alle Anzeigen neu scoren (2)").click()
         main = page.get_by_role("button", name="Alle Anzeigen neu scoren (2)")
         expect(main).to_be_enabled()
+        assert main.bounding_box()["width"] == width  # the label change keeps the button's size
         expect(page.get_by_role("menu")).to_have_count(0)
         assert pass_requests == [] and harness.judge.calls == []  # choosing started nothing
         assert stored_scores(data_root) == {"rated": 8}

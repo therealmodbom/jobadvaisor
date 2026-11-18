@@ -154,7 +154,16 @@ function PassButton({ nextPass, shown, busy, onPick, onStart }: {
       <div role="group" aria-label="Scoren" className="flex">
         <Button className="min-w-0 flex-1 rounded-r-none" onClick={() => onStart(shown)}
                 disabled={busy || count === 0} aria-describedby="pass-why">
-          {VARIANT_VERBS[shown]} ({count})
+          {/* Both labels share one grid cell, so the button keeps the wider one's size when the
+              variant changes; the hidden one only reserves space. */}
+          <span className="grid justify-items-center">
+            {(['unscored', 'all'] as const).map((variant) => (
+              <span key={variant} aria-hidden={variant !== shown || undefined}
+                    className={cn('col-start-1 row-start-1', variant !== shown && 'invisible')}>
+                {VARIANT_VERBS[variant]} ({nextPass[variant]})
+              </span>
+            ))}
+          </span>
         </Button>
         <DropdownMenu.Root open={open} onOpenChange={setOpen}>
           <DropdownMenu.Trigger asChild>
@@ -184,7 +193,8 @@ function PassButton({ nextPass, shown, busy, onPick, onStart }: {
           </DropdownMenu.Portal>
         </DropdownMenu.Root>
       </div>
-      <p id="pass-why" className="text-sm text-muted-foreground">{why}</p>
+      {/* w-0 min-w-full: the line wraps within the button's width instead of setting it. */}
+      <p id="pass-why" className="w-0 min-w-full text-sm text-muted-foreground">{why}</p>
     </div>
   )
 }

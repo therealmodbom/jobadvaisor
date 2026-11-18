@@ -464,6 +464,10 @@ The pass button SHALL be a split button. Its main part SHALL name the shown vari
 - **WHEN** the shown variant is „Alle Anzeigen neu scoren“ with 40 postings
 - **THEN** the main part reads „Alle Anzeigen neu scoren (40)“, and the line below says 40 postings at two model calls each, replacing existing scores
 
+#### Scenario: Size stays when the variant changes
+- **WHEN** the user switches the shown variant
+- **THEN** the main part keeps its width, and the line below wraps within it
+
 #### Scenario: Nothing without a score
 - **WHEN** every posting neither excluded nor held has a score and the shown variant is „Anzeigen ohne Score scoren“
 - **THEN** the main part is disabled with its reason shown, and the menu still offers „Alle Anzeigen neu scoren“
