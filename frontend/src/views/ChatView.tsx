@@ -161,7 +161,7 @@ export function ChatView() {
                     onKeyDown={(event) => {
                       if (event.key === 'Enter' && !event.shiftKey) submit(event)
                     }}
-                    placeholder="Frag, warum eine Anzeige niedrig bewertet ist, was eine Regel tut oder wie du früher bewertet hast"
+                    placeholder="Frag, warum eine Anzeige einen niedrigen Score hat, was eine Regel tut oder wie du früher bewertet hast"
                     className="min-w-0 flex-1 resize-none border-0 bg-transparent" />
           <Button type="submit" disabled={pending}><Send className="size-4" aria-hidden="true" />Senden</Button>
         </div>

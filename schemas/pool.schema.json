@@ -3,7 +3,7 @@
   "$defs": {
     "PoolPass": {
       "additionalProperties": false,
-      "description": "One finished pass: when, how many postings it `scored`, the `corrections` and `rated`\ncounts it measured, and the resulting `rate` (absent when too few ratings to compute one).\n`started_at` is when the pass began; absent in passes written before slice 2.",
+      "description": "One finished pass: when, how many postings it `scored`, the `corrections` and `rated`\ncounts it measured, and the resulting `rate` (absent when too few ratings to compute one).\n`started_at` is when the pass began; absent in passes written before slice 2. `variant` is\n`\"all\"` for a pass over all postings (rescore), `\"unscored\"` for one over the unscored only;\n`None` marks a record from before variants and counts as a pass over all postings.",
       "properties": {
         "started_at": {
           "anyOf": [
@@ -17,6 +17,22 @@
           ],
           "default": null,
           "title": "Started At"
+        },
+        "variant": {
+          "anyOf": [
+            {
+              "enum": [
+                "unscored",
+                "all"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Variant"
         },
         "finished_at": {
           "format": "date-time",

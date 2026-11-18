@@ -145,7 +145,7 @@ function LoadedPage({ postingId }: { postingId: string }) {
         </div>
         <ScoreProblem call={call} />
         {row.state === 'unscored' && !row.score_problem
-          ? <p>Noch kein Score – starte in der Liste „Neue Anzeigen bewerten“.</p>
+          ? <p>Noch kein Score – starte in der Liste „Anzeigen ohne Score scoren“.</p>
           : (
             <p className={cn(call.computing && 'text-muted-foreground')}>
               <ScoreText row={row} />{call.computing && row.state === 'scored' && ' · wird neu berechnet …'}

@@ -179,6 +179,35 @@ def test_rating_before_since_does_not_count_and_started_at_wins():
     assert old_since == (T0 + timedelta(days=3)).isoformat()
 
 
+def _pass_at(day: int, variant=None) -> PoolPass:
+    return PoolPass(finished_at=T0 + timedelta(days=day), scored=1, corrections=0, rated=0,
+                    variant=variant)
+
+
+def test_a_later_unscored_pass_leaves_the_corrections_counted():
+    repository, scores = _rated(4, 4)
+    got = counter(repository, scores, _pool(_pass_at(0, "all"), _pass_at(3, "unscored")))
+    assert (got["corrections"], got["since"]) == (4, T0.isoformat())
+
+
+def test_an_all_pass_resets_the_corrections():
+    repository, scores = _rated(4, 4)
+    got = counter(repository, scores, _pool(_pass_at(0, "all"), _pass_at(3, "all")))
+    assert (got["corrections"], got["since"]) == (0, (T0 + timedelta(days=3)).isoformat())
+
+
+def test_a_pass_record_without_a_variant_resets_the_corrections():
+    repository, scores = _rated(4, 4)
+    assert counter(repository, scores, _pool(_pass_at(3)))["corrections"] == 0
+
+
+def test_without_an_all_pass_every_rating_counts():
+    repository, scores = _rated(4, 4)
+    got = counter(repository, scores, _pool(_pass_at(3, "unscored")))
+    assert (got["corrections"], got["since"]) == (4, None)
+    assert counter(repository, scores, _pool())["corrections"] == 4
+
+
 def test_imported_labels_are_not_in_the_window():
     repository = repo({"p": posting()}, {"p": label(kind="imported_interest")})
     assert counter(repository, {"p": score(2)}, _pool())["rated"] == 0
@@ -278,15 +307,36 @@ def test_corrupt_score_file_counts_as_unscored(tmp_path):
     assert pass_batch(repo({"bad": posting()}), scores, False) == ["bad"]
 
 
-def test_next_pass_excludes_excluded_and_held_and_follows_corrections():
+def _with_blocked(repository):
+    """`repository` plus an open, an excluded and a held posting, none of them scored."""
     held = Guard(flagged=True, checked_by="t", checked_at=T0)
-    repository = repo({"ok": posting(), "excl": posting("Sales"), "held": posting(guard=held)})
-    assert next_pass(repository, {}, _pool()) == {"count": 1, "rescore": False}
-    repository, scores = _rated(2, 1)
     repository.postings["ok"] = posting()
     repository.postings["excl"] = posting("Sales")
-    repository.postings["held"] = posting(guard=held)  # rescoring leaves it out too
-    assert next_pass(repository, scores, _pool()) == {"count": 3, "rescore": True}
+    repository.postings["held"] = posting(guard=held)
+    return repository
+
+
+def test_next_pass_counts_both_variants_without_excluded_and_held_postings():
+    repository = _with_blocked(repo({}))
+    assert next_pass(repository, {}, _pool()) == {"default": "unscored", "unscored": 1, "all": 1}
+    repository, scores = _rated(2, 1)
+    _with_blocked(repository)
+    got = next_pass(repository, scores, _pool())
+    assert (got["unscored"], got["all"]) == (1, 3)  # r0, r1 and ok; excl and held are out
+
+
+def test_next_pass_defaults_to_unscored_below_the_threshold_and_all_at_it():
+    repository, scores = _rated(2, 1)
+    assert next_pass(repository, scores, _pool(correction_threshold=2))["default"] == "unscored"
+    assert next_pass(repository, scores, _pool(correction_threshold=1))["default"] == "all"
+
+
+def test_next_pass_defaults_to_all_at_the_rate():
+    repository, scores = _rated(10, 3)
+    pool = _pool(correction_threshold=10, correction_rate=0.3)
+    assert next_pass(repository, scores, pool)["default"] == "all"
+    too_high = _pool(correction_threshold=10, correction_rate=0.31)
+    assert next_pass(repository, scores, too_high)["default"] == "unscored"
 
 
 def test_read_scores_round_trip(tmp_path):

@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, expect, test, vi } from 'vitest'
-import type { PassState, PoolRow, RatingAnswer, RatingBody } from '@/api'
+import type { PassState, Pool, PoolRow, RatingAnswer, RatingBody } from '@/api'
 import { axe } from '@/test-axe'
 import { type Call, pending, stubApi } from '@/test-api'
 import { label, POOL, poolWith, ratingAnswer, row as makeRow } from '@/test-fixtures'
@@ -122,7 +122,7 @@ test('the text filter matches title or company, ignoring case', async () => {
 test('the counter shows corrections, share and the fitting hint', async () => {
   stubApi({ 'GET /pool': { body: POOL } })
   render(<PoolView />)
-  const label = 'Korrekturen seit der letzten Bewertung der Anzeigen:'
+  const label = 'Korrekturen seit dem letzten Neu-Scoren aller Anzeigen:'
   expect(await screen.findByText(new RegExp(label))).toHaveTextContent(`${label} 3`)
   expect(screen.getByText('Anteil: 25 %')).toBeVisible()
   expect(screen.getByText('Ranking passt gut')).toBeVisible()
@@ -132,28 +132,232 @@ test('below ten ratings the share is not shown and a rescore hint is', async () 
   stubApi({ 'GET /pool': { body: poolWith({ counter: { ...POOL.counter, rate: null, hint: 'rescore' } }) } })
   render(<PoolView />)
   expect(await screen.findByText('Anteil ab 10 Bewertungen')).toBeVisible()
-  expect(screen.getByText('neue Bewertung sinnvoll')).toBeVisible()
+  expect(screen.getByText('neu scoren sinnvoll')).toBeVisible()
 })
 
-test('the pass button shows the count and is disabled with an explanation at 0', async () => {
-  stubApi({ 'GET /pool': { body: POOL } })
-  const { unmount } = render(<PoolView />)
-  expect(await screen.findByRole('button', { name: 'Neue Anzeigen bewerten (12)' })).toBeEnabled()
-  unmount()
-  stubApi({ 'GET /pool': { body: poolWith({ next_pass: { count: 0, rescore: false } }) } })
+// --- the split pass button ----------------------------------------------------------------
+
+const NEXT = (changes: Partial<Pool['next_pass']> = {}) =>
+  poolWith({ next_pass: { default: 'unscored', unscored: 3, all: 12, ...changes } })
+const posts = (calls: Call[]) => calls.filter((call) => call.method === 'POST' && call.path === '/pool/passes')
+const mainPart = (name: string | RegExp) => screen.findByRole('button', { name })
+const COST_ALL = (count: number) => `${count} Anzeigen, je zwei Modellaufrufe. Vorhandene Scores werden ersetzt.`
+
+/** Open the variant menu by keyboard: jsdom lacks the pointer APIs Radix wants for a click. */
+async function openMenu() {
+  screen.getByRole('button', { name: 'Andere Variante wählen' }).focus()
+  await userEvent.keyboard('{Enter}')
+  return screen.findByRole('menu')
+}
+
+test('below the thresholds the main part scores the postings without a score', async () => {
+  stubApi({ 'GET /pool': { body: NEXT() } })
   render(<PoolView />)
-  const button = await screen.findByRole('button', { name: 'Neue Anzeigen bewerten (0)' })
-  expect(button).toBeDisabled()
-  expect(button).toHaveAccessibleDescription('Es gibt keine neuen Anzeigen zu bewerten.')
+  const main = await mainPart('Anzeigen ohne Score scoren (3)')
+  expect(main).toBeEnabled()
+  expect(main).toHaveAccessibleDescription('3 Anzeigen ohne Score, je zwei Modellaufrufe.')
 })
 
-test('a rescore hint with nothing to score explains the disabled button', async () => {
-  stubApi({ 'GET /pool': { body: poolWith({ counter: { ...POOL.counter, hint: 'rescore' },
-                                            next_pass: { count: 0, rescore: false } }) } })
+test('with the rescore hint the main part scores all postings and says it replaces scores', async () => {
+  stubApi({ 'GET /pool': { body: NEXT({ default: 'all' }) } })
   render(<PoolView />)
-  const button = await screen.findByRole('button', { name: 'Neue Anzeigen bewerten (0)' })
-  expect(button).toBeDisabled()
-  expect(button).toHaveAccessibleDescription(/Es gibt nichts zu bewerten: Alle Anzeigen sind ausgeschlossen oder zurückgehalten\./)
+  const main = await mainPart('Alle Anzeigen neu scoren (12)')
+  expect(main).toHaveAccessibleDescription(COST_ALL(12))
+})
+
+test('one posting without a score is named in the singular', async () => {
+  stubApi({ 'GET /pool': { body: NEXT({ unscored: 1 }) } })
+  render(<PoolView />)
+  expect(await mainPart('Anzeigen ohne Score scoren (1)')).toHaveAccessibleDescription('1 Anzeige ohne Score, je zwei Modellaufrufe.')
+})
+
+test('one posting to rescore is named in the singular', async () => {
+  stubApi({ 'GET /pool': { body: NEXT({ default: 'all', all: 1 }) } })
+  render(<PoolView />)
+  expect(await mainPart('Alle Anzeigen neu scoren (1)')).toHaveAccessibleDescription('1 Anzeige, je zwei Modellaufrufe. Vorhandene Scores werden ersetzt.')
+})
+
+test('the menu, opened by keyboard, lists both variants with counts and costs and marks the shown one', async () => {
+  stubApi({ 'GET /pool': { body: NEXT() } })
+  render(<PoolView />)
+  await mainPart(/Anzeigen ohne Score scoren/)
+  const menu = within(await openMenu())
+  const unscored = menu.getByRole('menuitemradio', { name: /Nur Anzeigen ohne Score \(3\)/ })
+  const all = menu.getByRole('menuitemradio', { name: /Alle Anzeigen neu scoren \(12\)/ })
+  expect(unscored).toHaveAttribute('aria-checked', 'true')
+  expect(all).toHaveAttribute('aria-checked', 'false')
+  expect(unscored).toHaveTextContent('3 Anzeigen ohne Score, je zwei Modellaufrufe.')
+  expect(all).toHaveTextContent(COST_ALL(12))
+})
+
+test('choosing a menu entry switches the main part and sends no request', async () => {
+  const calls = stubApi({ 'GET /pool': { body: NEXT() } })
+  render(<PoolView />)
+  await mainPart(/Anzeigen ohne Score scoren/)
+  await openMenu()
+  await userEvent.click(screen.getByRole('menuitemradio', { name: /Alle Anzeigen neu scoren/ }))
+  expect(await mainPart('Alle Anzeigen neu scoren (12)')).toHaveAccessibleDescription(COST_ALL(12))
+  expect(calls.filter((call) => call.method !== 'GET')).toEqual([])
+  expect(screen.queryByRole('menu')).toBeNull()
+})
+
+const startable = () => stubApi({ 'GET /pool': { body: NEXT() }, 'POST /pool/passes': { status: 202, body: { pass_id: 'ps1' } },
+                                  'GET /pool/passes/ps1': { body: pass({}) } })
+
+test('the main part starts the default variant', async () => {
+  const calls = startable()
+  render(<PoolView />)
+  await userEvent.click(await mainPart('Anzeigen ohne Score scoren (3)'))
+  await vi.waitFor(() => expect(posts(calls)).toHaveLength(1))
+  expect(posts(calls)[0].body).toEqual({ variant: 'unscored' })
+})
+
+test('the main part starts the picked variant', async () => {
+  const calls = startable()
+  render(<PoolView />)
+  await pickAll()
+  await userEvent.click(await mainPart('Alle Anzeigen neu scoren (12)'))
+  await vi.waitFor(() => expect(posts(calls)).toHaveLength(1))
+  expect(posts(calls)[0].body).toEqual({ variant: 'all' })
+})
+
+test('the menu works by keyboard alone: arrows move, Enter chooses', async () => {
+  const calls = stubApi({ 'GET /pool': { body: NEXT() } })
+  render(<PoolView />)
+  await mainPart(/Anzeigen ohne Score scoren/)
+  await openMenu()
+  await userEvent.keyboard('{ArrowDown}')
+  expect(screen.getByRole('menuitemradio', { name: /Alle Anzeigen neu scoren/ })).toHaveFocus()
+  await userEvent.keyboard('{Enter}')
+  expect(await mainPart('Alle Anzeigen neu scoren (12)')).toBeVisible()
+  expect(screen.queryByRole('menu')).toBeNull()
+  expect(calls.filter((call) => call.method !== 'GET')).toEqual([])
+})
+
+test('pool shortcuts stay off while the menu has focus', async () => {
+  const calls = stubApi({ 'GET /pool': { body: NEXT() } })
+  render(<PoolView />)
+  await mainPart(/Anzeigen ohne Score scoren/)
+  await openMenu()
+  const item = screen.getByRole('menuitemradio', { name: /Nur Anzeigen ohne Score/ })
+  expect(item).toHaveFocus()
+  await userEvent.keyboard('1j4n')
+  expect(calls.filter((call) => call.method !== 'GET')).toEqual([])
+  expect(screen.getByRole('menu')).toBeVisible()
+  expect(item).toHaveFocus()
+})
+
+test('Escape closes the menu and focus returns to the trigger', async () => {
+  stubApi({ 'GET /pool': { body: NEXT() } })
+  render(<PoolView />)
+  await mainPart(/Anzeigen ohne Score scoren/)
+  await openMenu()
+  await userEvent.keyboard('{Escape}')
+  await vi.waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
+  expect(screen.getByRole('button', { name: 'Andere Variante wählen' })).toHaveFocus()
+})
+
+test('an open menu closes when a pass starts', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  sessionStorage.setItem('jobadvaisor.pool-pass', 'ps1')
+  stubApi({ 'GET /pool': { body: NEXT() }, 'GET /pool/passes/ps1': { body: pass({ status: 'failed', error: 'kaputt' }) },
+            'POST /pool/passes': { status: 202, body: { pass_id: 'ps2' } }, 'GET /pool/passes/ps2': { body: pass({ pass_id: 'ps2' }) } })
+  render(<PoolView />)
+  await mainPart(/Anzeigen ohne Score scoren/)
+  await tick()
+  await openMenu()
+  // The modal menu hides the rest from assistive technology and the pointer; a click sent
+  // straight to the retry button stands in for a pass started some other way.
+  await act(async () => screen.getByRole('button', { name: 'Erneut versuchen', hidden: true }).click())
+  await vi.waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
+  expect(screen.getByRole('button', { name: 'Andere Variante wählen' })).toBeDisabled()
+})
+
+/** Pick "Alle" in the menu of a view whose default is `unscored`. */
+async function pickAll() {
+  await mainPart(/Anzeigen ohne Score scoren/)
+  await openMenu()
+  await userEvent.click(screen.getByRole('menuitemradio', { name: /Alle Anzeigen neu scoren/ }))
+  await mainPart('Alle Anzeigen neu scoren (12)')
+}
+
+test('a pick survives a rating that leaves the default as it is', async () => {
+  stubApi({ 'GET /pool': { body: NEXT() },
+            'PUT /postings/p2/rating': (call) => ratingAnswer(POOL.rows.find((entry) => entry.posting_id === 'p2')!,
+              call.body as RatingBody, POOL.counter, { default: 'unscored', unscored: 2, all: 12 }) })
+  render(<PoolView />)
+  await titles()
+  await pickAll()
+  await userEvent.click(screen.getAllByRole('button', { name: 'great stack' })[0])
+  expect(await mainPart('Alle Anzeigen neu scoren (12)')).toBeVisible()
+  await openMenu()
+  expect(await screen.findByRole('menuitemradio', { name: /Nur Anzeigen ohne Score \(2\)/ })).toBeVisible()
+})
+
+test('a pick is dropped when ratings change the default and change it back', async () => {
+  let answers = 0
+  stubApi({ 'GET /pool': { body: NEXT() },
+            'PUT /postings/p2/rating': (call) => ratingAnswer(POOL.rows.find((entry) => entry.posting_id === 'p2')!,
+              call.body as RatingBody, POOL.counter, { default: ++answers === 1 ? 'all' : 'unscored', unscored: 3, all: 12 }) })
+  render(<PoolView />)
+  await titles()
+  await pickAll()
+  await userEvent.click(screen.getAllByRole('button', { name: 'great stack' })[0])
+  await mainPart('Alle Anzeigen neu scoren (12)')
+  await userEvent.click(screen.getByRole('button', { name: 'too junior' }))
+  expect(await mainPart('Anzeigen ohne Score scoren (3)')).toBeVisible()
+})
+
+test('a picked "Alle" is dropped when its pass ends and the pool reloads', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  let polls = 0
+  stubApi({ 'GET /pool': { body: NEXT() }, 'POST /pool/passes': { status: 202, body: { pass_id: 'ps1' } },
+            'GET /pool/passes/ps1': () => ({ body: pass(++polls === 1 ? { done: 4 } : { status: 'done', done: 12 }) }) })
+  render(<PoolView />)
+  await pickAll()
+  await act(async () => (await mainPart('Alle Anzeigen neu scoren (12)')).click())
+  await tick()
+  await tick()
+  expect(await mainPart('Anzeigen ohne Score scoren (3)')).toBeEnabled()
+})
+
+test('nothing without a score disables the main part with a reason, and the trigger stays enabled', async () => {
+  stubApi({ 'GET /pool': { body: NEXT({ unscored: 0 }) } })
+  render(<PoolView />)
+  const main = await mainPart('Anzeigen ohne Score scoren (0)')
+  expect(main).toBeDisabled()
+  expect(main).toHaveAccessibleDescription('Es gibt keine Anzeigen ohne Score.')
+  expect(screen.getByRole('button', { name: 'Andere Variante wählen' })).toBeEnabled()
+})
+
+test('nothing to score at all says all postings are excluded or held back', async () => {
+  stubApi({ 'GET /pool': { body: NEXT({ default: 'all', unscored: 0, all: 0 }) } })
+  render(<PoolView />)
+  const main = await mainPart('Alle Anzeigen neu scoren (0)')
+  expect(main).toBeDisabled()
+  expect(main).toHaveAccessibleDescription('Es gibt nichts zu scoren: Alle Anzeigen sind ausgeschlossen oder zurückgehalten.')
+  expect(screen.getByRole('button', { name: 'Andere Variante wählen' })).toBeEnabled()
+})
+
+test('while a pass computes both parts are disabled', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  sessionStorage.setItem('jobadvaisor.pool-pass', 'ps1')
+  stubApi({ 'GET /pool': { body: NEXT() }, 'GET /pool/passes/ps1': { body: pass({ done: 2 }) } })
+  render(<PoolView />)
+  const main = await mainPart(/Anzeigen ohne Score scoren/)
+  await tick()
+  expect(main).toBeDisabled()
+  expect(main).toHaveAccessibleDescription('Das Scoren läuft.')
+  expect(screen.getByRole('button', { name: 'Andere Variante wählen' })).toBeDisabled()
+})
+
+test('the split button and its open menu have no accessibility violations', async () => {
+  stubApi({ 'GET /pool': { body: NEXT() } })
+  render(<PoolView />)
+  await mainPart(/Anzeigen ohne Score scoren/)
+  await openMenu()
+  // The portal sits outside the app shell's landmarks, which the "region" rule would flag.
+  expect(await axe(document.body, { rules: { region: { enabled: false } } })).toHaveNoViolations()
 })
 
 test('a pass shows its progress, then reloads the pool when done', async () => {
@@ -163,22 +367,22 @@ test('a pass shows its progress, then reloads the pool when done', async () => {
   const calls = stubApi({
     'GET /pool': () => {
       reloads += 1
-      return { body: reloads === 1 ? POOL : poolWith({ next_pass: { count: 0, rescore: false } }) }
+      return { body: reloads === 1 ? POOL : poolWith({ next_pass: { default: 'unscored', unscored: 0, all: 0 } }) }
     },
     'POST /pool/passes': { status: 202, body: { pass_id: 'ps1' } },
     'GET /pool/passes/ps1': () => ({ body: pass(++polls === 1 ? { done: 4 } : { status: 'done', done: 12 }) }),
   })
   render(<PoolView />)
-  const button = await screen.findByRole('button', { name: 'Neue Anzeigen bewerten (12)' })
+  const button = await screen.findByRole('button', { name: 'Anzeigen ohne Score scoren (12)' })
   await act(async () => button.click())
   expect(button).toBeDisabled()
   await tick()
-  expect(screen.getByText('Bewertung läuft: 4 von 12')).toBeVisible()
+  expect(screen.getByText('Scoren läuft: 4 von 12')).toBeVisible()
   // The counts change every poll, so they stay out of the live region.
-  expect(screen.getByText('Bewertung läuft: 4 von 12').closest('[role="status"]')).toBeNull()
+  expect(screen.getByText('Scoren läuft: 4 von 12').closest('[role="status"]')).toBeNull()
   await tick()
-  expect(screen.queryByText(/Bewertung läuft/)).toBeNull()
-  expect(await screen.findByRole('button', { name: 'Neue Anzeigen bewerten (0)' })).toBeDisabled()
+  expect(screen.queryByText(/Scoren läuft/)).toBeNull()
+  expect(await screen.findByRole('button', { name: 'Anzeigen ohne Score scoren (0)' })).toBeDisabled()
   expect(calls.filter((call) => call.path === '/pool')).toHaveLength(2)
   expect(sessionStorage.length).toBe(0)
 })
@@ -188,17 +392,17 @@ test('a stored pass resumes polling after a reload', async () => {
   sessionStorage.setItem('jobadvaisor.pool-pass', 'ps1')
   stubApi({ 'GET /pool': { body: POOL }, 'GET /pool/passes/ps1': { body: pass({ done: 7 }) } })
   render(<PoolView />)
-  await screen.findByRole('button', { name: /Neue Anzeigen bewerten/ })
+  await screen.findByRole('button', { name: /Anzeigen ohne Score scoren/ })
   await tick()
-  expect(screen.getByText('Bewertung läuft: 7 von 12')).toBeVisible()
+  expect(screen.getByText('Scoren läuft: 7 von 12')).toBeVisible()
 })
 
 test('starting while another pass runs says so', async () => {
   stubApi({ 'GET /pool': { body: POOL },
             'POST /pool/passes': { status: 409, body: { error: 'pass in progress', detail: 'x' } } })
   render(<PoolView />)
-  await userEvent.click(await screen.findByRole('button', { name: 'Neue Anzeigen bewerten (12)' }))
-  expect(await screen.findByRole('alert')).toHaveTextContent('Es läuft schon eine andere Bewertung')
+  await userEvent.click(await screen.findByRole('button', { name: 'Anzeigen ohne Score scoren (12)' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('Es wird schon gescort. Warte, bis das fertig ist.')
 })
 
 const QUESTION = pass({ status: 'awaiting_answer', unscreened: [
@@ -210,7 +414,7 @@ async function openQuestion(answers: Record<string, unknown> = {}) {
   const calls = stubApi({ 'GET /pool': { body: POOL }, 'GET /pool/passes/ps1': { body: QUESTION },
                           'POST /pool/passes/ps1/unscreened': { status: 202, body: { pass_id: 'ps1' } }, ...answers })
   const view = render(<PoolView />)
-  await screen.findByRole('button', { name: /Neue Anzeigen bewerten/ })
+  await screen.findByRole('button', { name: /Anzeigen ohne Score scoren/ })
   await tick()
   return { calls, ...view }
 }
@@ -219,9 +423,9 @@ test('the unscreened question names the postings and sends continue', async () =
   const { calls } = await openQuestion()
   expect(screen.getByText('Ungeprüfte Stelle (m/w/d)')).toBeVisible()
   expect(screen.getByText(/Nordblatt/, { selector: 'li' })).toBeVisible()
-  await act(async () => screen.getByRole('button', { name: 'Trotzdem bewerten' }).click())
+  await act(async () => screen.getByRole('button', { name: 'Trotzdem scoren' }).click())
   expect(calls.find((call) => call.path.endsWith('/unscreened'))!.body).toEqual({ continue: true })
-  expect(screen.queryByRole('button', { name: 'Trotzdem bewerten' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Trotzdem scoren' })).toBeNull()
 })
 
 test('the unscreened question sends abort and the pass then shows as aborted', async () => {
@@ -235,7 +439,7 @@ test('the unscreened question sends abort and the pass then shows as aborted', a
   await act(async () => screen.getByRole('button', { name: 'Abbrechen' }).click())
   expect(calls.find((call) => call.path.endsWith('/unscreened'))!.body).toEqual({ continue: false })
   await tick()
-  expect(screen.getByText('Die Bewertung wurde abgebrochen.')).toBeVisible()
+  expect(screen.getByText('Das Scoren wurde abgebrochen.')).toBeVisible()
 })
 
 test('an aborted pass is announced', async () => {
@@ -243,10 +447,10 @@ test('an aborted pass is announced', async () => {
   sessionStorage.setItem('jobadvaisor.pool-pass', 'ps1')
   stubApi({ 'GET /pool': { body: POOL }, 'GET /pool/passes/ps1': { body: pass({ status: 'aborted' }) } })
   render(<PoolView />)
-  await screen.findByRole('button', { name: /Neue Anzeigen bewerten/ })
+  await screen.findByRole('button', { name: /Anzeigen ohne Score scoren/ })
   await tick()
-  expect(screen.getByText('Die Bewertung wurde abgebrochen.')).toBeVisible()
-  expect(screen.getByRole('button', { name: /Neue Anzeigen bewerten/ })).toBeEnabled()
+  expect(screen.getByText('Das Scoren wurde abgebrochen.')).toBeVisible()
+  expect(screen.getByRole('button', { name: /Anzeigen ohne Score scoren/ })).toBeEnabled()
 })
 
 test('a failed pass shows an error with retry that starts a new pass', async () => {
@@ -255,14 +459,33 @@ test('a failed pass shows an error with retry that starts a new pass', async () 
   const calls = stubApi({ 'GET /pool': { body: POOL }, 'GET /pool/passes/ps1': { body: pass({ status: 'failed', error: 'labels/p1.json: kaputt' }) },
                           'POST /pool/passes': { status: 202, body: { pass_id: 'ps2' } } })
   render(<PoolView />)
-  await screen.findByRole('button', { name: /Neue Anzeigen bewerten/ })
+  await screen.findByRole('button', { name: /Anzeigen ohne Score scoren/ })
   await tick()
-  expect(screen.getByRole('heading', { name: 'Die Bewertung ist fehlgeschlagen' })).toBeVisible()
+  expect(screen.getByRole('heading', { name: 'Das Scoren ist fehlgeschlagen' })).toBeVisible()
   expect(screen.getByText(/labels\/p1\.json: kaputt/)).toBeVisible()
   expect(screen.getByText(/kaputte Datei/)).toBeVisible()
   expect(screen.queryByText(/Server erreichbar/)).toBeNull()
   await act(async () => screen.getByRole('button', { name: 'Erneut versuchen' }).click())
-  expect(calls.some((call) => call.method === 'POST' && call.path === '/pool/passes')).toBe(true)
+  expect(posts(calls)).toHaveLength(1)
+  expect(posts(calls)[0].body).toEqual({ variant: 'unscored' })
+})
+
+test('the retry of a failed pass starts the variant the main part shows, not the one the pass was started with', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  let failed = false
+  const calls = stubApi({ 'GET /pool': { body: NEXT() }, 'POST /pool/passes': { status: 202, body: { pass_id: 'ps1' } },
+                          'GET /pool/passes/ps1': () => ({ body: failed ? pass({ status: 'failed', error: 'kaputt' }) : pass({ done: 1 }) }) })
+  const { unmount } = render(<PoolView />)
+  await pickAll()
+  await act(async () => (await mainPart('Alle Anzeigen neu scoren (12)')).click())
+  unmount()
+  failed = true
+  render(<PoolView />)
+  await mainPart(/Anzeigen ohne Score scoren/)
+  await tick()
+  await act(async () => screen.getByRole('button', { name: 'Erneut versuchen' }).click())
+  expect(posts(calls)).toHaveLength(2)
+  expect(posts(calls)[1].body).toEqual({ variant: 'unscored' })
 })
 
 test('settings save the share as 0 to 1 and reload the pool', async () => {
@@ -378,21 +601,21 @@ test('failed polls show a notice with retry after three failures, and retry resu
   const calls = stubApi({ 'GET /pool': { body: POOL },
                           'GET /pool/passes/ps1': () => (down ? { status: 500 } : { body: pass({ status: 'done' }) }) })
   render(<PoolView />)
-  await screen.findByRole('button', { name: /Neue Anzeigen bewerten/ })
+  await screen.findByRole('button', { name: /Anzeigen ohne Score scoren/ })
   await tick()
   await tick()
-  expect(screen.queryByText('Der Stand der Bewertung ist gerade nicht abrufbar')).toBeNull()
+  expect(screen.queryByText('Der Stand des Scorens ist gerade nicht abrufbar')).toBeNull()
   await tick()
-  expect(screen.getByText('Der Stand der Bewertung ist gerade nicht abrufbar')).toBeVisible()
-  expect(screen.getByRole('button', { name: /Neue Anzeigen bewerten/ })).toBeDisabled()
+  expect(screen.getByText('Der Stand des Scorens ist gerade nicht abrufbar')).toBeVisible()
+  expect(screen.getByRole('button', { name: /Anzeigen ohne Score scoren/ })).toBeDisabled()
   const polls = calls.filter((call) => call.path === '/pool/passes/ps1').length
   await tick()
   expect(calls.filter((call) => call.path === '/pool/passes/ps1')).toHaveLength(polls)
   down = false
   await act(async () => screen.getByRole('button', { name: 'Erneut versuchen' }).click())
   await tick()
-  expect(screen.queryByText('Der Stand der Bewertung ist gerade nicht abrufbar')).toBeNull()
-  expect(await screen.findByRole('button', { name: /Neue Anzeigen bewerten/ })).toBeEnabled()
+  expect(screen.queryByText('Der Stand des Scorens ist gerade nicht abrufbar')).toBeNull()
+  expect(await screen.findByRole('button', { name: /Anzeigen ohne Score scoren/ })).toBeEnabled()
 })
 
 test('a failed reload keeps the list and shows a retry above it', async () => {
@@ -444,7 +667,7 @@ const puts = (calls: Call[]) => calls.filter((call) => call.method === 'PUT' && 
 const button = (name: string) => screen.getByRole('button', { name })
 /** Expects the shown correction counter to read `count`: only a stored answer changes it. */
 const corrections = (count: number) =>
-  expect(screen.getByText(/Korrekturen seit der letzten Bewertung/)).toHaveTextContent(`der Anzeigen: ${count}`)
+  expect(screen.getByText(/Korrekturen seit dem letzten Neu-Scoren/)).toHaveTextContent(`aller Anzeigen: ${count}`)
 
 test('a chip on a posting without a verdict gives it the derived verdict and the counter follows', async () => {
   const calls = stubApi({ 'GET /pool': { body: POOL }, 'PUT /postings/p2/rating': rateRoute('p2') })
@@ -453,8 +676,8 @@ test('a chip on a posting without a verdict gives it the derived verdict and the
   await userEvent.click(within(screen.getByRole('list', { name: 'Anzeigen' })).getAllByRole('button', { name: 'great stack' })[0])
   expect(puts(calls)[0].body).toEqual({ chips: ['great-stack'], note: null })
   expect(await row(ENGINEER).findByText('Bewertet: Ja')).toBeVisible()
-  expect(screen.getByText('neue Bewertung sinnvoll')).toBeVisible()
-  expect(screen.getByText(/Korrekturen seit der letzten Bewertung der Anzeigen:/)).toHaveTextContent('4')
+  expect(screen.getByText('neu scoren sinnvoll')).toBeVisible()
+  expect(screen.getByText(/Korrekturen seit dem letzten Neu-Scoren aller Anzeigen:/)).toHaveTextContent('4')
 })
 
 test('chips of both polarities stay selectable, whatever the verdict', async () => {
@@ -960,18 +1183,18 @@ test('every row has a score button: "Score berechnen" without a score, "Neu bere
 })
 
 test('a row score updates the row, the counter and the pass button count', async () => {
-  const quiet = poolWith({ next_pass: { count: 0, rescore: false } })
+  const quiet = poolWith({ next_pass: { default: 'unscored', unscored: 0, all: 0 } })
   const calls = stubApi({ 'GET /pool': { body: quiet }, 'POST /postings/n1/score': { body: scoreAnswer(
     baseRow('n1'), { state: 'scored', score: 9 }, { counter: { ...POOL.counter, corrections: 4 },
-      next_pass: { count: 8, rescore: true } }) } })
+      next_pass: { default: 'all', unscored: 0, all: 8 } }) } })
   render(<PoolView />)
   await titles()
-  expect(await screen.findByRole('button', { name: 'Neue Anzeigen bewerten (0)' })).toBeDisabled()
+  expect(await screen.findByRole('button', { name: 'Anzeigen ohne Score scoren (0)' })).toBeDisabled()
   await userEvent.click(row(NEW).getByRole('button', { name: 'Score berechnen' }))
   expect(await row(NEW).findByText('9')).toBeVisible()
   expect(row(NEW).getByRole('button', { name: 'Neu berechnen' })).toBeEnabled()
-  expect(screen.getByText(/Korrekturen seit der letzten Bewertung/)).toHaveTextContent('Korrekturen seit der letzten Bewertung der Anzeigen: 4')
-  expect(screen.getByRole('button', { name: 'Neue Anzeigen bewerten (8)' })).toBeEnabled()
+  expect(screen.getByText(/Korrekturen seit dem letzten Neu-Scoren/)).toHaveTextContent('Korrekturen seit dem letzten Neu-Scoren aller Anzeigen: 4')
+  expect(screen.getByRole('button', { name: 'Alle Anzeigen neu scoren (8)' })).toBeEnabled()
   expect(calls.filter((call) => call.method === 'POST').map((call) => call.path)).toEqual(['/postings/n1/score'])
 })
 
@@ -1011,7 +1234,7 @@ test('a "scoring in progress" message on a row goes when the pass ends, a failed
     'POST /postings/n1/score': { status: 409, body: { error: 'scoring in progress', detail: 'ps1' } },
     'POST /postings/broken/score': { status: 502, body: { error: 'scoring failed', detail: 'x' } } })
   render(<PoolView />)
-  const start = await screen.findByRole('button', { name: 'Neue Anzeigen bewerten (12)' })
+  const start = await screen.findByRole('button', { name: 'Anzeigen ohne Score scoren (12)' })
   await act(async () => start.click())
   await act(async () => row(NEW).getByRole('button', { name: 'Score berechnen' }).click())
   await act(async () => row('Buchhalter (m/w/d)').getByRole('button', { name: 'Score berechnen' }).click())
@@ -1331,7 +1554,7 @@ test('a finished pass reloads the pool and the scored rows leave "ohne Score", e
   expect(await titles()).toEqual([NEW, 'Buchhalter (m/w/d)'])
   await act(async () => button(`Ja, auf jeden Fall: ${NEW}`).click())
   await vi.waitFor(() => corrections(4))
-  await act(async () => button('Neue Anzeigen bewerten (12)').click())
+  await act(async () => button('Anzeigen ohne Score scoren (12)').click())
   await tick()
   await vi.waitFor(() => expect(reloads).toBe(2))
   await vi.waitFor(() => expect(screen.queryByText('Buchhalter (m/w/d)')).toBeNull())

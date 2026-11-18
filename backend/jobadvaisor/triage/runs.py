@@ -40,7 +40,8 @@ class Runs:
 
     def start(self, rescore: bool = False) -> str:
         """Start a pass in the background and return its ID at once; `rescore` as in
-        `start_run`. Raises `RunBusyError` while another pass or a single score computes."""
+        `start_run` (true for the pass variant `"all"`). Raises `RunBusyError` while another
+        pass or a single score computes."""
         run_id = uuid.uuid4().hex
         self._compute(run_id, lambda: start_run(self._graph, self._context(), run_id,
                                                 rescore))

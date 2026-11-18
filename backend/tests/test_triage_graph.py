@@ -333,6 +333,31 @@ def test_the_measure_uses_the_scores_from_before_the_pass(tmp_path, root):
     assert read_pool(root).passes[-1].corrections == 1  # negative against the old 8
 
 
+def test_the_pass_entry_records_its_variant_and_measures_the_counter_before_it(tmp_path, root):
+    add_posting(root, "backend", "Backend Engineer 8")
+    harness = Harness(tmp_path, root)
+    harness.start("run-1")
+    write_json(root / "labels/backend.json",
+               {**LABEL, "verdict": "negative", "rated_at": datetime.now(UTC).isoformat()})
+    add_posting(root, "new", "Frontend Engineer 4")
+    scores = {"backend": read_score(root, "backend")}
+    before = counter(load(root), scores, read_pool(root))
+    harness.start("run-2")
+    unscored = read_pool(root).passes[-1]
+    assert unscored.variant == "unscored"
+    assert (unscored.corrections, unscored.rated) == (before["corrections"], before["rated"])
+    assert before["corrections"] == 1
+    add_posting(root, "newer", "Frontend Engineer 5")
+    before = counter(load(root), scores, read_pool(root))
+    assert before["corrections"] == 1  # the unscored pass did not reset the window
+    harness.start("run-3", rescore=True)
+    rescored = read_pool(root).passes[-1]
+    assert rescored.variant == "all"
+    assert (rescored.corrections, rescored.rated) == (before["corrections"], before["rated"])
+    after = counter(load(root), {"backend": read_score(root, "backend")}, read_pool(root))
+    assert (after["corrections"], after["rated"]) == (0, 0)  # the "all" pass reset the window
+
+
 def test_an_explicit_batch_scores_exactly_those_postings(tmp_path, root):
     add_posting(root, "a", "Backend Engineer 7")
     add_posting(root, "b", "Backend Engineer 5")

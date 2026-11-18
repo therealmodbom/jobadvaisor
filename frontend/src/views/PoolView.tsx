@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
-import { Compass, LoaderCircle, ShieldAlert } from 'lucide-react'
-import { api, ApiError, type PassState, type Pool, type PoolRow, type PoolSettings, type RatingAnswer, type ScoreAnswer, type Status, type Strength, type Verdict } from '@/api'
+import { Check, ChevronDown, ChevronUp, Compass, LoaderCircle, ShieldAlert } from 'lucide-react'
+import { DropdownMenu } from 'radix-ui'
+import { api, ApiError, type NextPass, type PassState, type PassVariant, type Pool, type PoolRow, type PoolSettings, type RatingAnswer, type ScoreAnswer, type Status, type Strength, type Verdict } from '@/api'
 import { Badge, ChipList, ScoreButton, ScoreProblem, ScoreText, StatusControl } from '@/components/posting'
 import { Legend, ReasonsAndNote, VerdictButtons } from '@/components/rating'
 import { EmptyState, ErrorWithRetry, Loading } from '@/components/states'
@@ -100,20 +101,102 @@ function usePass(onDone: () => void) {
       sending.current = false
     }
   }
-  const start = () => send(async () => {
-    const answer = await api<{ pass_id: string }>('/pool/passes', { method: 'POST' })
+  /** Start the pass of `variant`; the server decides what it scores from the name alone. */
+  const start = (variant: PassVariant) => send(async () => {
+    const answer = await api<{ pass_id: string }>('/pool/passes', { method: 'POST', json: { variant } })
     storedPass.set(answer.pass_id)
     setPass(null)
     setPollFailed(false)
     setPassId(answer.pass_id)
-  }, 'Es läuft schon eine andere Bewertung. Warte, bis sie fertig ist.',
-  'Die Bewertung konnte nicht gestartet werden. Ist der Server erreichbar?')
+  }, 'Es wird schon gescort. Warte, bis das fertig ist.',
+  'Das Scoren konnte nicht gestartet werden. Ist der Server erreichbar?')
   const answer = (proceed: boolean) => send(async () => {
     await api(`/pool/passes/${passId}/unscreened`, { method: 'POST', json: { continue: proceed } })
     setPass((current) => current && { ...current, status: 'running' })
-  }, 'Gerade rechnet eine andere Bewertung. Antworte, wenn sie fertig ist.',
+  }, 'Gerade wird schon gescort. Antworte, wenn das fertig ist.',
   'Die Antwort wurde nicht gespeichert. Versuch es noch einmal.')
   return { pass, busy, notice, start, answer, pollFailed, retryPoll: () => setPollFailed(false) }
+}
+
+const VARIANT_TITLE: Record<PassVariant, string> = { unscored: 'Nur Anzeigen ohne Score', all: 'Alle Anzeigen neu scoren' }
+const VARIANT_VERBS: Record<PassVariant, string> = { unscored: 'Anzeigen ohne Score scoren', all: 'Alle Anzeigen neu scoren' }
+const NOTHING_TO_SCORE = {
+  unscored: 'Es gibt keine Anzeigen ohne Score.',
+  all: 'Es gibt nichts zu scoren: Alle Anzeigen sind ausgeschlossen oder zurückgehalten.',
+}
+
+/** What a pass of `variant` over `n` postings costs: two model calls per posting. */
+function costLine(variant: PassVariant, n: number) {
+  const postings = n === 1 ? '1 Anzeige' : `${n} Anzeigen`
+  return variant === 'unscored' ? `${postings} ohne Score, je zwei Modellaufrufe.`
+    : `${postings}, je zwei Modellaufrufe. Vorhandene Scores werden ersetzt.`
+}
+
+/** The scoring pass as a split button: the main part starts the pass of the `shown` variant, the
+ * trigger opens a menu whose entries `onPick` a variant without starting anything. The text under
+ * it (`#pass-why`, the main part's description) is the cost line, or the reason the main part is
+ * disabled: no postings for the variant, or a pass is `busy`. Only `busy` disables the trigger. */
+function PassButton({ nextPass, shown, busy, onPick, onStart }: {
+  nextPass: NextPass
+  shown: PassVariant
+  busy: boolean
+  onPick: (variant: PassVariant) => void
+  onStart: (variant: PassVariant) => void
+}) {
+  const [open, setOpen] = useState(false)
+  // A pass that starts while the menu is open closes it (render-time sync, no effect).
+  if (busy && open) setOpen(false)
+  const count = nextPass[shown]
+  const why = busy ? 'Das Scoren läuft.' : count === 0 ? NOTHING_TO_SCORE[shown] : costLine(shown, count)
+  const Chevron = open ? ChevronUp : ChevronDown
+  return (
+    <div className="flex flex-col gap-1.5 max-sm:w-full">
+      <div role="group" aria-label="Scoren" className="flex">
+        <Button className="min-w-0 flex-1 rounded-r-none" onClick={() => onStart(shown)}
+                disabled={busy || count === 0} aria-describedby="pass-why">
+          {/* Both labels share one grid cell, so the button keeps the wider one's size when the
+              variant changes; the hidden one only reserves space. */}
+          <span className="grid justify-items-center">
+            {(['unscored', 'all'] as const).map((variant) => (
+              <span key={variant} aria-hidden={variant !== shown || undefined}
+                    className={cn('col-start-1 row-start-1', variant !== shown && 'invisible')}>
+                {VARIANT_VERBS[variant]} ({nextPass[variant]})
+              </span>
+            ))}
+          </span>
+        </Button>
+        <DropdownMenu.Root open={open} onOpenChange={setOpen}>
+          <DropdownMenu.Trigger asChild>
+            <Button className="w-11 rounded-l-none border-l border-primary-foreground/45 px-0"
+                    aria-label="Andere Variante wählen" disabled={busy}>
+              <Chevron aria-hidden="true" />
+            </Button>
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content align="start" sideOffset={6} collisionPadding={16} aria-label="Variante"
+                                  className="z-50 flex w-[min(380px,calc(100vw-2rem))] flex-col gap-0.5 rounded-xl border bg-card p-1.5 shadow-card">
+              <DropdownMenu.RadioGroup value={shown} onValueChange={(value) => onPick(value as PassVariant)}>
+                {(['unscored', 'all'] as const).map((variant) => (
+                  <DropdownMenu.RadioItem key={variant} value={variant}
+                                          className="flex min-h-11 cursor-pointer items-start gap-2.5 rounded-md px-2.5 py-2 outline-none data-[highlighted]:bg-muted">
+                    <span className="mt-1 size-4 flex-none text-primary">
+                      <DropdownMenu.ItemIndicator><Check className="size-4" aria-hidden="true" /></DropdownMenu.ItemIndicator>
+                    </span>
+                    <span className="flex flex-col">
+                      <span className="font-bold">{VARIANT_TITLE[variant]} ({nextPass[variant]})</span>
+                      <span className="text-sm text-muted-foreground">{costLine(variant, nextPass[variant])}</span>
+                    </span>
+                  </DropdownMenu.RadioItem>
+                ))}
+              </DropdownMenu.RadioGroup>
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
+      </div>
+      {/* w-0 min-w-full: the line wraps within the button's width instead of setting it. */}
+      <p id="pass-why" className="w-0 min-w-full text-sm text-muted-foreground">{why}</p>
+    </div>
+  )
 }
 
 /** The question over postings the content guard never checked: names them, then go on or abort. */
@@ -125,7 +208,7 @@ function UnscreenedQuestion({ pass, onAnswer }: { pass: PassState; onAnswer: (pr
       <div className="flex items-start gap-3">
         <ShieldAlert className="mt-0.5 size-6 flex-none text-negative" aria-hidden="true" />
         <div>
-          <h2 id="unscreened-title" className="text-xl font-bold">Die Bewertung wartet auf deine Antwort</h2>
+          <h2 id="unscreened-title" className="text-xl font-bold">Das Scoren wartet auf deine Antwort</h2>
           <p className="mt-1.5">
             {count === 1 ? 'Eine Anzeige wurde' : `${count} Anzeigen wurden`} hinzugefügt, während die
             Inhaltsprüfung aus war. Niemand hat sie auf Text geprüft, der sich an die KI richtet, etwa die
@@ -139,11 +222,11 @@ function UnscreenedQuestion({ pass, onAnswer }: { pass: PassState; onAnswer: (pr
         ))}
       </ul>
       <p className="ml-9 text-muted-foreground">
-        Bewerte sie trotzdem, dann laufen sie mit den anderen durch. Oder brich ab: Dann wird nichts
-        bewertet, und du kannst die Inhaltsprüfung einschalten und neu starten.
+        Score sie trotzdem, dann laufen sie mit den anderen durch. Oder brich ab: Dann wird nichts
+        gescort, und du kannst die Inhaltsprüfung einschalten und neu starten.
       </p>
       <div className="ml-9 flex flex-wrap gap-2">
-        <Button onClick={() => onAnswer(true)}>Trotzdem bewerten</Button>
+        <Button onClick={() => onAnswer(true)}>Trotzdem scoren</Button>
         <Button variant="outline" onClick={() => onAnswer(false)}>Abbrechen</Button>
       </div>
     </section>
@@ -321,6 +404,9 @@ export function PoolView({ active = true }: { active?: boolean }) {
   const [orderKey, setOrderKey] = useState('')
   /** Counts the loads that arrived; part of `orderKey`. */
   const [loads, setLoads] = useState(0)
+  /** The pass variant chosen in the menu; the shown one is `picked ?? next_pass.default`. Every
+   * pool load drops it, and so does a change of `next_pass.default` (render-time sync below). */
+  const [picked, setPicked] = useState<PassVariant | null>(null)
   const [focusRequest, setFocusRequest] = useState<{ id: string; target: 'row' | 'reasons' | 'note' } | null>(null)
   /** Polite message when Enter finds no further unrated posting; it alternates a trailing space
    * so the same text is announced again. */
@@ -372,6 +458,7 @@ export function PoolView({ active = true }: { active?: boolean }) {
     api<Pool>('/pool').then((next) => {
       if (mine !== latest.current) return
       setPool(next)
+      setPicked(null)
       setLoads((count) => count + 1)
       setLoadFailed(false)
     }, () => {
@@ -472,14 +559,15 @@ export function PoolView({ active = true }: { active?: boolean }) {
   })
 
   useEffect(() => {
-    /** The pool's shortcuts (`design.md` "Rating without a run"): off while a text field, select
-     * or editable element has focus, while a modifier other than Shift is held and while the view
-     * is hidden. A held key repeats only j and k, so it never rates or toggles twice. */
+    /** The pool's shortcuts (`design.md` "Rating without a run"): off while a text field, select,
+     * editable element or menu (the pass variant menu) has focus, while a modifier other than Shift
+     * is held and while the view is hidden. A held key repeats only j and k, so it never rates or
+     * toggles twice. */
     function onKey(event: KeyboardEvent) {
       const row = shown.find((entry) => entry.posting_id === current)
       if (!active || !pool || !row || event.altKey || event.ctrlKey || event.metaKey) return
       if (event.repeat && event.key !== 'j' && event.key !== 'k') return
-      if ((event.target as HTMLElement).closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return
+      if ((event.target as HTMLElement).closest?.('input, textarea, select, [role="menu"], [contenteditable]:not([contenteditable="false"])')) return
       const digit = /^Digit([1-9])$/.exec(event.code)?.[1]
       const level = LEVELS.find(({ key }) => key === event.key)
       const step = { j: 1, k: -1 }[event.key]
@@ -517,13 +605,15 @@ export function PoolView({ active = true }: { active?: boolean }) {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   })
-  const count = pool?.next_pass.count ?? 0
   const counter = pool?.counter
-  const nothingToDo = counter?.hint === 'rescore'
-    ? ' Es gibt nichts zu bewerten: Alle Anzeigen sind ausgeschlossen oder zurückgehalten.' : ''
   const working = busy && !pollFailed && pass?.status !== 'awaiting_answer'
-  const why = busy ? 'Eine Bewertung läuft.'
-    : count === 0 ? `Es gibt keine neuen Anzeigen zu bewerten.${nothingToDo}` : ''
+  const defaultVariant = pool?.next_pass.default
+  const [seenDefault, setSeenDefault] = useState(defaultVariant)
+  if (seenDefault !== defaultVariant) {
+    setSeenDefault(defaultVariant)
+    setPicked(null)
+  }
+  const shownVariant = picked ?? defaultVariant ?? 'unscored'
 
   return (
     <div className="flex flex-col gap-5">
@@ -531,18 +621,13 @@ export function PoolView({ active = true }: { active?: boolean }) {
 
       {pool && (
         <div className="flex flex-wrap items-start gap-x-8 gap-y-4">
-          <div className="flex flex-col gap-1.5">
-            <Button onClick={start} disabled={busy || count === 0} aria-describedby={why ? 'pass-why' : undefined}>
-              Neue Anzeigen bewerten ({count})
-            </Button>
-            {why && <p id="pass-why" className="text-sm text-muted-foreground">{why}</p>}
-          </div>
+          <PassButton nextPass={pool.next_pass} shown={shownVariant} busy={busy} onPick={setPicked} onStart={start} />
           {counter && (
             <div className="flex flex-col gap-1">
-              <p>Korrekturen seit der letzten Bewertung der Anzeigen: <strong>{counter.corrections}</strong></p>
+              <p>Korrekturen seit dem letzten Neu-Scoren aller Anzeigen: <strong>{counter.corrections}</strong></p>
               <p>{counter.rate === null ? 'Anteil ab 10 Bewertungen' : `Anteil: ${Math.round(counter.rate * 100)} %`}</p>
               <Badge className={counter.hint === 'rescore' ? 'self-start bg-negative-soft text-negative' : 'self-start bg-positive-soft text-primary'}>
-                {counter.hint === 'rescore' ? 'neue Bewertung sinnvoll' : 'Ranking passt gut'}
+                {counter.hint === 'rescore' ? 'neu scoren sinnvoll' : 'Ranking passt gut'}
               </Badge>
             </div>
           )}
@@ -553,21 +638,21 @@ export function PoolView({ active = true }: { active?: boolean }) {
       {/* The live region holds only text that does not change per poll, so it is read once; the
           visible counts sit outside it. */}
       <div role="status">
-        {working && <span className="sr-only">Die Bewertung läuft.</span>}
-        {pass?.status === 'aborted' && <p className="rounded-xl border bg-card px-4 py-3">Die Bewertung wurde abgebrochen.</p>}
+        {working && <span className="sr-only">Das Scoren läuft.</span>}
+        {pass?.status === 'aborted' && <p className="rounded-xl border bg-card px-4 py-3">Das Scoren wurde abgebrochen.</p>}
       </div>
       <p role="status" className="sr-only">{announce}</p>
       <p role="status" className="sr-only">{end}</p>
       {working && (
         <p className="flex items-center gap-3 rounded-xl bg-positive-soft px-4 py-3">
           <LoaderCircle className="size-5 flex-none motion-safe:animate-spin" aria-hidden="true" />
-          <strong>{pass ? `Bewertung läuft: ${pass.done} von ${pass.total}` : 'Bewertung läuft'}</strong>
+          <strong>{pass ? `Scoren läuft: ${pass.done} von ${pass.total}` : 'Scoren läuft'}</strong>
         </p>
       )}
       {notice && <p role="alert" className="rounded-xl border border-danger bg-danger-soft px-4 py-3">{notice}</p>}
       {busy && pollFailed && (
-        <ErrorWithRetry title="Der Stand der Bewertung ist gerade nicht abrufbar"
-                        detail="Der Server antwortet nicht. Die Bewertung rechnet vielleicht weiter." onRetry={retryPoll} />
+        <ErrorWithRetry title="Der Stand des Scorens ist gerade nicht abrufbar"
+                        detail="Der Server antwortet nicht. Das Scoren läuft vielleicht weiter." onRetry={retryPoll} />
       )}
       {loadFailed && pool && (
         <div role="alert" className="flex flex-wrap items-center gap-3 rounded-xl border border-danger bg-danger-soft px-4 py-3">
@@ -576,9 +661,9 @@ export function PoolView({ active = true }: { active?: boolean }) {
         </div>
       )}
       {pass?.status === 'failed' && (
-        <ErrorWithRetry title="Die Bewertung ist fehlgeschlagen"
-                        detail={`${pass.error ?? 'Der Server hat keinen Grund genannt.'} Vielleicht enthält das Datenrepository eine kaputte Datei. Behebe sie und starte die Bewertung noch einmal.`}
-                        onRetry={start} />
+        <ErrorWithRetry title="Das Scoren ist fehlgeschlagen"
+                        detail={`${pass.error ?? 'Der Server hat keinen Grund genannt.'} Vielleicht enthält das Datenrepository eine kaputte Datei. Behebe sie und starte das Scoren noch einmal.`}
+                        onRetry={() => start(shownVariant)} />
       )}
       {pass?.status === 'awaiting_answer' && <UnscreenedQuestion pass={pass} onAnswer={answer} />}
 

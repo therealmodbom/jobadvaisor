@@ -46,14 +46,16 @@ def pass_batch(repository: DataRepository, scores: dict[str, Score], rescore: bo
 def counter(repository: DataRepository, scores: dict[str, Score], pool: Pool) -> dict:
     """The correction counter: `{corrections, rated, rate, hint, since}`.
 
-    Window: labels of kind `rating` rated strictly after `since` (the last pass's `started_at`,
-    else its `finished_at`; null without passes, then every rating counts). `rated` counts those
-    whose posting has a score in `scores`, `corrections` those contradicting it. `rate` is
+    Window: labels of kind `rating` rated strictly after `since` (the `started_at`, else the
+    `finished_at`, of the last pass over all postings: variant `"all"` or none, a record from
+    before variants; passes over the unscored only leave the window alone; null without such
+    a pass, then every rating counts). `rated` counts those whose posting has a score in
+    `scores`, `corrections` those contradicting it. `rate` is
     corrections / rated from `RATE_MIN_RATINGS` ratings on, else null. `hint` is `"rescore"`
     at the pool's threshold or rate, else `"fits"`. A `rating` label always has a verdict (model-
     enforced), so `label.verdict` needs no null check here.
     """
-    last = pool.passes[-1] if pool.passes else None
+    last = next((p for p in reversed(pool.passes) if p.variant in ("all", None)), None)
     since = (last.started_at or last.finished_at) if last else None
     rated = corrections = 0
     for posting_id, label in repository.labels.items():
@@ -73,13 +75,16 @@ def counter(repository: DataRepository, scores: dict[str, Score], pool: Pool) ->
 
 
 def next_pass(repository: DataRepository, scores: dict[str, Score], pool: Pool) -> dict:
-    """What the next pass would do: `{count, rescore}`. `rescore` is true when corrections
-    were counted (the pass then rescores every posting, rated ones included); `count` is the
-    pass batch without excluded and held postings."""
-    rescore = counter(repository, scores, pool)["corrections"] > 0
-    batch = pass_batch(repository, scores, rescore)
-    count = sum(_blocked(repository, repository.postings[i]) is None for i in batch)
-    return {"count": count, "rescore": rescore}
+    """What either pass variant would take: `{default, unscored, all}`. `unscored` and `all` are
+    the sizes of the two pass batches, without excluded and held postings; `default` is the
+    variant the counter's hint points to: `"all"` for `"rescore"`, else `"unscored"`."""
+    def size(rescore: bool) -> int:
+        return sum(_blocked(repository, repository.postings[i]) is None
+                   for i in pass_batch(repository, scores, rescore))
+
+    hint = counter(repository, scores, pool)["hint"]
+    return {"default": "all" if hint == "rescore" else "unscored",
+            "unscored": size(False), "all": size(True)}
 
 
 def rank(repository: DataRepository, scores: dict[str, Score], score_problems: dict[str, str],

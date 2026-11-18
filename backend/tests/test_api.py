@@ -46,8 +46,9 @@ class Api:
         assert self.gate.wait(10), "gate never opened"
         return judge_by_title(schema, prompt)
 
-    def start(self) -> str:
-        response = self.client.post("/pool/passes")
+    def start(self, variant: str = "unscored") -> str:
+        """Start a pass of `variant` and return its ID."""
+        response = self.client.post("/pool/passes", json={"variant": variant})
         assert response.status_code == 202, response.text
         return response.json()["pass_id"]
 
@@ -81,7 +82,7 @@ def test_start_returns_a_pass_id_before_the_pass_finishes(api):
     api.gate.clear()
     pass_id = api.start()
     assert api.client.get(f"/pool/passes/{pass_id}").json()["status"] == "running"
-    busy = api.client.post("/pool/passes")
+    busy = api.client.post("/pool/passes", json={"variant": "unscored"})
     assert busy.status_code == 409 and busy.json()["error"] == "pass in progress"
     assert pass_id in busy.json()["detail"]
     api.gate.set()
@@ -151,7 +152,7 @@ def test_the_old_run_routes_the_rating_route_and_the_run_list_are_gone(api):
 
 
 def test_new_label_is_retrievable_in_the_next_pass_without_a_rebuild(api, root):
-    api.settled(api.start())
+    api.settled(api.start("all"))
     write_json(root / "labels/p5.json", LABEL)
     add_posting(root, "similar", "Engineer 8")
     progress = api.settled(api.start())
@@ -230,7 +231,7 @@ def test_malformed_answer_is_rejected_with_error_and_detail(unscreened):
 
 def test_a_paused_pass_does_not_block_a_new_one(unscreened):
     assert unscreened.settled(unscreened.start())["status"] == "awaiting_answer"
-    assert unscreened.client.post("/pool/passes").status_code == 202
+    assert unscreened.client.post("/pool/passes", json={"variant": "unscored"}).status_code == 202
 
 
 def test_the_built_frontend_is_served_and_the_api_still_responds(tmp_path, root):
@@ -261,9 +262,10 @@ def test_without_a_build_the_api_runs_alone(tmp_path, root):
 def test_pool_lists_the_rows_in_rank_order_with_counter_settings_and_next_pass(api, root):
     write_json(root / "labels/p1.json", LABEL)
     before = api.client.get("/pool").json()
-    assert before["next_pass"] == {"count": 5, "rescore": False}  # rated p1 has no score yet
+    # rated p1 has no score yet; sales is excluded
+    assert before["next_pass"] == {"default": "unscored", "unscored": 5, "all": 5}
     assert [row["state"] for row in before["rows"]].count("unscored") == 5
-    api.settled(api.start())
+    api.settled(api.start("all"))
     pool = api.client.get("/pool").json()
     ids = [row["posting_id"] for row in pool["rows"]]
     assert ids[0] == "p1" and ids[-1] == "sales" and set(ids) == {"p1", "p2", "p3", "p4", "p5",
@@ -273,7 +275,7 @@ def test_pool_lists_the_rows_in_rank_order_with_counter_settings_and_next_pass(a
     assert pool["rows"][-1]["state"] == "excluded" and pool["rows"][-1]["rules"] == ["no-sales"]
     assert pool["counter"]["corrections"] == 0 and pool["counter"]["hint"] == "fits"
     assert pool["settings"] == {"correction_threshold": 10, "correction_rate": 0.3}
-    assert pool["next_pass"] == {"count": 0, "rescore": False}
+    assert pool["next_pass"] == {"default": "unscored", "unscored": 0, "all": 5}
     assert pool["reason_chips"] == [{"id": "too-junior", "label": "too junior",
                                      "polarity": None}]
 
@@ -334,7 +336,8 @@ def test_scoring_a_posting_answers_the_page_with_counter_and_next_pass(api, root
     assert body["row"]["exploration"] is False and body["posting"]["title"] == "Engineer 2"
     assert body["screening"] is False and body["reason_chips"][0]["id"] == "too-junior"
     assert body["counter"]["corrections"] == 0
-    assert body["next_pass"] == {"count": 4, "rescore": False}  # p1, p3, p4, p5; sales is out
+    # p1, p3, p4, p5 have no score; sales is out
+    assert body["next_pass"] == {"default": "unscored", "unscored": 4, "all": 5}
     assert read_score(root, "p2").score == 2
     assert read_pool(root).passes == []
 
@@ -344,13 +347,13 @@ def test_a_rated_posting_without_a_score_probes_the_counter(api, root):
     body = post_score(api, "p1").json()
     assert body["row"]["label"]["verdict"] == "positive" and body["row"]["score"] == 1
     assert body["counter"]["corrections"] == 1 and body["counter"]["rated"] == 1
-    assert body["next_pass"]["rescore"] is True
+    assert body["next_pass"] == {"default": "unscored", "unscored": 4, "all": 5}  # 1 < threshold
     assert api.client.get("/pool").json()["counter"]["corrections"] == 1
 
 
 def test_a_rating_counts_for_the_probe_only_after_the_last_pass_started(api, root):
     write_json(root / "labels/p1.json", LABEL)  # rated in January, before any pass
-    api.settled(api.start())
+    api.settled(api.start("all"))
     add_posting(root, "late", "Engineer 2")
     write_json(root / "labels/late.json", {**LABEL, "rated_at": datetime.now(UTC).isoformat()})
     body = post_score(api, "late").json()
@@ -459,7 +462,7 @@ def test_scoring_during_a_pass_is_409_scoring_in_progress_and_a_pass_during_scor
     while len(api.harness.judge.calls) == calls:  # until the single score reaches the judge
         assert time.monotonic() < deadline, "single score never reached the judge"
         time.sleep(0.02)
-    response = api.client.post("/pool/passes")
+    response = api.client.post("/pool/passes", json={"variant": "unscored"})
     assert response.status_code == 409 and response.json()["error"] == "pass in progress"
     assert "score:p2" in response.json()["detail"]
     api.gate.set()
@@ -564,6 +567,7 @@ def test_a_rating_with_a_chip_is_stored_and_answered_with_row_counter_and_next_p
     stored = json.loads((root / "labels/p5.json").read_text())
     assert stored["kind"] == "rating" and stored["note"] == "nice" and stored["rated_at"]
     assert body["counter"]["rated"] == 1 and body["counter"]["corrections"] == 1  # p5 scored 5
+    assert body["next_pass"] == {"default": "unscored", "unscored": 0, "all": 5}
     assert body["counter"] == api.client.get("/pool").json()["counter"]
 
 
@@ -658,22 +662,34 @@ def test_an_unknown_strength_is_422(api):
     assert response.status_code == 422
 
 
-def test_a_pass_rescores_unrated_postings_after_a_correction_was_counted(api, root):
-    api.settled(api.start())
-    assert api.started == [False]
-    write_json(root / "labels/p5.json", LABEL | {"rated_at": "2099-01-01T00:00:00+00:00"})
-    assert api.client.get("/pool").json()["counter"]["corrections"] == 1
-    api.settled(api.start())
-    assert api.started == [False, True]
+@pytest.mark.parametrize("corrected", [False, True])
+def test_the_variant_alone_decides_whether_a_pass_rescores(api, root, corrected):
+    api.settled(api.start("unscored"))
+    if corrected:  # p5 scored 5, rated positive: a counted correction
+        write_json(root / "labels/p5.json", LABEL | {"rated_at": "2099-01-01T00:00:00+00:00"})
+    assert api.client.get("/pool").json()["counter"]["corrections"] == corrected
+    api.settled(api.start("unscored"))
+    api.settled(api.start("all"))
+    assert api.started == [False, False, True]
 
 
-def test_a_pass_without_a_counted_correction_does_not_rescore(api, root):
-    api.settled(api.start())
-    write_json(root / "labels/p2.json", LABEL | {"verdict": "negative",
-                                                 "rated_at": "2099-01-01T00:00:00+00:00"})
-    assert api.client.get("/pool").json()["counter"]["corrections"] == 0
-    api.settled(api.start())
-    assert api.started == [False, False]
+@pytest.mark.parametrize("body", [{}, {"variant": "both"}, {"variant": None}, {"variant": "all",
+                                                                              "x": 1}])
+def test_a_missing_unknown_or_extra_variant_is_422_and_starts_nothing(api, body):
+    response = api.client.post("/pool/passes", json=body)
+    assert response.status_code == 422 and set(response.json()) == {"error", "detail"}
+    assert api.started == []
+
+
+def test_a_pass_without_a_body_is_422_and_starts_nothing(api):
+    assert api.client.post("/pool/passes").status_code == 422
+    assert api.started == []
+
+
+def test_a_pass_starts_even_when_the_repository_does_not_load(api, root):
+    (root / "pool.json").write_text("{not json")
+    assert api.settled(api.start("all"))["status"] == "failed"
+    assert api.started == [True]
 
 
 def test_health_is_ok_for_a_loading_repository(api, monkeypatch, tmp_path):

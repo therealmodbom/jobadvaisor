@@ -308,9 +308,12 @@ class PoolSettings(Entity):
 class PoolPass(Entity):
     """One finished pass: when, how many postings it `scored`, the `corrections` and `rated`
     counts it measured, and the resulting `rate` (absent when too few ratings to compute one).
-    `started_at` is when the pass began; absent in passes written before slice 2."""
+    `started_at` is when the pass began; absent in passes written before slice 2. `variant` is
+    `"all"` for a pass over all postings (rescore), `"unscored"` for one over the unscored only;
+    `None` marks a record from before variants and counts as a pass over all postings."""
 
     started_at: AwareDatetime | None = None
+    variant: Literal["unscored", "all"] | None = None
     finished_at: AwareDatetime
     scored: int = Field(ge=0)
     corrections: int = Field(ge=0)
