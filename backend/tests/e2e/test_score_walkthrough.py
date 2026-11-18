@@ -191,36 +191,45 @@ def test_choosing_the_all_variant_starts_nothing_and_its_main_part_rescores_ever
     """Entry state: `rated` has the score 8, `fresh` has none, `sales` is excluded. Choosing "Alle
     Anzeigen neu scoren" only switches the main part; pressing it replaces both scores with the
     judge's fixed 7 and leaves the excluded one alone; the choice does not outlive a pass or a
-    reload. Leaves `rated` at 7 and `fresh` without a score."""
+    reload. Leaves `rated` at 7 and `fresh` without a score, also when an assertion fails;
+    `harness.judge` stays fixed at 7 for any later test."""
     harness.judge = ScriptedModel(lambda schema, prompt: {"score": 7, "reasoning": "Fest."})
     pass_requests = []
-    page.on("request", lambda request: pass_requests.append(request)
-            if request.method == "POST" and "/pool/passes" in request.url else None)
-    page.goto(f"{app_url}/#/pool")
-    expect(page.get_by_role("button", name="Anzeigen ohne Score scoren (1)")).to_be_enabled()
-    page.get_by_role("button", name="Andere Variante wählen").click()
-    page.get_by_role("menuitemradio", name="Alle Anzeigen neu scoren (2)").click()
-    main =page.get_by_role("button", name="Alle Anzeigen neu scoren (2)")
-    expect(main).to_be_enabled()
-    expect(page.get_by_role("menu")).to_have_count(0)
-    assert pass_requests == [] and harness.judge.calls == []  # choosing started nothing
-    assert stored_scores(data_root) == {"rated": 8}
-    expect(page.get_by_text("Scoren läuft")).to_have_count(0)
-    main.click()
-    expect(pool_row(page, RATED).get_by_text("7", exact=True)).to_be_visible(timeout=60_000)
-    expect(pool_row(page, FRESH).get_by_text("7", exact=True)).to_be_visible()
-    assert stored_scores(data_root) == {"rated": 7, "fresh": 7}  # `sales` is excluded
-    assert len(pass_requests) == 1
-    # the pass ended: the choice is dropped and no posting lacks a score
-    expect(page.get_by_role("button", name="Anzeigen ohne Score scoren (0)")).to_be_disabled()
-    page.get_by_role("button", name="Andere Variante wählen").click()
-    page.get_by_role("menuitemradio", name="Alle Anzeigen neu scoren (2)").click()
-    expect(page.get_by_role("button", name="Alle Anzeigen neu scoren (2)")).to_be_enabled()
-    page.reload()
-    expect(page.get_by_role("button", name="Anzeigen ohne Score scoren (0)")).to_be_disabled()
-    expect(page.get_by_role("button", name="Alle Anzeigen neu scoren (2)")).to_have_count(0)
-    (data_root / "scores/fresh.json").unlink()
-    assert len(pass_requests) == 1  # the reload and the second choice started nothing
+
+    def note_pass_request(request):
+        """Remember each `POST /pool/passes` the page sends."""
+        if request.method == "POST" and "/pool/passes" in request.url:
+            pass_requests.append(request)
+
+    page.on("request", note_pass_request)
+    try:
+        page.goto(f"{app_url}/#/pool")
+        expect(page.get_by_role("button", name="Anzeigen ohne Score scoren (1)")).to_be_enabled()
+        page.get_by_role("button", name="Andere Variante wählen").click()
+        page.get_by_role("menuitemradio", name="Alle Anzeigen neu scoren (2)").click()
+        main = page.get_by_role("button", name="Alle Anzeigen neu scoren (2)")
+        expect(main).to_be_enabled()
+        expect(page.get_by_role("menu")).to_have_count(0)
+        assert pass_requests == [] and harness.judge.calls == []  # choosing started nothing
+        assert stored_scores(data_root) == {"rated": 8}
+        expect(page.get_by_text("Scoren läuft")).to_have_count(0)
+        main.click()
+        expect(pool_row(page, RATED).get_by_text("7", exact=True)).to_be_visible(timeout=60_000)
+        expect(pool_row(page, FRESH).get_by_text("7", exact=True)).to_be_visible()
+        assert stored_scores(data_root) == {"rated": 7, "fresh": 7}  # `sales` is excluded
+        assert len(pass_requests) == 1
+        # the pass ended: the choice is dropped and no posting lacks a score
+        expect(page.get_by_role("button", name="Anzeigen ohne Score scoren (0)")).to_be_disabled()
+        page.get_by_role("button", name="Andere Variante wählen").click()
+        page.get_by_role("menuitemradio", name="Alle Anzeigen neu scoren (2)").click()
+        expect(page.get_by_role("button", name="Alle Anzeigen neu scoren (2)")).to_be_enabled()
+        page.reload()
+        expect(page.get_by_role("button", name="Anzeigen ohne Score scoren (0)")).to_be_disabled()
+        expect(page.get_by_role("button", name="Alle Anzeigen neu scoren (2)")).to_have_count(0)
+        assert len(pass_requests) == 1  # the reload and the second choice started nothing
+    finally:  # the phone test after this one expects `fresh` unscored
+        page.remove_listener("request", note_pass_request)
+        (data_root / "scores/fresh.json").unlink(missing_ok=True)
 
 
 def test_the_split_button_and_its_menu_fit_a_phone(page, app_url):
