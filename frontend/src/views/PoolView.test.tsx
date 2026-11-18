@@ -165,11 +165,13 @@ test('with the rescore hint the main part scores all postings and says it replac
   expect(main).toHaveAccessibleDescription(COST_ALL(12))
 })
 
-test('one posting is named in the singular', async () => {
+test('one posting without a score is named in the singular', async () => {
   stubApi({ 'GET /pool': { body: NEXT({ unscored: 1 }) } })
-  const { unmount } = render(<PoolView />)
+  render(<PoolView />)
   expect(await mainPart('Anzeigen ohne Score scoren (1)')).toHaveAccessibleDescription('1 Anzeige ohne Score, je zwei Modellaufrufe.')
-  unmount()
+})
+
+test('one posting to rescore is named in the singular', async () => {
   stubApi({ 'GET /pool': { body: NEXT({ default: 'all', all: 1 }) } })
   render(<PoolView />)
   expect(await mainPart('Alle Anzeigen neu scoren (1)')).toHaveAccessibleDescription('1 Anzeige, je zwei Modellaufrufe. Vorhandene Scores werden ersetzt.')
@@ -199,24 +201,63 @@ test('choosing a menu entry switches the main part and sends no request', async 
   expect(screen.queryByRole('menu')).toBeNull()
 })
 
-test('the main part starts the pass with the shown variant', async () => {
-  const calls = stubApi({ 'GET /pool': { body: NEXT() }, 'POST /pool/passes': { status: 202, body: { pass_id: 'ps1' } },
-                          'GET /pool/passes/ps1': { body: pass({}) } })
-  const { unmount } = render(<PoolView />)
+const startable = () => stubApi({ 'GET /pool': { body: NEXT() }, 'POST /pool/passes': { status: 202, body: { pass_id: 'ps1' } },
+                                  'GET /pool/passes/ps1': { body: pass({}) } })
+
+test('the main part starts the default variant', async () => {
+  const calls = startable()
+  render(<PoolView />)
   await userEvent.click(await mainPart('Anzeigen ohne Score scoren (3)'))
   await vi.waitFor(() => expect(posts(calls)).toHaveLength(1))
   expect(posts(calls)[0].body).toEqual({ variant: 'unscored' })
-  unmount()
-  sessionStorage.clear()
-  const picked = stubApi({ 'GET /pool': { body: NEXT() }, 'POST /pool/passes': { status: 202, body: { pass_id: 'ps1' } },
-                           'GET /pool/passes/ps1': { body: pass({}) } })
+})
+
+test('the main part starts the picked variant', async () => {
+  const calls = startable()
+  render(<PoolView />)
+  await pickAll()
+  await userEvent.click(await mainPart('Alle Anzeigen neu scoren (12)'))
+  await vi.waitFor(() => expect(posts(calls)).toHaveLength(1))
+  expect(posts(calls)[0].body).toEqual({ variant: 'all' })
+})
+
+test('the menu works by keyboard alone: arrows move, Enter chooses', async () => {
+  const calls = stubApi({ 'GET /pool': { body: NEXT() } })
   render(<PoolView />)
   await mainPart(/Anzeigen ohne Score scoren/)
   await openMenu()
-  await userEvent.click(screen.getByRole('menuitemradio', { name: /Alle Anzeigen neu scoren/ }))
-  await userEvent.click(await mainPart('Alle Anzeigen neu scoren (12)'))
-  await vi.waitFor(() => expect(posts(picked)).toHaveLength(1))
-  expect(posts(picked)[0].body).toEqual({ variant: 'all' })
+  await userEvent.keyboard('{ArrowDown}')
+  expect(screen.getByRole('menuitemradio', { name: /Alle Anzeigen neu scoren/ })).toHaveFocus()
+  await userEvent.keyboard('{Enter}')
+  expect(await mainPart('Alle Anzeigen neu scoren (12)')).toBeVisible()
+  expect(screen.queryByRole('menu')).toBeNull()
+  expect(calls.filter((call) => call.method !== 'GET')).toEqual([])
+})
+
+test('Escape closes the menu and focus returns to the trigger', async () => {
+  stubApi({ 'GET /pool': { body: NEXT() } })
+  render(<PoolView />)
+  await mainPart(/Anzeigen ohne Score scoren/)
+  await openMenu()
+  await userEvent.keyboard('{Escape}')
+  await vi.waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
+  expect(screen.getByRole('button', { name: 'Andere Variante wählen' })).toHaveFocus()
+})
+
+test('an open menu closes when a pass starts', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  sessionStorage.setItem('jobadvaisor.pool-pass', 'ps1')
+  stubApi({ 'GET /pool': { body: NEXT() }, 'GET /pool/passes/ps1': { body: pass({ status: 'failed', error: 'kaputt' }) },
+            'POST /pool/passes': { status: 202, body: { pass_id: 'ps2' } }, 'GET /pool/passes/ps2': { body: pass({ pass_id: 'ps2' }) } })
+  render(<PoolView />)
+  await mainPart(/Anzeigen ohne Score scoren/)
+  await tick()
+  await openMenu()
+  // The modal menu hides the rest from assistive technology and the pointer; a click sent
+  // straight to the retry button stands in for a pass started some other way.
+  await act(async () => screen.getByRole('button', { name: 'Erneut versuchen', hidden: true }).click())
+  await vi.waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
+  expect(screen.getByRole('button', { name: 'Andere Variante wählen' })).toBeDisabled()
 })
 
 /** Pick "Alle" in the menu of a view whose default is `unscored`. */
@@ -412,7 +453,26 @@ test('a failed pass shows an error with retry that starts a new pass', async () 
   expect(screen.getByText(/kaputte Datei/)).toBeVisible()
   expect(screen.queryByText(/Server erreichbar/)).toBeNull()
   await act(async () => screen.getByRole('button', { name: 'Erneut versuchen' }).click())
-  expect(calls.some((call) => call.method === 'POST' && call.path === '/pool/passes')).toBe(true)
+  expect(posts(calls)).toHaveLength(1)
+  expect(posts(calls)[0].body).toEqual({ variant: 'unscored' })
+})
+
+test('the retry of a failed pass starts its variant, also after the page was reloaded while it ran', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  let failed = false
+  const calls = stubApi({ 'GET /pool': { body: NEXT() }, 'POST /pool/passes': { status: 202, body: { pass_id: 'ps1' } },
+                          'GET /pool/passes/ps1': () => ({ body: failed ? pass({ status: 'failed', error: 'kaputt' }) : pass({ done: 1 }) }) })
+  const { unmount } = render(<PoolView />)
+  await pickAll()
+  await act(async () => (await mainPart('Alle Anzeigen neu scoren (12)')).click())
+  unmount()
+  failed = true
+  render(<PoolView />)
+  await mainPart(/Anzeigen ohne Score scoren/)
+  await tick()
+  await act(async () => screen.getByRole('button', { name: 'Erneut versuchen' }).click())
+  expect(posts(calls)).toHaveLength(2)
+  expect(posts(calls)[1].body).toEqual({ variant: 'all' })
 })
 
 test('settings save the share as 0 to 1 and reload the pool', async () => {

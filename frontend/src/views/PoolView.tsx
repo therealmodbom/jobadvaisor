@@ -19,7 +19,10 @@ export const POLL_MS = 1000
 export const POLL_FAILURES = 3
 const PASS_KEY = 'jobadvaisor.pool-pass'
 
-/** The pass ID kept across a reload; storage may be blocked, so every access is guarded. */
+const VARIANT_KEY = `${PASS_KEY}-variant`
+
+/** The pass ID and the variant it was started with, kept across a reload; storage may be
+ * blocked, so every access is guarded. `set(null)` forgets both. */
 const storedPass = {
   get: () => {
     try {
@@ -28,10 +31,20 @@ const storedPass = {
       return null
     }
   },
-  set: (id: string | null) => {
+  variant: (): PassVariant | null => {
+    try {
+      const value = sessionStorage.getItem(VARIANT_KEY)
+      return value === 'unscored' || value === 'all' ? value : null
+    } catch {
+      return null
+    }
+  },
+  set: (id: string | null, variant?: PassVariant) => {
     try {
       if (id) sessionStorage.setItem(PASS_KEY, id)
       else sessionStorage.removeItem(PASS_KEY)
+      if (id && variant) sessionStorage.setItem(VARIANT_KEY, variant)
+      else sessionStorage.removeItem(VARIANT_KEY)
     } catch { /* storage blocked: a reload simply does not resume */ }
   },
 }
@@ -50,9 +63,12 @@ const FILTERS: { id: string; label: string; keep: (row: PoolRow) => boolean }[] 
 ]
 
 /** The scoring pass: starts it, polls it while it runs, remembers its ID across a reload.
- * `onDone` runs when a pass finishes. `busy` is true while one runs or waits for an answer. */
+ * `onDone` runs when a pass finishes. `busy` is true while one runs or waits for an answer.
+ * `started` is the variant of the latest pass, `null` when unknown (a retry then uses the shown one). */
 function usePass(onDone: () => void) {
   const [passId, setPassId] = useState<string | null>(storedPass.get)
+  /** The variant of the latest pass: read back after a reload, so a retry repeats it. */
+  const [started, setStarted] = useState<PassVariant | null>(storedPass.variant)
   const [pass, setPass] = useState<PassState | null>(null)
   const [notice, setNotice] = useState('')
   const [pollFailed, setPollFailed] = useState(false)
@@ -104,7 +120,8 @@ function usePass(onDone: () => void) {
   /** Start the pass of `variant`; the server decides what it scores from the name alone. */
   const start = (variant: PassVariant) => send(async () => {
     const answer = await api<{ pass_id: string }>('/pool/passes', { method: 'POST', json: { variant } })
-    storedPass.set(answer.pass_id)
+    storedPass.set(answer.pass_id, variant)
+    setStarted(variant)
     setPass(null)
     setPollFailed(false)
     setPassId(answer.pass_id)
@@ -115,12 +132,12 @@ function usePass(onDone: () => void) {
     setPass((current) => current && { ...current, status: 'running' })
   }, 'Gerade rechnet eine andere Bewertung. Antworte, wenn sie fertig ist.',
   'Die Antwort wurde nicht gespeichert. Versuch es noch einmal.')
-  return { pass, busy, notice, start, answer, pollFailed, retryPoll: () => setPollFailed(false) }
+  return { pass, busy, notice, start, started, answer, pollFailed, retryPoll: () => setPollFailed(false) }
 }
 
 const VARIANT_TITLE: Record<PassVariant, string> = { unscored: 'Nur Anzeigen ohne Score', all: 'Alle Anzeigen neu scoren' }
 const VARIANT_VERBS: Record<PassVariant, string> = { unscored: 'Anzeigen ohne Score scoren', all: 'Alle Anzeigen neu scoren' }
-const NOTHING = {
+const NOTHING_TO_SCORE = {
   unscored: 'Es gibt keine Anzeigen ohne Score.',
   all: 'Es gibt nichts zu scoren: Alle Anzeigen sind ausgeschlossen oder zurückgehalten.',
 }
@@ -144,8 +161,10 @@ function PassButton({ nextPass, shown, busy, onPick, onStart }: {
   onStart: (variant: PassVariant) => void
 }) {
   const [open, setOpen] = useState(false)
+  // A pass that starts while the menu is open closes it (render-time sync, no effect).
+  if (busy && open) setOpen(false)
   const count = nextPass[shown]
-  const why = busy ? 'Das Scoren läuft.' : count === 0 ? NOTHING[shown] : costLine(shown, count)
+  const why = busy ? 'Das Scoren läuft.' : count === 0 ? NOTHING_TO_SCORE[shown] : costLine(shown, count)
   const Chevron = open ? ChevronUp : ChevronDown
   return (
     <div className="flex flex-col gap-1.5 max-sm:w-full">
@@ -471,7 +490,7 @@ export function PoolView({ active = true }: { active?: boolean }) {
     load()
     clearBusy()
   }, [load, clearBusy])
-  const { pass, busy, notice, start, answer, pollFailed, retryPoll } = usePass(passDone)
+  const { pass, busy, notice, start, started, answer, pollFailed, retryPoll } = usePass(passDone)
 
   async function setStatus(postingId: string, status: Status) {
     setSaving((current) => ({ ...current, [postingId]: true }))
@@ -650,7 +669,7 @@ export function PoolView({ active = true }: { active?: boolean }) {
       {pass?.status === 'failed' && (
         <ErrorWithRetry title="Die Bewertung ist fehlgeschlagen"
                         detail={`${pass.error ?? 'Der Server hat keinen Grund genannt.'} Vielleicht enthält das Datenrepository eine kaputte Datei. Behebe sie und starte die Bewertung noch einmal.`}
-                        onRetry={() => start(shownVariant)} />
+                        onRetry={() => start(started ?? shownVariant)} />
       )}
       {pass?.status === 'awaiting_answer' && <UnscreenedQuestion pass={pass} onAnswer={answer} />}
 
