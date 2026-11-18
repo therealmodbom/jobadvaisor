@@ -179,6 +179,35 @@ def test_rating_before_since_does_not_count_and_started_at_wins():
     assert old_since == (T0 + timedelta(days=3)).isoformat()
 
 
+def _pass_at(day: int, variant=None) -> PoolPass:
+    return PoolPass(finished_at=T0 + timedelta(days=day), scored=1, corrections=0, rated=0,
+                    variant=variant)
+
+
+def test_a_later_unscored_pass_leaves_the_corrections_counted():
+    repository, scores = _rated(4, 4)
+    got = counter(repository, scores, _pool(_pass_at(0, "all"), _pass_at(3, "unscored")))
+    assert (got["corrections"], got["since"]) == (4, T0.isoformat())
+
+
+def test_an_all_pass_resets_the_corrections():
+    repository, scores = _rated(4, 4)
+    got = counter(repository, scores, _pool(_pass_at(0, "all"), _pass_at(3, "all")))
+    assert (got["corrections"], got["since"]) == (0, (T0 + timedelta(days=3)).isoformat())
+
+
+def test_a_pass_record_without_a_variant_resets_the_corrections():
+    repository, scores = _rated(4, 4)
+    assert counter(repository, scores, _pool(_pass_at(3)))["corrections"] == 0
+
+
+def test_without_an_all_pass_every_rating_counts():
+    repository, scores = _rated(4, 4)
+    got = counter(repository, scores, _pool(_pass_at(3, "unscored")))
+    assert (got["corrections"], got["since"]) == (4, None)
+    assert counter(repository, scores, _pool())["corrections"] == 4
+
+
 def test_imported_labels_are_not_in_the_window():
     repository = repo({"p": posting()}, {"p": label(kind="imported_interest")})
     assert counter(repository, {"p": score(2)}, _pool())["rated"] == 0
