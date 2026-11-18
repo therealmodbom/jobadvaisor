@@ -253,8 +253,9 @@ def store_scores(state: TriageState, runtime: Runtime[TriageContext]) -> dict:
     score), then append this pass to `pool.json` when it scored anything. The scores are written
     first so a broken file found afterwards cannot discard paid work. The pass's quality
     measure is the correction counter against the pool and the scores from before this pass,
-    read before writing, since the pass may have rescored rated postings. Score times and
-    `finished_at` are one instant."""
+    read before writing, since the pass may have rescored rated postings. The entry's `variant`
+    is `"all"` for a pass with `rescore`, else `"unscored"`. Score times and `finished_at` are
+    one instant."""
     root = runtime.context.repository.root
     now = datetime.now(UTC)
     scored = _with_status(state["results"], "scored")
@@ -270,7 +271,8 @@ def store_scores(state: TriageState, runtime: Runtime[TriageContext]) -> dict:
     started = datetime.fromisoformat(state.get("started_at", now.isoformat()))
     append_pass(root, PoolPass(started_at=started, finished_at=now, scored=len(scored),
                                corrections=measured["corrections"], rated=measured["rated"],
-                               rate=measured["rate"]))
+                               rate=measured["rate"],
+                               variant="all" if state.get("rescore") else "unscored"))
     return {}
 
 
