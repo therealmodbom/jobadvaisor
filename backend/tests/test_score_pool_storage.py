@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 
 import pytest
@@ -77,6 +78,16 @@ def test_append_pass_keeps_earlier_passes(data_repository):
     assert [p.scored for p in pool.passes] == [5, 8]
     assert read_pool(data_repository) == pool
     assert [p.name for p in data_repository.glob("*pool*")] == ["pool.json"]
+
+
+def test_a_pass_record_without_a_variant_loads_as_none_and_a_variant_round_trips(data_repository):
+    legacy = {"schema_version": "1", "passes": [{
+        "finished_at": NOW.isoformat(), "scored": 1, "corrections": 0, "rated": 0}]}
+    (data_repository / "pool.json").write_text(json.dumps(legacy))
+    assert read_pool(data_repository).passes[0].variant is None
+    pool = append_pass(data_repository, _pass(2).model_copy(update={"variant": "unscored"}))
+    assert [p.variant for p in read_pool(data_repository).passes] == [None, "unscored"]
+    assert read_pool(data_repository) == pool
 
 
 def test_write_pool_keeps_settings(data_repository):
