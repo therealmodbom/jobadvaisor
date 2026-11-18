@@ -354,6 +354,8 @@ def test_the_pass_entry_records_its_variant_and_measures_the_counter_before_it(t
     rescored = read_pool(root).passes[-1]
     assert rescored.variant == "all"
     assert (rescored.corrections, rescored.rated) == (before["corrections"], before["rated"])
+    after = counter(load(root), {"backend": read_score(root, "backend")}, read_pool(root))
+    assert (after["corrections"], after["rated"]) == (0, 0)  # the "all" pass reset the window
 
 
 def test_an_explicit_batch_scores_exactly_those_postings(tmp_path, root):
