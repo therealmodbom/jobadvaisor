@@ -34,12 +34,14 @@
 - [x] 5.1 Update the pool paragraph in `README.md` (the two variants, the default from the hint, the counter window); verify no „Neue Anzeigen bewerten“ is left in `README.md` or `docs/`
 - [x] 5.2 Retake the README images with `uv run --directory backend python ../scripts/readme_images.py`; verify `docs/images/pool.png` shows the split button and the script exits 0
 - [x] 5.3 Run `npm --prefix frontend test`, `npm --prefix frontend run lint`, `npm --prefix frontend run build`, `env -C backend uv run pytest -q`, `env -C backend uv run ruff check .` and the e2e suite; all pass. Done 2026-11-18: Vitest 489/489, oxlint clean, build ok and e2e 25 passed on the final head; pytest 1180 passed (1 skipped) and ruff clean on 7ae94d8, after which no backend file changed
-- [ ] 5.4 Click through the built app in Chrome on a demo copy, at desktop width and at 390 × 844: both variants, the menu by keyboard and pointer, a pick dropped by a reload, the disabled main part with nothing to score; report what the browser check cannot show; never start a real pass against a configured model. Done 2026-11-18 in Playwright's Chromium on the built app, served by the backend on a demo copy with placeholder models (no pass started):
+- [x] 5.4 Click through the built app in Chrome on a demo copy, at desktop width and at 390 × 844: both variants, the menu by keyboard and pointer, a pick dropped by a reload, the disabled main part with nothing to score; report what the browser check cannot show; never start a real pass against a configured model. Done 2026-11-18 in Playwright's Chromium on the built app, served by the backend on a demo copy with placeholder models (no pass started):
   - Below the thresholds the main part read „Anzeigen ohne Score scoren (141)“ with its cost line and the hint „Ranking passt gut“.
   - The menu worked by keyboard (Enter, arrows, Enter; Escape returned focus to the trigger) and by pointer; choosing sent no `POST /pool/passes`.
   - A real page reload dropped the pick.
   - With placeholder scores for every posting the hint read „neu scoren sinnvoll“ and the default was „Alle Anzeigen neu scoren (141)“; picking „ohne Score“ disabled the main part with „Es gibt keine Anzeigen ohne Score.“ while the trigger stayed usable.
   - At 390 px nothing scrolled sideways; the open menu touched the right screen edge, fixed with a 16 px collision padding and checked again (menu at x 16 to 374).
+
+  The owner clicked through on the dev server the same day; his one change (the button kept changing its width with the label) is fixed in 6504015 and pinned by the e2e walkthrough.
 
   Not shown by the browser check: a real pass and a failed pass with its retry (both would call a model; Vitest and the e2e test with the scripted judge cover them).
 - [x] 5.5 Update the „Current state“ section of `AGENTS.md` with this change and drop its oldest entry; verify the section holds the last two changes
