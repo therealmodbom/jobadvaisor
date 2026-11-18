@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
-import { Compass, LoaderCircle, ShieldAlert } from 'lucide-react'
-import { api, ApiError, type PassState, type Pool, type PoolRow, type PoolSettings, type RatingAnswer, type ScoreAnswer, type Status, type Strength, type Verdict } from '@/api'
+import { Check, ChevronDown, ChevronUp, Compass, LoaderCircle, ShieldAlert } from 'lucide-react'
+import { DropdownMenu } from 'radix-ui'
+import { api, ApiError, type NextPass, type PassState, type PassVariant, type Pool, type PoolRow, type PoolSettings, type RatingAnswer, type ScoreAnswer, type Status, type Strength, type Verdict } from '@/api'
 import { Badge, ChipList, ScoreButton, ScoreProblem, ScoreText, StatusControl } from '@/components/posting'
 import { Legend, ReasonsAndNote, VerdictButtons } from '@/components/rating'
 import { EmptyState, ErrorWithRetry, Loading } from '@/components/states'
@@ -100,8 +101,9 @@ function usePass(onDone: () => void) {
       sending.current = false
     }
   }
-  const start = () => send(async () => {
-    const answer = await api<{ pass_id: string }>('/pool/passes', { method: 'POST' })
+  /** Start the pass of `variant`; the server decides what it scores from the name alone. */
+  const start = (variant: PassVariant) => send(async () => {
+    const answer = await api<{ pass_id: string }>('/pool/passes', { method: 'POST', json: { variant } })
     storedPass.set(answer.pass_id)
     setPass(null)
     setPollFailed(false)
@@ -114,6 +116,75 @@ function usePass(onDone: () => void) {
   }, 'Gerade rechnet eine andere Bewertung. Antworte, wenn sie fertig ist.',
   'Die Antwort wurde nicht gespeichert. Versuch es noch einmal.')
   return { pass, busy, notice, start, answer, pollFailed, retryPoll: () => setPollFailed(false) }
+}
+
+const VARIANT_TITLE: Record<PassVariant, string> = { unscored: 'Nur Anzeigen ohne Score', all: 'Alle Anzeigen neu scoren' }
+const VARIANT_VERBS: Record<PassVariant, string> = { unscored: 'Anzeigen ohne Score scoren', all: 'Alle Anzeigen neu scoren' }
+const NOTHING = {
+  unscored: 'Es gibt keine Anzeigen ohne Score.',
+  all: 'Es gibt nichts zu scoren: Alle Anzeigen sind ausgeschlossen oder zurückgehalten.',
+}
+
+/** What a pass of `variant` over `n` postings costs: two model calls per posting. */
+function costLine(variant: PassVariant, n: number) {
+  const postings = n === 1 ? '1 Anzeige' : `${n} Anzeigen`
+  return variant === 'unscored' ? `${postings} ohne Score, je zwei Modellaufrufe.`
+    : `${postings}, je zwei Modellaufrufe. Vorhandene Scores werden ersetzt.`
+}
+
+/** The scoring pass as a split button: the main part starts the pass of the `shown` variant, the
+ * trigger opens a menu whose entries `onPick` a variant without starting anything. The text under
+ * it (`#pass-why`, the main part's description) is the cost line, or the reason the main part is
+ * disabled: no postings for the variant, or a pass is `busy`. Only `busy` disables the trigger. */
+function PassButton({ nextPass, shown, busy, onPick, onStart }: {
+  nextPass: NextPass
+  shown: PassVariant
+  busy: boolean
+  onPick: (variant: PassVariant) => void
+  onStart: (variant: PassVariant) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const count = nextPass[shown]
+  const why = busy ? 'Das Scoren läuft.' : count === 0 ? NOTHING[shown] : costLine(shown, count)
+  const Chevron = open ? ChevronUp : ChevronDown
+  return (
+    <div className="flex flex-col gap-1.5 max-sm:w-full">
+      <div role="group" aria-label="Scoren" className="flex">
+        <Button className="min-w-0 flex-1 rounded-r-none" onClick={() => onStart(shown)}
+                disabled={busy || count === 0} aria-describedby="pass-why">
+          {VARIANT_VERBS[shown]} ({count})
+        </Button>
+        <DropdownMenu.Root open={open} onOpenChange={setOpen}>
+          <DropdownMenu.Trigger asChild>
+            <Button className="w-11 rounded-l-none border-l border-primary-foreground/45 px-0"
+                    aria-label="Andere Variante wählen" disabled={busy}>
+              <Chevron aria-hidden="true" />
+            </Button>
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content align="start" sideOffset={6} aria-label="Variante"
+                                  className="z-50 flex w-[min(380px,calc(100vw-2rem))] flex-col gap-0.5 rounded-xl border bg-card p-1.5 shadow-card">
+              <DropdownMenu.RadioGroup value={shown} onValueChange={(value) => onPick(value as PassVariant)}>
+                {(['unscored', 'all'] as const).map((variant) => (
+                  <DropdownMenu.RadioItem key={variant} value={variant}
+                                          className="flex min-h-11 cursor-pointer items-start gap-2.5 rounded-md px-2.5 py-2 outline-none data-[highlighted]:bg-muted">
+                    <span className="mt-1 size-4 flex-none text-primary">
+                      <DropdownMenu.ItemIndicator><Check className="size-4" aria-hidden="true" /></DropdownMenu.ItemIndicator>
+                    </span>
+                    <span className="flex flex-col">
+                      <span className="font-bold">{VARIANT_TITLE[variant]} ({nextPass[variant]})</span>
+                      <span className="text-sm text-muted-foreground">{costLine(variant, nextPass[variant])}</span>
+                    </span>
+                  </DropdownMenu.RadioItem>
+                ))}
+              </DropdownMenu.RadioGroup>
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
+      </div>
+      <p id="pass-why" className="text-sm text-muted-foreground">{why}</p>
+    </div>
+  )
 }
 
 /** The question over postings the content guard never checked: names them, then go on or abort. */
@@ -321,6 +392,9 @@ export function PoolView({ active = true }: { active?: boolean }) {
   const [orderKey, setOrderKey] = useState('')
   /** Counts the loads that arrived; part of `orderKey`. */
   const [loads, setLoads] = useState(0)
+  /** The pass variant chosen in the menu; the shown one is `picked ?? next_pass.default`. Every
+   * pool load drops it, and so does a change of `next_pass.default` (render-time sync below). */
+  const [picked, setPicked] = useState<PassVariant | null>(null)
   const [focusRequest, setFocusRequest] = useState<{ id: string; target: 'row' | 'reasons' | 'note' } | null>(null)
   /** Polite message when Enter finds no further unrated posting; it alternates a trailing space
    * so the same text is announced again. */
@@ -372,6 +446,7 @@ export function PoolView({ active = true }: { active?: boolean }) {
     api<Pool>('/pool').then((next) => {
       if (mine !== latest.current) return
       setPool(next)
+      setPicked(null)
       setLoads((count) => count + 1)
       setLoadFailed(false)
     }, () => {
@@ -517,13 +592,15 @@ export function PoolView({ active = true }: { active?: boolean }) {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   })
-  const count = pool ? pool.next_pass[pool.next_pass.default] : 0
   const counter = pool?.counter
-  const nothingToDo = counter?.hint === 'rescore'
-    ? ' Es gibt nichts zu bewerten: Alle Anzeigen sind ausgeschlossen oder zurückgehalten.' : ''
   const working = busy && !pollFailed && pass?.status !== 'awaiting_answer'
-  const why = busy ? 'Eine Bewertung läuft.'
-    : count === 0 ? `Es gibt keine neuen Anzeigen zu bewerten.${nothingToDo}` : ''
+  const defaultVariant = pool?.next_pass.default
+  const [seenDefault, setSeenDefault] = useState(defaultVariant)
+  if (seenDefault !== defaultVariant) {
+    setSeenDefault(defaultVariant)
+    setPicked(null)
+  }
+  const shownVariant = picked ?? defaultVariant ?? 'unscored'
 
   return (
     <div className="flex flex-col gap-5">
@@ -531,12 +608,7 @@ export function PoolView({ active = true }: { active?: boolean }) {
 
       {pool && (
         <div className="flex flex-wrap items-start gap-x-8 gap-y-4">
-          <div className="flex flex-col gap-1.5">
-            <Button onClick={start} disabled={busy || count === 0} aria-describedby={why ? 'pass-why' : undefined}>
-              Neue Anzeigen bewerten ({count})
-            </Button>
-            {why && <p id="pass-why" className="text-sm text-muted-foreground">{why}</p>}
-          </div>
+          <PassButton nextPass={pool.next_pass} shown={shownVariant} busy={busy} onPick={setPicked} onStart={start} />
           {counter && (
             <div className="flex flex-col gap-1">
               <p>Korrekturen seit der letzten Bewertung der Anzeigen: <strong>{counter.corrections}</strong></p>
@@ -578,7 +650,7 @@ export function PoolView({ active = true }: { active?: boolean }) {
       {pass?.status === 'failed' && (
         <ErrorWithRetry title="Die Bewertung ist fehlgeschlagen"
                         detail={`${pass.error ?? 'Der Server hat keinen Grund genannt.'} Vielleicht enthält das Datenrepository eine kaputte Datei. Behebe sie und starte die Bewertung noch einmal.`}
-                        onRetry={start} />
+                        onRetry={() => start(shownVariant)} />
       )}
       {pass?.status === 'awaiting_answer' && <UnscreenedQuestion pass={pass} onAnswer={answer} />}
 

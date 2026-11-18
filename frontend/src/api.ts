@@ -105,6 +105,7 @@ export type PoolRow = {
   exploration: boolean
 }
 
+/** The two scoring passes: `unscored` scores the postings without a score, `all` every scorable posting. */
 export type PassVariant = 'unscored' | 'all'
 
 /** The pool's `next_pass` figures: how many postings each pass variant would score, with
