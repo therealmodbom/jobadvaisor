@@ -312,7 +312,7 @@ function IntakeResult({ answer }: { answer: IntakeAnswer }) {
           <p className="mt-0.5 text-muted-foreground">
             {answer.duplicate
               ? 'Diese Anzeige wurde schon einmal hinzugefügt, es wurde nichts Neues gespeichert. Das sind die gespeicherten Felder.'
-              : 'Prüfe diese drei Felder. Ausschlussregeln lesen sie, eine falsche Firma kann eine Anzeige also verstecken. Die nächste Bewertung der Anzeigen nimmt sie mit.'}
+              : 'Prüfe diese drei Felder. Ausschlussregeln lesen sie, eine falsche Firma kann eine Anzeige also verstecken. Das nächste Scoren nimmt sie mit.'}
           </p>
         </div>
       </div>
@@ -322,7 +322,7 @@ function IntakeResult({ answer }: { answer: IntakeAnswer }) {
           <ShieldOff className="mt-0.5 size-[18px] flex-none" aria-hidden="true" />
           <p>
             <strong>Inhaltsprüfung ist aus.</strong> Es ist kein Prüfmodell eingerichtet, diese Anzeige
-            wurde also nicht geprüft. Beim Bewerten der Anzeigen wirst du nach ihr gefragt, bevor ein Modell sie liest.
+            wurde also nicht geprüft. Beim Scoren wirst du nach ihr gefragt, bevor ein Modell sie liest.
           </p>
         </div>
       ) : guard?.flagged ? (
@@ -335,7 +335,7 @@ function IntakeResult({ answer }: { answer: IntakeAnswer }) {
                 {categoryNames(guard.categories)}.
               </p>
               <p className="mt-1 text-[15px]">
-                Die Anzeige ist gespeichert, bleibt aber bei jeder Bewertung außen vor. Gib sie nur frei,
+                Die Anzeige ist gespeichert, bleibt aber beim Scoren außen vor. Gib sie nur frei,
                 wenn du den Text gelesen hast und es eine normale Anzeige ist.
               </p>
             </div>
@@ -343,7 +343,7 @@ function IntakeResult({ answer }: { answer: IntakeAnswer }) {
           {guard.released_at ? (
             <p role="status" className="ml-[30px] inline-flex items-center gap-1.5 font-bold text-success">
               <Check className="size-4" strokeWidth={3} aria-hidden="true" />
-              Freigegeben. Die nächste Bewertung der Anzeigen nimmt sie mit.
+              Freigegeben. Das nächste Scoren nimmt sie mit.
             </p>
           ) : (
             <Button type="button" variant="outline" onClick={release}

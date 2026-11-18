@@ -125,12 +125,12 @@ function usePass(onDone: () => void) {
     setPass(null)
     setPollFailed(false)
     setPassId(answer.pass_id)
-  }, 'Es läuft schon eine andere Bewertung. Warte, bis sie fertig ist.',
-  'Die Bewertung konnte nicht gestartet werden. Ist der Server erreichbar?')
+  }, 'Es wird schon gescort. Warte, bis das fertig ist.',
+  'Das Scoren konnte nicht gestartet werden. Ist der Server erreichbar?')
   const answer = (proceed: boolean) => send(async () => {
     await api(`/pool/passes/${passId}/unscreened`, { method: 'POST', json: { continue: proceed } })
     setPass((current) => current && { ...current, status: 'running' })
-  }, 'Gerade rechnet eine andere Bewertung. Antworte, wenn sie fertig ist.',
+  }, 'Gerade wird schon gescort. Antworte, wenn das fertig ist.',
   'Die Antwort wurde nicht gespeichert. Versuch es noch einmal.')
   return { pass, busy, notice, start, started, answer, pollFailed, retryPoll: () => setPollFailed(false) }
 }
@@ -215,7 +215,7 @@ function UnscreenedQuestion({ pass, onAnswer }: { pass: PassState; onAnswer: (pr
       <div className="flex items-start gap-3">
         <ShieldAlert className="mt-0.5 size-6 flex-none text-negative" aria-hidden="true" />
         <div>
-          <h2 id="unscreened-title" className="text-xl font-bold">Die Bewertung wartet auf deine Antwort</h2>
+          <h2 id="unscreened-title" className="text-xl font-bold">Das Scoren wartet auf deine Antwort</h2>
           <p className="mt-1.5">
             {count === 1 ? 'Eine Anzeige wurde' : `${count} Anzeigen wurden`} hinzugefügt, während die
             Inhaltsprüfung aus war. Niemand hat sie auf Text geprüft, der sich an die KI richtet, etwa die
@@ -229,11 +229,11 @@ function UnscreenedQuestion({ pass, onAnswer }: { pass: PassState; onAnswer: (pr
         ))}
       </ul>
       <p className="ml-9 text-muted-foreground">
-        Bewerte sie trotzdem, dann laufen sie mit den anderen durch. Oder brich ab: Dann wird nichts
-        bewertet, und du kannst die Inhaltsprüfung einschalten und neu starten.
+        Score sie trotzdem, dann laufen sie mit den anderen durch. Oder brich ab: Dann wird nichts
+        gescort, und du kannst die Inhaltsprüfung einschalten und neu starten.
       </p>
       <div className="ml-9 flex flex-wrap gap-2">
-        <Button onClick={() => onAnswer(true)}>Trotzdem bewerten</Button>
+        <Button onClick={() => onAnswer(true)}>Trotzdem scoren</Button>
         <Button variant="outline" onClick={() => onAnswer(false)}>Abbrechen</Button>
       </div>
     </section>
@@ -630,10 +630,10 @@ export function PoolView({ active = true }: { active?: boolean }) {
           <PassButton nextPass={pool.next_pass} shown={shownVariant} busy={busy} onPick={setPicked} onStart={start} />
           {counter && (
             <div className="flex flex-col gap-1">
-              <p>Korrekturen seit der letzten Bewertung der Anzeigen: <strong>{counter.corrections}</strong></p>
+              <p>Korrekturen seit dem letzten Neu-Scoren aller Anzeigen: <strong>{counter.corrections}</strong></p>
               <p>{counter.rate === null ? 'Anteil ab 10 Bewertungen' : `Anteil: ${Math.round(counter.rate * 100)} %`}</p>
               <Badge className={counter.hint === 'rescore' ? 'self-start bg-negative-soft text-negative' : 'self-start bg-positive-soft text-primary'}>
-                {counter.hint === 'rescore' ? 'neue Bewertung sinnvoll' : 'Ranking passt gut'}
+                {counter.hint === 'rescore' ? 'neu scoren sinnvoll' : 'Ranking passt gut'}
               </Badge>
             </div>
           )}
@@ -644,21 +644,21 @@ export function PoolView({ active = true }: { active?: boolean }) {
       {/* The live region holds only text that does not change per poll, so it is read once; the
           visible counts sit outside it. */}
       <div role="status">
-        {working && <span className="sr-only">Die Bewertung läuft.</span>}
-        {pass?.status === 'aborted' && <p className="rounded-xl border bg-card px-4 py-3">Die Bewertung wurde abgebrochen.</p>}
+        {working && <span className="sr-only">Das Scoren läuft.</span>}
+        {pass?.status === 'aborted' && <p className="rounded-xl border bg-card px-4 py-3">Das Scoren wurde abgebrochen.</p>}
       </div>
       <p role="status" className="sr-only">{announce}</p>
       <p role="status" className="sr-only">{end}</p>
       {working && (
         <p className="flex items-center gap-3 rounded-xl bg-positive-soft px-4 py-3">
           <LoaderCircle className="size-5 flex-none motion-safe:animate-spin" aria-hidden="true" />
-          <strong>{pass ? `Bewertung läuft: ${pass.done} von ${pass.total}` : 'Bewertung läuft'}</strong>
+          <strong>{pass ? `Scoren läuft: ${pass.done} von ${pass.total}` : 'Scoren läuft'}</strong>
         </p>
       )}
       {notice && <p role="alert" className="rounded-xl border border-danger bg-danger-soft px-4 py-3">{notice}</p>}
       {busy && pollFailed && (
-        <ErrorWithRetry title="Der Stand der Bewertung ist gerade nicht abrufbar"
-                        detail="Der Server antwortet nicht. Die Bewertung rechnet vielleicht weiter." onRetry={retryPoll} />
+        <ErrorWithRetry title="Der Stand des Scorens ist gerade nicht abrufbar"
+                        detail="Der Server antwortet nicht. Das Scoren läuft vielleicht weiter." onRetry={retryPoll} />
       )}
       {loadFailed && pool && (
         <div role="alert" className="flex flex-wrap items-center gap-3 rounded-xl border border-danger bg-danger-soft px-4 py-3">
@@ -667,8 +667,8 @@ export function PoolView({ active = true }: { active?: boolean }) {
         </div>
       )}
       {pass?.status === 'failed' && (
-        <ErrorWithRetry title="Die Bewertung ist fehlgeschlagen"
-                        detail={`${pass.error ?? 'Der Server hat keinen Grund genannt.'} Vielleicht enthält das Datenrepository eine kaputte Datei. Behebe sie und starte die Bewertung noch einmal.`}
+        <ErrorWithRetry title="Das Scoren ist fehlgeschlagen"
+                        detail={`${pass.error ?? 'Der Server hat keinen Grund genannt.'} Vielleicht enthält das Datenrepository eine kaputte Datei. Behebe sie und starte das Scoren noch einmal.`}
                         onRetry={() => start(started ?? shownVariant)} />
       )}
       {pass?.status === 'awaiting_answer' && <UnscreenedQuestion pass={pass} onAnswer={answer} />}

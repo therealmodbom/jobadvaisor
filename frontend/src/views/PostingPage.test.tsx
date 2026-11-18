@@ -66,7 +66,7 @@ test('an unscored posting points to the pass', async () => {
   stubApi({ 'GET /postings/p1': { body: page({ row: row('p1', 'Data Analyst (m/w/d)', { state: 'unscored', score: null }),
     score: null, examples: [] }) } })
   render(<PostingPage postingId="p1" />)
-  expect(await screen.findByText('Noch kein Score – starte in der Liste „Neue Anzeigen bewerten“.')).toBeVisible()
+  expect(await screen.findByText('Noch kein Score – starte in der Liste „Anzeigen ohne Score scoren“.')).toBeVisible()
   expect(screen.queryByText('noch kein Score')).toBeNull()
   expect(screen.queryByText('Verglichen mit:')).toBeNull()
 })
@@ -75,7 +75,7 @@ test('a rated posting without a score keeps the hint and offers the score button
   stubApi({ 'GET /postings/p1': { body: page({ row: row('p1', 'Data Analyst (m/w/d)', { state: 'unscored', score: null,
     label: label('positive') }), score: null, examples: [] }) } })
   render(<PostingPage postingId="p1" />)
-  expect(await screen.findByText('Noch kein Score – starte in der Liste „Neue Anzeigen bewerten“.')).toBeVisible()
+  expect(await screen.findByText('Noch kein Score – starte in der Liste „Anzeigen ohne Score scoren“.')).toBeVisible()
   expect(screen.getByRole('button', { name: 'Score berechnen' })).toBeEnabled()
 })
 

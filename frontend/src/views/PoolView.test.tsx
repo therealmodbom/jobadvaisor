@@ -122,7 +122,7 @@ test('the text filter matches title or company, ignoring case', async () => {
 test('the counter shows corrections, share and the fitting hint', async () => {
   stubApi({ 'GET /pool': { body: POOL } })
   render(<PoolView />)
-  const label = 'Korrekturen seit der letzten Bewertung der Anzeigen:'
+  const label = 'Korrekturen seit dem letzten Neu-Scoren aller Anzeigen:'
   expect(await screen.findByText(new RegExp(label))).toHaveTextContent(`${label} 3`)
   expect(screen.getByText('Anteil: 25 %')).toBeVisible()
   expect(screen.getByText('Ranking passt gut')).toBeVisible()
@@ -132,7 +132,7 @@ test('below ten ratings the share is not shown and a rescore hint is', async () 
   stubApi({ 'GET /pool': { body: poolWith({ counter: { ...POOL.counter, rate: null, hint: 'rescore' } }) } })
   render(<PoolView />)
   expect(await screen.findByText('Anteil ab 10 Bewertungen')).toBeVisible()
-  expect(screen.getByText('neue Bewertung sinnvoll')).toBeVisible()
+  expect(screen.getByText('neu scoren sinnvoll')).toBeVisible()
 })
 
 // --- the split pass button ----------------------------------------------------------------
@@ -364,11 +364,11 @@ test('a pass shows its progress, then reloads the pool when done', async () => {
   await act(async () => button.click())
   expect(button).toBeDisabled()
   await tick()
-  expect(screen.getByText('Bewertung läuft: 4 von 12')).toBeVisible()
+  expect(screen.getByText('Scoren läuft: 4 von 12')).toBeVisible()
   // The counts change every poll, so they stay out of the live region.
-  expect(screen.getByText('Bewertung läuft: 4 von 12').closest('[role="status"]')).toBeNull()
+  expect(screen.getByText('Scoren läuft: 4 von 12').closest('[role="status"]')).toBeNull()
   await tick()
-  expect(screen.queryByText(/Bewertung läuft/)).toBeNull()
+  expect(screen.queryByText(/Scoren läuft/)).toBeNull()
   expect(await screen.findByRole('button', { name: 'Anzeigen ohne Score scoren (0)' })).toBeDisabled()
   expect(calls.filter((call) => call.path === '/pool')).toHaveLength(2)
   expect(sessionStorage.length).toBe(0)
@@ -381,7 +381,7 @@ test('a stored pass resumes polling after a reload', async () => {
   render(<PoolView />)
   await screen.findByRole('button', { name: /Anzeigen ohne Score scoren/ })
   await tick()
-  expect(screen.getByText('Bewertung läuft: 7 von 12')).toBeVisible()
+  expect(screen.getByText('Scoren läuft: 7 von 12')).toBeVisible()
 })
 
 test('starting while another pass runs says so', async () => {
@@ -389,7 +389,7 @@ test('starting while another pass runs says so', async () => {
             'POST /pool/passes': { status: 409, body: { error: 'pass in progress', detail: 'x' } } })
   render(<PoolView />)
   await userEvent.click(await screen.findByRole('button', { name: 'Anzeigen ohne Score scoren (12)' }))
-  expect(await screen.findByRole('alert')).toHaveTextContent('Es läuft schon eine andere Bewertung')
+  expect(await screen.findByRole('alert')).toHaveTextContent('Es wird schon gescort. Warte, bis das fertig ist.')
 })
 
 const QUESTION = pass({ status: 'awaiting_answer', unscreened: [
@@ -410,9 +410,9 @@ test('the unscreened question names the postings and sends continue', async () =
   const { calls } = await openQuestion()
   expect(screen.getByText('Ungeprüfte Stelle (m/w/d)')).toBeVisible()
   expect(screen.getByText(/Nordblatt/, { selector: 'li' })).toBeVisible()
-  await act(async () => screen.getByRole('button', { name: 'Trotzdem bewerten' }).click())
+  await act(async () => screen.getByRole('button', { name: 'Trotzdem scoren' }).click())
   expect(calls.find((call) => call.path.endsWith('/unscreened'))!.body).toEqual({ continue: true })
-  expect(screen.queryByRole('button', { name: 'Trotzdem bewerten' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Trotzdem scoren' })).toBeNull()
 })
 
 test('the unscreened question sends abort and the pass then shows as aborted', async () => {
@@ -426,7 +426,7 @@ test('the unscreened question sends abort and the pass then shows as aborted', a
   await act(async () => screen.getByRole('button', { name: 'Abbrechen' }).click())
   expect(calls.find((call) => call.path.endsWith('/unscreened'))!.body).toEqual({ continue: false })
   await tick()
-  expect(screen.getByText('Die Bewertung wurde abgebrochen.')).toBeVisible()
+  expect(screen.getByText('Das Scoren wurde abgebrochen.')).toBeVisible()
 })
 
 test('an aborted pass is announced', async () => {
@@ -436,7 +436,7 @@ test('an aborted pass is announced', async () => {
   render(<PoolView />)
   await screen.findByRole('button', { name: /Anzeigen ohne Score scoren/ })
   await tick()
-  expect(screen.getByText('Die Bewertung wurde abgebrochen.')).toBeVisible()
+  expect(screen.getByText('Das Scoren wurde abgebrochen.')).toBeVisible()
   expect(screen.getByRole('button', { name: /Anzeigen ohne Score scoren/ })).toBeEnabled()
 })
 
@@ -448,7 +448,7 @@ test('a failed pass shows an error with retry that starts a new pass', async () 
   render(<PoolView />)
   await screen.findByRole('button', { name: /Anzeigen ohne Score scoren/ })
   await tick()
-  expect(screen.getByRole('heading', { name: 'Die Bewertung ist fehlgeschlagen' })).toBeVisible()
+  expect(screen.getByRole('heading', { name: 'Das Scoren ist fehlgeschlagen' })).toBeVisible()
   expect(screen.getByText(/labels\/p1\.json: kaputt/)).toBeVisible()
   expect(screen.getByText(/kaputte Datei/)).toBeVisible()
   expect(screen.queryByText(/Server erreichbar/)).toBeNull()
@@ -591,9 +591,9 @@ test('failed polls show a notice with retry after three failures, and retry resu
   await screen.findByRole('button', { name: /Anzeigen ohne Score scoren/ })
   await tick()
   await tick()
-  expect(screen.queryByText('Der Stand der Bewertung ist gerade nicht abrufbar')).toBeNull()
+  expect(screen.queryByText('Der Stand des Scorens ist gerade nicht abrufbar')).toBeNull()
   await tick()
-  expect(screen.getByText('Der Stand der Bewertung ist gerade nicht abrufbar')).toBeVisible()
+  expect(screen.getByText('Der Stand des Scorens ist gerade nicht abrufbar')).toBeVisible()
   expect(screen.getByRole('button', { name: /Anzeigen ohne Score scoren/ })).toBeDisabled()
   const polls = calls.filter((call) => call.path === '/pool/passes/ps1').length
   await tick()
@@ -601,7 +601,7 @@ test('failed polls show a notice with retry after three failures, and retry resu
   down = false
   await act(async () => screen.getByRole('button', { name: 'Erneut versuchen' }).click())
   await tick()
-  expect(screen.queryByText('Der Stand der Bewertung ist gerade nicht abrufbar')).toBeNull()
+  expect(screen.queryByText('Der Stand des Scorens ist gerade nicht abrufbar')).toBeNull()
   expect(await screen.findByRole('button', { name: /Anzeigen ohne Score scoren/ })).toBeEnabled()
 })
 
@@ -654,7 +654,7 @@ const puts = (calls: Call[]) => calls.filter((call) => call.method === 'PUT' && 
 const button = (name: string) => screen.getByRole('button', { name })
 /** Expects the shown correction counter to read `count`: only a stored answer changes it. */
 const corrections = (count: number) =>
-  expect(screen.getByText(/Korrekturen seit der letzten Bewertung/)).toHaveTextContent(`der Anzeigen: ${count}`)
+  expect(screen.getByText(/Korrekturen seit dem letzten Neu-Scoren/)).toHaveTextContent(`aller Anzeigen: ${count}`)
 
 test('a chip on a posting without a verdict gives it the derived verdict and the counter follows', async () => {
   const calls = stubApi({ 'GET /pool': { body: POOL }, 'PUT /postings/p2/rating': rateRoute('p2') })
@@ -663,8 +663,8 @@ test('a chip on a posting without a verdict gives it the derived verdict and the
   await userEvent.click(within(screen.getByRole('list', { name: 'Anzeigen' })).getAllByRole('button', { name: 'great stack' })[0])
   expect(puts(calls)[0].body).toEqual({ chips: ['great-stack'], note: null })
   expect(await row(ENGINEER).findByText('Bewertet: Ja')).toBeVisible()
-  expect(screen.getByText('neue Bewertung sinnvoll')).toBeVisible()
-  expect(screen.getByText(/Korrekturen seit der letzten Bewertung der Anzeigen:/)).toHaveTextContent('4')
+  expect(screen.getByText('neu scoren sinnvoll')).toBeVisible()
+  expect(screen.getByText(/Korrekturen seit dem letzten Neu-Scoren aller Anzeigen:/)).toHaveTextContent('4')
 })
 
 test('chips of both polarities stay selectable, whatever the verdict', async () => {
@@ -1180,7 +1180,7 @@ test('a row score updates the row, the counter and the pass button count', async
   await userEvent.click(row(NEW).getByRole('button', { name: 'Score berechnen' }))
   expect(await row(NEW).findByText('9')).toBeVisible()
   expect(row(NEW).getByRole('button', { name: 'Neu berechnen' })).toBeEnabled()
-  expect(screen.getByText(/Korrekturen seit der letzten Bewertung/)).toHaveTextContent('Korrekturen seit der letzten Bewertung der Anzeigen: 4')
+  expect(screen.getByText(/Korrekturen seit dem letzten Neu-Scoren/)).toHaveTextContent('Korrekturen seit dem letzten Neu-Scoren aller Anzeigen: 4')
   expect(screen.getByRole('button', { name: 'Alle Anzeigen neu scoren (8)' })).toBeEnabled()
   expect(calls.filter((call) => call.method === 'POST').map((call) => call.path)).toEqual(['/postings/n1/score'])
 })
