@@ -19,10 +19,7 @@ export const POLL_MS = 1000
 export const POLL_FAILURES = 3
 const PASS_KEY = 'jobadvaisor.pool-pass'
 
-const VARIANT_KEY = `${PASS_KEY}-variant`
-
-/** The pass ID and the variant it was started with, kept across a reload; storage may be
- * blocked, so every access is guarded. `set(null)` forgets both. */
+/** The pass ID kept across a reload; storage may be blocked, so every access is guarded. */
 const storedPass = {
   get: () => {
     try {
@@ -31,20 +28,10 @@ const storedPass = {
       return null
     }
   },
-  variant: (): PassVariant | null => {
-    try {
-      const value = sessionStorage.getItem(VARIANT_KEY)
-      return value === 'unscored' || value === 'all' ? value : null
-    } catch {
-      return null
-    }
-  },
-  set: (id: string | null, variant?: PassVariant) => {
+  set: (id: string | null) => {
     try {
       if (id) sessionStorage.setItem(PASS_KEY, id)
       else sessionStorage.removeItem(PASS_KEY)
-      if (id && variant) sessionStorage.setItem(VARIANT_KEY, variant)
-      else sessionStorage.removeItem(VARIANT_KEY)
     } catch { /* storage blocked: a reload simply does not resume */ }
   },
 }
@@ -63,12 +50,9 @@ const FILTERS: { id: string; label: string; keep: (row: PoolRow) => boolean }[] 
 ]
 
 /** The scoring pass: starts it, polls it while it runs, remembers its ID across a reload.
- * `onDone` runs when a pass finishes. `busy` is true while one runs or waits for an answer.
- * `started` is the variant of the latest pass, `null` when unknown (a retry then uses the shown one). */
+ * `onDone` runs when a pass finishes. `busy` is true while one runs or waits for an answer. */
 function usePass(onDone: () => void) {
   const [passId, setPassId] = useState<string | null>(storedPass.get)
-  /** The variant of the latest pass: read back after a reload, so a retry repeats it. */
-  const [started, setStarted] = useState<PassVariant | null>(storedPass.variant)
   const [pass, setPass] = useState<PassState | null>(null)
   const [notice, setNotice] = useState('')
   const [pollFailed, setPollFailed] = useState(false)
@@ -120,8 +104,7 @@ function usePass(onDone: () => void) {
   /** Start the pass of `variant`; the server decides what it scores from the name alone. */
   const start = (variant: PassVariant) => send(async () => {
     const answer = await api<{ pass_id: string }>('/pool/passes', { method: 'POST', json: { variant } })
-    storedPass.set(answer.pass_id, variant)
-    setStarted(variant)
+    storedPass.set(answer.pass_id)
     setPass(null)
     setPollFailed(false)
     setPassId(answer.pass_id)
@@ -132,7 +115,7 @@ function usePass(onDone: () => void) {
     setPass((current) => current && { ...current, status: 'running' })
   }, 'Gerade wird schon gescort. Antworte, wenn das fertig ist.',
   'Die Antwort wurde nicht gespeichert. Versuch es noch einmal.')
-  return { pass, busy, notice, start, started, answer, pollFailed, retryPoll: () => setPollFailed(false) }
+  return { pass, busy, notice, start, answer, pollFailed, retryPoll: () => setPollFailed(false) }
 }
 
 const VARIANT_TITLE: Record<PassVariant, string> = { unscored: 'Nur Anzeigen ohne Score', all: 'Alle Anzeigen neu scoren' }
@@ -490,7 +473,7 @@ export function PoolView({ active = true }: { active?: boolean }) {
     load()
     clearBusy()
   }, [load, clearBusy])
-  const { pass, busy, notice, start, started, answer, pollFailed, retryPoll } = usePass(passDone)
+  const { pass, busy, notice, start, answer, pollFailed, retryPoll } = usePass(passDone)
 
   async function setStatus(postingId: string, status: Status) {
     setSaving((current) => ({ ...current, [postingId]: true }))
@@ -669,7 +652,7 @@ export function PoolView({ active = true }: { active?: boolean }) {
       {pass?.status === 'failed' && (
         <ErrorWithRetry title="Das Scoren ist fehlgeschlagen"
                         detail={`${pass.error ?? 'Der Server hat keinen Grund genannt.'} Vielleicht enthält das Datenrepository eine kaputte Datei. Behebe sie und starte das Scoren noch einmal.`}
-                        onRetry={() => start(started ?? shownVariant)} />
+                        onRetry={() => start(shownVariant)} />
       )}
       {pass?.status === 'awaiting_answer' && <UnscreenedQuestion pass={pass} onAnswer={answer} />}
 

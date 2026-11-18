@@ -457,7 +457,7 @@ test('a failed pass shows an error with retry that starts a new pass', async () 
   expect(posts(calls)[0].body).toEqual({ variant: 'unscored' })
 })
 
-test('the retry of a failed pass starts its variant, also after the page was reloaded while it ran', async () => {
+test('the retry of a failed pass starts the variant the main part shows, not the one the pass was started with', async () => {
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
   let failed = false
   const calls = stubApi({ 'GET /pool': { body: NEXT() }, 'POST /pool/passes': { status: 202, body: { pass_id: 'ps1' } },
@@ -472,7 +472,7 @@ test('the retry of a failed pass starts its variant, also after the page was rel
   await tick()
   await act(async () => screen.getByRole('button', { name: 'Erneut versuchen' }).click())
   expect(posts(calls)).toHaveLength(2)
-  expect(posts(calls)[1].body).toEqual({ variant: 'all' })
+  expect(posts(calls)[1].body).toEqual({ variant: 'unscored' })
 })
 
 test('settings save the share as 0 to 1 and reload the pool', async () => {
