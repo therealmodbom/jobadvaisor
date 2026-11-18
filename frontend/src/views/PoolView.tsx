@@ -549,14 +549,15 @@ export function PoolView({ active = true }: { active?: boolean }) {
   })
 
   useEffect(() => {
-    /** The pool's shortcuts (`design.md` "Rating without a run"): off while a text field, select
-     * or editable element has focus, while a modifier other than Shift is held and while the view
-     * is hidden. A held key repeats only j and k, so it never rates or toggles twice. */
+    /** The pool's shortcuts (`design.md` "Rating without a run"): off while a text field, select,
+     * editable element or menu (the pass variant menu) has focus, while a modifier other than Shift
+     * is held and while the view is hidden. A held key repeats only j and k, so it never rates or
+     * toggles twice. */
     function onKey(event: KeyboardEvent) {
       const row = shown.find((entry) => entry.posting_id === current)
       if (!active || !pool || !row || event.altKey || event.ctrlKey || event.metaKey) return
       if (event.repeat && event.key !== 'j' && event.key !== 'k') return
-      if ((event.target as HTMLElement).closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return
+      if ((event.target as HTMLElement).closest?.('input, textarea, select, [role="menu"], [contenteditable]:not([contenteditable="false"])')) return
       const digit = /^Digit([1-9])$/.exec(event.code)?.[1]
       const level = LEVELS.find(({ key }) => key === event.key)
       const step = { j: 1, k: -1 }[event.key]

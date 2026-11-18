@@ -234,6 +234,19 @@ test('the menu works by keyboard alone: arrows move, Enter chooses', async () =>
   expect(calls.filter((call) => call.method !== 'GET')).toEqual([])
 })
 
+test('pool shortcuts stay off while the menu has focus', async () => {
+  const calls = stubApi({ 'GET /pool': { body: NEXT() } })
+  render(<PoolView />)
+  await mainPart(/Anzeigen ohne Score scoren/)
+  await openMenu()
+  const item = screen.getByRole('menuitemradio', { name: /Nur Anzeigen ohne Score/ })
+  expect(item).toHaveFocus()
+  await userEvent.keyboard('1j4n')
+  expect(calls.filter((call) => call.method !== 'GET')).toEqual([])
+  expect(screen.getByRole('menu')).toBeVisible()
+  expect(item).toHaveFocus()
+})
+
 test('Escape closes the menu and focus returns to the trigger', async () => {
   stubApi({ 'GET /pool': { body: NEXT() } })
   render(<PoolView />)

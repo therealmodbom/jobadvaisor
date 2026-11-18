@@ -64,6 +64,10 @@ The menu beside the main part SHALL list both variants, each with its count and 
 - **WHEN** the user opens the menu and chooses „Alle Anzeigen neu scoren“
 - **THEN** the main part reads „Alle Anzeigen neu scoren (N)“, and no pass starts
 
+#### Scenario: Shortcuts stay off in the menu
+- **WHEN** the menu has focus and the user presses a rating key, j, k, n or Enter
+- **THEN** no rating is stored and the selected posting stays as it was; Enter chooses the focused entry
+
 #### Scenario: Default change replaces the choice
 - **WHEN** the user chose „Anzeigen ohne Score scoren“ while the default was „Alle Anzeigen neu scoren“, and a rating moves the hint to „Ranking passt gut“ and back to „neu scoren sinnvoll“
 - **THEN** the main part shows „Alle Anzeigen neu scoren“
