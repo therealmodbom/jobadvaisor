@@ -148,6 +148,14 @@ class UnscreenedAnswer(BaseModel):
     proceed: bool = Field(alias="continue")
 
 
+class PassBody(BaseModel):
+    """`POST /pool/passes` body: `{"variant": "unscored" | "all"}`, required."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    variant: Literal["unscored", "all"]
+
+
 class PoolSettingsBody(BaseModel):
     """`PUT /pool/settings` body: both fields required."""
 
@@ -438,20 +446,15 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
                 "next_pass": next_pass(repository, scores, pool)}
 
     @app.post("/pool/passes", status_code=202)
-    def start_pass() -> dict:
+    def start_pass(body: PassBody) -> dict:
         """Start a scoring pass in the background; answers its `pass_id` at once, or 409
-        naming the pass (or `score:<posting ID>`, a single score) that is still computing. Takes
-        no body. The pass scores every posting
-        without a score, rated or not, and rescores every posting when a correction was
-        counted since the last pass. A repository that does not
-        load still starts the pass, which then reports `failed` with the reason."""
+        naming the pass (or `score:<posting ID>`, a single score) that is still computing.
+        Body `{"variant"}`, required: `"unscored"` scores every posting without a score, rated
+        or not; `"all"` rescores every posting. A missing or unknown variant is a 422. A
+        repository that does not load still starts the pass, which then reports `failed`
+        with the reason."""
         try:
-            repository, scores, _, pool = pool_state(intake.root)
-            rescore = counter(repository, scores, pool)["corrections"] > 0
-        except DataRepositoryError:
-            rescore = False
-        try:
-            return {"pass_id": runs.start(rescore)}
+            return {"pass_id": runs.start(body.variant == "all")}
         except RunBusyError as error:
             return problem(409, "pass in progress", str(error))
 

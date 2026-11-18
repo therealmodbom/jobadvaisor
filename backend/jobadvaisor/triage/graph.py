@@ -105,8 +105,8 @@ def build_graph(saver: BaseCheckpointSaver) -> CompiledStateGraph:
 def start_run(graph: CompiledStateGraph, context: TriageContext, run_id: str,
               rescore: bool = False, batch: list[str] | None = None) -> dict:
     """Run a new pass until it pauses or ends and return its state. `rescore` makes `load`
-    take every posting, scored and rated ones included; the caller sets it (when corrections
-    were counted since the last pass). `batch`, when given, is the exact list of posting IDs
+    take every posting, scored and rated ones included; the caller sets it (the user's pass
+    variant `"all"`, see `POST /pool/passes`). `batch`, when given, is the exact list of posting IDs
     to take instead (the eval's held-out postings). The pass's `started_at` is set here."""
     state: TriageState = {"rescore": rescore, "started_at": datetime.now(UTC).isoformat()}
     if batch is not None:

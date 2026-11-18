@@ -75,13 +75,16 @@ def counter(repository: DataRepository, scores: dict[str, Score], pool: Pool) ->
 
 
 def next_pass(repository: DataRepository, scores: dict[str, Score], pool: Pool) -> dict:
-    """What the next pass would do: `{count, rescore}`. `rescore` is true when corrections
-    were counted (the pass then rescores every posting, rated ones included); `count` is the
-    pass batch without excluded and held postings."""
-    rescore = counter(repository, scores, pool)["corrections"] > 0
-    batch = pass_batch(repository, scores, rescore)
-    count = sum(_blocked(repository, repository.postings[i]) is None for i in batch)
-    return {"count": count, "rescore": rescore}
+    """What either pass variant would take: `{default, unscored, all}`. `unscored` and `all` are
+    the sizes of the two pass batches, without excluded and held postings; `default` is the
+    variant the counter's hint points to: `"all"` for `"rescore"`, else `"unscored"`."""
+    def size(rescore: bool) -> int:
+        return sum(_blocked(repository, repository.postings[i]) is None
+                   for i in pass_batch(repository, scores, rescore))
+
+    hint = counter(repository, scores, pool)["hint"]
+    return {"default": "all" if hint == "rescore" else "unscored",
+            "unscored": size(False), "all": size(True)}
 
 
 def rank(repository: DataRepository, scores: dict[str, Score], score_problems: dict[str, str],
