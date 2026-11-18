@@ -105,9 +105,12 @@ export type PoolRow = {
   exploration: boolean
 }
 
-/** The pool's `next_pass` figures: how many postings a pass would score, and whether it
- * rescores every posting (corrections were counted since the last pass). */
-export type NextPass = { count: number; rescore: boolean }
+export type PassVariant = 'unscored' | 'all'
+
+/** The pool's `next_pass` figures: how many postings each pass variant would score, with
+ * excluded and held postings left out. `unscored` counts the postings without a score, `all`
+ * every scorable one; `default` is the variant the counter hint recommends. */
+export type NextPass = { default: PassVariant; unscored: number; all: number }
 
 /** The correction counter of `GET /pool`; `rate` is null below ten ratings. */
 export type Counter = {

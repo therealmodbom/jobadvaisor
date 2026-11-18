@@ -517,7 +517,7 @@ export function PoolView({ active = true }: { active?: boolean }) {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   })
-  const count = pool?.next_pass.count ?? 0
+  const count = pool ? pool.next_pass[pool.next_pass.default] : 0
   const counter = pool?.counter
   const nothingToDo = counter?.hint === 'rescore'
     ? ' Es gibt nichts zu bewerten: Alle Anzeigen sind ausgeschlossen oder zurückgehalten.' : ''

@@ -1,4 +1,4 @@
-import type { Counter, Pool, PoolRow, RatingBody, Strength } from '@/api'
+import type { Counter, NextPass, Pool, PoolRow, RatingBody, Strength } from '@/api'
 
 /** A pool row: an open, scored posting unless `extra` says otherwise. */
 export const row = (posting_id: string, title: string, extra: Partial<PoolRow> = {}): PoolRow => ({
@@ -31,7 +31,7 @@ export const POOL: Pool = {
   ],
   counter: { corrections: 3, rated: 12, rate: 0.25, hint: 'fits', since: '2026-10-14T19:00:00+00:00' },
   settings: { correction_threshold: 10, correction_rate: 0.3 },
-  next_pass: { count: 12, rescore: false },
+  next_pass: { default: 'unscored', unscored: 12, all: 12 },
   reason_chips: [{ id: 'great-stack', label: 'great stack', polarity: 'positive' },
                  { id: 'too-junior', label: 'too junior', polarity: 'negative' }],
   screening: true,
@@ -41,13 +41,14 @@ export const POOL: Pool = {
  * verdict, else the polarity of the first chip that has one (422 when none does), and the given
  * strength or null (422 for a strength without a given verdict). `base` is the posting's row,
  * `counter` the counter to answer with. */
-export function ratingAnswer(base: PoolRow, body: RatingBody, counter: Counter = POOL.counter) {
+export function ratingAnswer(base: PoolRow, body: RatingBody, counter: Counter = POOL.counter,
+  next_pass: NextPass = POOL.next_pass) {
   if (body.strength && !body.verdict) return { status: 422, body: { error: 'invalid rating', detail: 'strength needs a verdict' } }
   const polarity = body.chips.map((id) => POOL.reason_chips.find((chip) => chip.id === id)?.polarity).find(Boolean)
   const verdict = body.verdict ?? polarity
   if (!verdict) return { status: 422, body: { error: 'invalid rating', detail: 'a verdict is missing' } }
   return { body: { row: { ...base, label: { verdict, strength: body.strength ?? null, chips: body.chips, note: body.note ?? null, rated_at: '2026-10-15T08:00:00+00:00' } },
-                   counter, next_pass: POOL.next_pass } }
+                   counter, next_pass } }
 }
 
 /** `POOL` with `changes` applied on top. */
