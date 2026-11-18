@@ -1,9 +1,10 @@
 """Browser walkthrough of scoring: a pass that scores a rated posting without a score, a score from
-a posting's page, a re-score from a pool row, the blocked button, and the pool's score range at
-desktop and phone width. Real app (`create_app` served
-by uvicorn) over a temporary data repository, the built frontend in Chromium, fake models. The
-tests share one server and run in order, each building on the data of the one before; run them as
-a set: `pytest -m e2e` after `npm --prefix frontend run build`."""
+a posting's page, a re-score from a pool row, the blocked button, the pool's score range at
+desktop and phone width, and the pass button's variant menu (choosing starts nothing, the main
+part rescores everything, a reload drops the choice, the split button fits a phone). Real app
+(`create_app` served by uvicorn) over a temporary data repository, the built frontend in Chromium,
+fake models. The tests share one server and run in order, each building on the data of the one
+before; run them as a set: `pytest -m e2e` after `npm --prefix frontend run build`."""
 
 import threading
 import time
@@ -100,7 +101,7 @@ def pool_row(page, title):
 def test_a_pass_scores_a_rated_posting_without_a_score(page, app_url, data_root):
     page.goto(f"{app_url}/#/pool")
     expect(pool_row(page, RATED).get_by_text("noch kein Score")).to_be_visible()
-    page.get_by_role("button", name="Neue Anzeigen bewerten (2)").click()  # rated and fresh
+    page.get_by_role("button", name="Anzeigen ohne Score scoren (2)").click()  # rated and fresh
     expect(pool_row(page, RATED).get_by_text("8", exact=True)).to_be_visible(timeout=60_000)
     assert stored_scores(data_root) == {"rated": 8, "fresh": 6}
     assert set(load(data_root).labels) == {"rated"}  # the pass kept the user's rating
@@ -183,3 +184,66 @@ def test_the_score_range_narrows_the_pool_and_resets_at_desktop_and_phone_width(
         page.set_viewport_size({"width": 1280, "height": 720})
         von.select_option(label="ohne Score")
         bis.select_option(label="10")
+
+
+def test_choosing_the_all_variant_starts_nothing_and_its_main_part_rescores_everything(
+        page, app_url, data_root, harness):
+    """Entry state: `rated` has the score 8, `fresh` has none, `sales` is excluded. Choosing "Alle
+    Anzeigen neu scoren" only switches the main part; pressing it replaces both scores with the
+    judge's fixed 7 and leaves the excluded one alone; the choice does not outlive a pass or a
+    reload. Leaves `rated` at 7 and `fresh` without a score."""
+    harness.judge = ScriptedModel(lambda schema, prompt: {"score": 7, "reasoning": "Fest."})
+    pass_requests = []
+    page.on("request", lambda request: pass_requests.append(request)
+            if request.method == "POST" and "/pool/passes" in request.url else None)
+    page.goto(f"{app_url}/#/pool")
+    expect(page.get_by_role("button", name="Anzeigen ohne Score scoren (1)")).to_be_enabled()
+    page.get_by_role("button", name="Andere Variante wählen").click()
+    page.get_by_role("menuitemradio", name="Alle Anzeigen neu scoren (2)").click()
+    main =page.get_by_role("button", name="Alle Anzeigen neu scoren (2)")
+    expect(main).to_be_enabled()
+    expect(page.get_by_role("menu")).to_have_count(0)
+    assert pass_requests == [] and harness.judge.calls == []  # choosing started nothing
+    assert stored_scores(data_root) == {"rated": 8}
+    expect(page.get_by_text("Scoren läuft")).to_have_count(0)
+    main.click()
+    expect(pool_row(page, RATED).get_by_text("7", exact=True)).to_be_visible(timeout=60_000)
+    expect(pool_row(page, FRESH).get_by_text("7", exact=True)).to_be_visible()
+    assert stored_scores(data_root) == {"rated": 7, "fresh": 7}  # `sales` is excluded
+    assert len(pass_requests) == 1
+    # the pass ended: the choice is dropped and no posting lacks a score
+    expect(page.get_by_role("button", name="Anzeigen ohne Score scoren (0)")).to_be_disabled()
+    page.get_by_role("button", name="Andere Variante wählen").click()
+    page.get_by_role("menuitemradio", name="Alle Anzeigen neu scoren (2)").click()
+    expect(page.get_by_role("button", name="Alle Anzeigen neu scoren (2)")).to_be_enabled()
+    page.reload()
+    expect(page.get_by_role("button", name="Anzeigen ohne Score scoren (0)")).to_be_disabled()
+    expect(page.get_by_role("button", name="Alle Anzeigen neu scoren (2)")).to_have_count(0)
+    (data_root / "scores/fresh.json").unlink()
+    assert len(pass_requests) == 1  # the reload and the second choice started nothing
+
+
+def test_the_split_button_and_its_menu_fit_a_phone(page, app_url):
+    """At 390 px the main part, the trigger and the open menu stay in the viewport and the page
+    does not scroll sideways, with the longest main part ("Alle Anzeigen neu scoren")."""
+    fits = "document.documentElement.scrollWidth <= document.documentElement.clientWidth"
+    page.set_viewport_size({"width": 390, "height": 844})
+    try:
+        page.goto(f"{app_url}/#/pool")
+        page.reload()
+        trigger = page.get_by_role("button", name="Andere Variante wählen")
+        main = page.get_by_role("button", name="Anzeigen ohne Score scoren (1)")
+        expect(main).to_be_in_viewport()
+        expect(trigger).to_be_in_viewport()
+        assert page.evaluate(fits)
+        trigger.click()
+        menu = page.get_by_role("menu", name="Variante")
+        expect(menu).to_be_in_viewport(ratio=1)
+        assert page.evaluate(fits)
+        menu.get_by_role("menuitemradio", name="Alle Anzeigen neu scoren (2)").click()
+        expect(page.get_by_role("button", name="Alle Anzeigen neu scoren (2)")).to_be_in_viewport(
+            ratio=1)
+        expect(trigger).to_be_in_viewport(ratio=1)
+        assert page.evaluate(fits)
+    finally:  # nothing after this test, but the page stays reusable at desktop width
+        page.set_viewport_size({"width": 1280, "height": 720})
