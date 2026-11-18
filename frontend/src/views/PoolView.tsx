@@ -164,7 +164,7 @@ function PassButton({ nextPass, shown, busy, onPick, onStart }: {
             </Button>
           </DropdownMenu.Trigger>
           <DropdownMenu.Portal>
-            <DropdownMenu.Content align="start" sideOffset={6} aria-label="Variante"
+            <DropdownMenu.Content align="start" sideOffset={6} collisionPadding={16} aria-label="Variante"
                                   className="z-50 flex w-[min(380px,calc(100vw-2rem))] flex-col gap-0.5 rounded-xl border bg-card p-1.5 shadow-card">
               <DropdownMenu.RadioGroup value={shown} onValueChange={(value) => onPick(value as PassVariant)}>
                 {(['unscored', 'all'] as const).map((variant) => (
