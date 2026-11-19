@@ -1,7 +1,9 @@
 """Browser walkthrough of scoring: a pass that scores a rated posting without a score, a score from
 a posting's page, a re-score from a pool row, the blocked button, the pool's score range at
 desktop and phone width, and the pass button's variant menu (choosing starts nothing, the main
-part rescores everything, a reload drops the choice, the split button fits a phone). Real app
+part rescores everything, a reload drops the choice, the split button fits a phone), and a pass
+whose progress band shows its counts and keeps its height until a cancel keeps the scores so far.
+Real app
 (`create_app` served by uvicorn) over a temporary data repository, the built frontend in Chromium,
 fake models. The tests share one server and run in order, each building on the data of the one
 before; run them as a set: `pytest -m e2e` after `npm --prefix frontend run build`."""
@@ -11,9 +13,9 @@ import time
 
 import pytest
 import uvicorn
-from conftest import LABEL, ScriptedModel, ToolScriptModel, write_json
+from conftest import LABEL, ScriptedModel, ToolScriptModel, unknown_features, write_json
 from playwright.sync_api import expect, sync_playwright
-from test_triage_graph import POLICY_PACK, Harness, add_posting
+from test_triage_graph import POLICY_PACK, Harness, add_posting, judge_by_title
 
 from jobadvaisor.api.app import create_app
 from jobadvaisor.data.loader import load
@@ -257,5 +259,75 @@ def test_the_split_button_and_its_menu_fit_a_phone(page, app_url):
             ratio=1)
         expect(trigger).to_be_in_viewport(ratio=1)
         assert page.evaluate(fits)
-    finally:  # nothing after this test, but the page stays reusable at desktop width
+    finally:  # later tests share the page: desktop width again
         page.set_viewport_size({"width": 1280, "height": 720})
+
+
+def test_a_pass_shows_its_progress_and_a_cancel_keeps_the_scores_so_far(
+        page, app_url, data_root, harness):
+    """Entry state: `rated` has a score, `fresh` and three new postings have none, `sales` is
+    excluded. The scripted models wait for the test, so nothing races the 1 s poll: the band shows
+    reading features at 0 of 4, scoring at 0 of 4, then 1 of 4. The cancel lands while the second
+    posting is scored: the band says the pass stops after it, the notice reports 2 new scores,
+    and only those two show a score in the ranking. The band keeps its height throughout.
+    Leaves the other two postings unscored."""
+    # scores of 6 and more: the rating keys 1 to 5 sit in each row as text too
+    titles = {"c1": "Weitere Stelle 8", "c2": "Weitere Stelle 9", "c3": "Weitere Stelle 10"}
+    for posting_id, title in titles.items():
+        add_posting(data_root, posting_id, title)
+    titles["fresh"] = FRESH
+    before = stored_scores(data_root)
+    extract_gate = threading.Event()
+    entered, permits = threading.Semaphore(0), threading.Semaphore(0)
+
+    def extract(schema, prompt):
+        """Wait for the test before the first feature reading, then answer with no features."""
+        assert extract_gate.wait(10), "extract gate never opened"
+        return unknown_features(schema, prompt)
+
+    def judge(schema, prompt):
+        """Announce each scoring call, then wait for one permit from the test."""
+        entered.release()
+        assert permits.acquire(timeout=10), "no permit for the judge"
+        return judge_by_title(schema, prompt)
+
+    harness.extractor, harness.judge = ScriptedModel(extract), ScriptedModel(judge)
+    try:
+        page.goto(f"{app_url}/#/pool")
+        page.reload()
+        page.get_by_role("button", name="Anzeigen ohne Score scoren (4)").click()
+        band = page.get_by_role("region", name="Stand des Scorens")
+        expect(band.get_by_text("Merkmale lesen · 0 von 4", exact=True)).to_be_visible()
+        extracting_height = band.bounding_box()["height"]
+        extract_gate.set()
+        assert entered.acquire(timeout=10)  # the first posting is being scored
+        expect(band.get_by_text("Merkmale lesen · 4 von 4", exact=True)).to_be_visible()
+        expect(band.get_by_text("Scoren · 0 von 4", exact=True)).to_be_visible()
+        scoring_height = band.bounding_box()["height"]
+        permits.release()
+        assert entered.acquire(timeout=10)  # the second posting is being scored
+        expect(band.get_by_text("Scoren · 1 von 4", exact=True)).to_be_visible()
+        cancel = band.get_by_role("button", name="Scoren abbrechen")
+        cancel.click()
+        expect(band.get_by_text("wird nach der aktuellen Anzeige beendet…")).to_be_visible()
+        expect(cancel).to_be_disabled()
+        stopping_height = band.bounding_box()["height"]
+        permits.release()  # the second posting ends; the check before the third stops the pass
+        expect(page.get_by_text(
+            "Das Scoren wurde abgebrochen. 2 Anzeigen haben einen neuen Score.")).to_be_visible()
+        expect(band).to_have_count(0)
+        assert extracting_height == scoring_height == stopping_height
+        assert len(harness.judge.calls) == 2  # the third posting was never judged
+        new = {posting_id: score for posting_id, score in stored_scores(data_root).items()
+               if posting_id not in before}
+        assert len(new) == 2, new
+        for posting_id, title in titles.items():
+            row = pool_row(page, title)
+            if posting_id in new:
+                expect(row.get_by_text(str(new[posting_id]), exact=True)).to_be_visible()
+            else:
+                expect(row.get_by_text("noch kein Score")).to_be_visible()
+        expect(page.get_by_role("button", name="Anzeigen ohne Score scoren (2)")).to_be_enabled()
+    finally:  # a failed assertion must not leave the pass thread waiting
+        extract_gate.set()
+        permits.release(4)
