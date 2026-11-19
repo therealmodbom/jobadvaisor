@@ -48,14 +48,15 @@ def counter(repository: DataRepository, scores: dict[str, Score], pool: Pool) ->
 
     Window: labels of kind `rating` rated strictly after `since` (the `started_at`, else the
     `finished_at`, of the last pass over all postings: variant `"all"` or none, a record from
-    before variants; passes over the unscored only leave the window alone; null without such
-    a pass, then every rating counts). `rated` counts those whose posting has a score in
-    `scores`, `corrections` those contradicting it. `rate` is
+    before variants; passes over the unscored only and cancelled passes leave the window
+    alone; null without such a pass, then every rating counts). `rated` counts those whose
+    posting has a score in `scores`, `corrections` those contradicting it. `rate` is
     corrections / rated from `RATE_MIN_RATINGS` ratings on, else null. `hint` is `"rescore"`
     at the pool's threshold or rate, else `"fits"`. A `rating` label always has a verdict (model-
     enforced), so `label.verdict` needs no null check here.
     """
-    last = next((p for p in reversed(pool.passes) if p.variant in ("all", None)), None)
+    last = next((p for p in reversed(pool.passes)
+                 if p.variant in ("all", None) and not p.cancelled), None)
     since = (last.started_at or last.finished_at) if last else None
     rated = corrections = 0
     for posting_id, label in repository.labels.items():

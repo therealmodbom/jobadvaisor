@@ -2,7 +2,15 @@ import json
 from datetime import UTC, datetime
 
 import pytest
-from conftest import LABEL, PROFILE, ScriptedModel, ToolScriptModel, write_json
+from conftest import (
+    AT,
+    LABEL,
+    PROFILE,
+    ScriptedModel,
+    ToolScriptModel,
+    unknown_features,
+    write_json,
+)
 from fastapi.testclient import TestClient
 from langchain_core.embeddings import DeterministicFakeEmbedding
 from langchain_core.messages import ToolMessage
@@ -11,7 +19,7 @@ from test_triage_graph import POLICY_PACK, Harness, StubClassifier, add_posting,
 from jobadvaisor.agent import AGENT_TOOLS, AgentContext, Reply, answer
 from jobadvaisor.api.app import create_app
 from jobadvaisor.data.loader import load
-from jobadvaisor.data.models import Score
+from jobadvaisor.data.models import Score, company_id
 from jobadvaisor.data.writer import write_score
 from jobadvaisor.index import PostingIndex
 from jobadvaisor.intake.fetch import Page
@@ -323,6 +331,22 @@ def test_screening_off_withholds_an_unscreened_stored_posting(tmp_path, root):
     answer(ASK, model, context(harness, plain=no_fetch))
     assert tool_output(model, "extract_features") == WITHHELD
     assert harness.extractor.calls == []
+
+
+def test_the_extract_tool_sends_the_posting_companys_facts_block(harness):
+    """The agent's extraction passes the company record like every other caller (see
+    `test_company_facts_callers.py`), and a posting whose company has no record gets no block."""
+    write_json(harness.root / f"companies/{company_id('Acme Solar')}.json", {
+        "schema_version": "1", "name": "Acme Solar", "size_class": "201-500", "founded": 2016,
+        "source": "linkedin", "source_url": "https://www.linkedin.com/company/acme-solar",
+        "fetched_at": AT})
+    harness.extractor = ScriptedModel(unknown_features)
+    model = ToolScriptModel(plan=[("extract_features", {"posting_id": "backend"}),
+                                  ("extract_features", {"posting_id": "data"})])
+    answer(ASK, model, context(harness))
+    with_record, without = harness.extractor.calls
+    assert "Size class: 201-500 employees. Founded: 2016." in with_record
+    assert "<company_facts>" not in without
 
 
 def test_a_failing_tool_answers_an_error_and_the_conversation_goes_on(harness):

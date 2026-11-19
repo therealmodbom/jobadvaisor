@@ -86,7 +86,7 @@ def test_graph_variant_scores_only_the_held_out_postings(tmp_path):
     judge = judge_knowing_verdicts()
     embedding = DeterministicFakeEmbedding(size=16)
     graph_vs_agent.graph_variant(root, GUARD, LabelIndex(tmp_path / "chroma", embedding, "fake"),
-                                 ScriptedModel(unknown_features), judge, SPLIT.held_out)
+                                 judge, SPLIT.held_out)
     assert len(judge.calls) == len(SPLIT.held_out)
 
 

@@ -1,0 +1,54 @@
+# Tasks
+
+## 0. Look
+
+- [x] 0.1 The owner picks variant A or B in the Design artifact linked in `design.md` → Context, and the choice and its texts are recorded there. Verified when `design.md` names the chosen variant.
+
+## 1. Backend: the pass reports and stops
+
+- [x] 1.1 `TriageContext` gets the hooks `progress` and `cancelled` with defaults that report nothing and never cancel. Verify that `test_triage_graph.py`, `test_runs_score.py` and `test_eval_graph_vs_agent.py` pass unchanged.
+- [x] 1.2 `load`, `exclude`, `extract`, `score` and `store_scores` report the phase. `extract` and `score` report both counts after every posting, as `design.md` → The progress shape defines them. Verify with a test in `test_triage_graph.py` that records every report over a batch with one excluded, one held and one failed extraction, and checks the counts after each posting (spec: Pass progress per posting, Progress counts only postings a model sees).
+- [x] 1.3 `TriageState` gains `cancelled: bool`. `exclude`, `extract` and `score` ask `cancelled()` before every posting, a cancelled node stops with `cancelled: True` and routes as `design.md` → Cancel describes, and `confirm_unscreened` turns the answer `"cancel"` into `cancelled: True` and `END`. `store_scores` records the pass with `cancelled` and never asks the flag. Verify with graph tests where a recording fake sets the flag on the n-th call:
+  - a cancel in scoring stores the scores so far and records a cancelled pass;
+  - a cancel in reading features or checking stores nothing and records nothing;
+  - a cancel during checking over an unscreened posting ends as cancelled without the question;
+  - a cancel during the last scored posting, or while storing, ends as a complete pass.
+- [x] 1.4 `PoolPass.cancelled: Literal[True] | None`, and `counter` skips cancelled passes for the window. Regenerate `schemas/pool.schema.json`. Verify with `test_pool.py` (spec: Counter window, „Cancelled pass over all postings keeps the window“), a check that a pass that was not cancelled writes no `cancelled` key, and `test_schemas.py`.
+- [x] 1.5 `Runs`: `cancel(run_id)` for every known pass ID and never for `score:<id>`, with check and add in one lock section. Both hooks are wrapped into the context for `start` and `answer_unscreened`. A step that ends paused at the question with a cancel pending is resumed with `"cancel"` before the slot is freed. The ID is cleared after that and at every step start. Progress is kept under the lock, and `read()` reports `cancel_requested` and the status `cancelled`. Verify in the new `test_runs_pass.py` with a fake model that blocks on a `threading.Event`:
+  - progress readable mid-pass;
+  - cancel → `cancel_requested` → `cancelled`;
+  - a cancel accepted after `exclude`'s last check, with a hook that blocks until the cancel is in, ends `cancelled` without `awaiting_answer`;
+  - a cancel sent while `_run`'s end section holds the lock (a saver wrapper whose `get_state` there starts the cancel thread and waits until it blocks on the lock) gets `RunStateError` once the section has freed the slot, and leaves no ID in the set, while the pass shows `awaiting_answer`;
+  - `KeyError` for an unknown run and for `score:<id>` while a single score blocks;
+  - `RunStateError` while awaiting the answer and after the end, also in a fresh `Runs` over the same saver;
+  - a pass resumed with „Trotzdem scoren“ is not cancelled by an earlier request;
+  - `progress` is `null` in a fresh `Runs` over the same saver.
+- [x] 1.6 `read_pass` returns the new shape, and `POST /pool/passes/{id}/cancel` answers 202, 404 or 409. Verify with `test_api.py` through `ApiHarness`, including `score:<id>` → 404 while that score blocks, and `scored` after a cancelled pass.
+
+## 2. Frontend: the view shows and cancels
+
+- [x] 2.1 `PassState` in `api.ts` and the `pass()` fixture in `PoolView.test.tsx` follow the new shape. Verify with `npm --prefix frontend run build` (type check).
+- [x] 2.2 The progress line shows the phase and both counts, as in the Design artifact. Verify with `PoolView.test.tsx`: the counts move between two polls; checking and a `null` progress show no count; the running state has no axe violations (spec: Pass progress line).
+- [x] 2.3 The cancel button shows while the pass computes, not while it awaits the unscreened answer and not while it stores (spec: No cancel while storing). A press sends one request, and the button is disabled from the 202 on and says the pass stops after the current posting. A 409 shows no error, another failure shows its text, and Enter on the focused button does not move the row selection. Verify with `PoolView.test.tsx`, including an axe check of the cancel-requested state (spec: Cancel button of a pass).
+- [x] 2.4 `cancelled` clears the stored pass, reloads the pool and shows the result in the status region with the scored count, cleared when the next pass starts. Verify with `PoolView.test.tsx` for 30, 1 and 0 scored (spec: Result of a cancelled pass).
+
+## 3. End to end and docs
+
+- [x] 3.1 The e2e walkthrough in `test_score_walkthrough.py` starts a pass, sees the counts move, cancels it, and sees the notice and the new scores in the ranking. Its scripted callable waits on a `threading.Event` the test releases, so the steps do not race the 1 s poll. Verify with `env -C backend uv run pytest -m e2e -q` after `npm --prefix frontend run build`.
+- [x] 3.2 Click test in Chromium on the built app with a demo copy and the e2e harness's scripted models: start, watch, cancel. Verify by screenshots and by the band's measured height, which is the same in checking, reading features, scoring, after a cancel request and while storing (spec: Pass progress line, „Same size in every phase“). Done 2026-11-19: 166 px at 1280 and 422 px at 390 in reading features, scoring and after the cancel request (screenshots in the session, measurements in the PR description). Checking and storing are too short to catch by hand; the route-stubbed e2e check measures all five states at six widths.
+- [x] 3.3 Update the README pool paragraph and the AGENTS.md "Current state" section. Retake `docs/images/pool.png` with `scripts/readme_images.py` only if the screenshot shows the change. Verify that the README describes cancel and phases, and that `git status` shows the images only if they changed.
+- [x] 3.4 Run every check: `env -C backend uv run pytest -q`, `env -C backend uv run ruff check .`, `npm --prefix frontend test`, `npm --prefix frontend run lint` and `npm --prefix frontend run build`. Verified when all of them pass.
+
+## 4. Rework after the owner's review (2026-11-19): no extraction, progress beside the pass button
+
+Sections 1 to 3 built the first shape, with a reading-features phase and a band below the pass button. The tasks below change it to what `design.md` now describes. Where they contradict a ticked task above, they win.
+
+- [x] 4.1 The pass reads no features: `extract` goes, `score` takes over the second guard ruling, `_after_exclude` and `_after_confirm` route to `score`, `TriageContext` loses `extractor` and `api/app.py` builds no extractor model for a pass. The progress shape is `{phase, score}` with the phases `checking`, `scoring` and `storing`, and `TriageState` loses `extract_failed`. Verify in `test_triage_graph.py`: a pass makes no extraction call; the progress test records the count after each posting with an excluded, a held, a flagged-while-waiting and a failed posting; the cancel tests from 1.3 hold with the cancel in checking instead of reading features (spec: Fixed triage order, Pass progress per posting, Progress counts only postings a model sees).
+- [x] 4.2 An old checkpoint whose next node is `extract` reads `failed`, not `done` (`design.md` → The pass does not read features). Verify with a test that writes such a checkpoint through a graph that still has the node and reads it through `Runs` over the new graph.
+- [x] 4.3 `test_runs_pass.py`, `test_api.py` and the eval `graph_vs_agent` follow the new shape and the context without `extractor`. Verify with `env -C backend uv run pytest -q` and `env -C backend uv run ruff check .`.
+- [x] 4.4 The view: the cancel button shares the split button's grid cell and width, the progress block of fixed size sits between it and the counter, `PassBand` goes, the storing state is `aria-disabled` with the reason in the hint line, and the cost line says „je ein Modellaufruf“. Verify with `PoolView.test.tsx`: the count moves between two polls; checking and a `null` progress show no count; the cancel-requested and storing states are inert to clicks and Enter and keep focus; axe finds no violation in the running, cancel-requested and storing states (spec: Pass progress beside the pass button, Cancel button of a pass, No cancel while storing).
+- [x] 4.5 The swap delay: for 1 s after each swap the new button is `aria-disabled` and ignores presses, and focus moves to it when the old one had focus. Verify with fake timers in `PoolView.test.tsx`: a second press within 1 s of the start sends no cancel; a press within 1 s of the end starts no pass; both work after the second (spec: No double press on the pass button).
+- [x] 4.6 The e2e walkthrough measures the row of the pass button, unchanged in height and in the x position of the progress block and the counter, in the four running states at 360, 390, 640, 768, 1024 and 1280 px, and the cancel walkthrough still passes. Verify with `env -C backend uv run pytest -m e2e -q` after `npm --prefix frontend run build`.
+- [x] 4.7 README (triage bullet: no feature extraction in the pass; pool paragraph: one model call per posting, the cancel button in place of the pass button) and the AGENTS.md "Current state" entry describe the new shape. Verify by reading both against `design.md`.
+- [x] 4.8 Click test in Chromium on the built app with slow fake models: start, watch the count, double-press, cancel, at 1280 and 390 px. Verify by screenshots and by the measured row height in each state. Done 2026-11-19: the row is 150 px at 1280 and 330 px at 390 while scoring and after the cancel request; after a double click focus sits on „Scoren abbrechen“ and nothing is cancelled; Enter cancels; a click as the pass ends starts no model call. The first run found focus on `body` after the start, fixed in the review's fix wave and pinned in the e2e walkthrough.
+- [x] 4.9 Run every check from 3.4. Verified when all of them pass.

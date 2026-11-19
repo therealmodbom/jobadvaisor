@@ -28,6 +28,13 @@ def test_posting_schema_states_the_id_pattern_the_loader_enforces():
     assert POSTING_ID_PATTERN in json.loads(render()["posting.schema.json"])["description"]
 
 
+def test_pool_schema_allows_cancelled_only_as_true_or_absent():
+    cancelled = json.loads(render()["pool.schema.json"])["$defs"]["PoolPass"]["properties"][
+        "cancelled"]
+    assert {"const": True, "type": "boolean"} in cancelled["anyOf"]
+    assert {"type": "null"} in cancelled["anyOf"]
+
+
 def test_each_schema_declares_draft_2020_12_and_its_version():
     for name, content in render().items():
         schema = json.loads(content)

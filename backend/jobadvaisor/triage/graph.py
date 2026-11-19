@@ -1,6 +1,6 @@
 """The scoring pass over one batch (`design.md` → A pass is the triage graph without its rating
-pause): load → exclude → [confirm_unscreened] → extract → score → store_scores, one thread per
-run, checkpointed in SQLite.
+pause): load → exclude → [confirm_unscreened] → score → store_scores, one thread per
+run, checkpointed in SQLite. A pass reads no features: the judge is the only model it calls.
 
 The state holds plain JSON values only, so the checkpoint stays readable after a restart. The
 models, the data repository, the content guard and the index are the runtime context, built by
@@ -8,6 +8,7 @@ the caller for every invocation and never checkpointed.
 """
 
 import sqlite3
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -30,7 +31,6 @@ from jobadvaisor.index import LabelIndex, state_path
 from jobadvaisor.pool import _blocked, counter, pass_batch
 from jobadvaisor.settings import Settings
 from jobadvaisor.tools.exclusions import check_exclusions
-from jobadvaisor.tools.extraction import extract_features, feature_set
 from jobadvaisor.tools.guard import ContentGuard, screened_text
 from jobadvaisor.tools.scoring import Score as Judgement
 from jobadvaisor.tools.scoring import score_posting
@@ -44,9 +44,13 @@ class TriageState(TypedDict, total=False):
     (UTC), set by `start_run`. `results` maps every posting of the batch to its
     outcome: `{"status": "excluded", "rules": [...]}`,
     `{"status": "excluded", "reason": "content guard", "categories": [...]}`,
-    `{"status": "unscreened"}` while the user is asked, `{"status": "scored", "features",
-    "score", "reasoning", "example_ids"}` or `{"status": "failed", "error"}`. `unscreened`
+    `{"status": "unscreened"}` while the user is asked, `{"status": "pending"}` until `score`
+    reaches the posting, `{"status": "scored", "score", "reasoning", "example_ids"}` or
+    `{"status": "failed", "error"}`. `unscreened`
     lists the postings the user is asked about; `aborted` is true when the user aborted.
+    `cancelled` is set (true) by the node that sees the user's cancel and by
+    `confirm_unscreened` on the answer `"cancel"`; absent otherwise. A key not declared here is
+    silently dropped by LangGraph.
     """
 
     rescore: bool
@@ -55,18 +59,36 @@ class TriageState(TypedDict, total=False):
     results: dict[str, dict]
     unscreened: list[str]
     aborted: bool
+    cancelled: bool
+
+
+def _no_progress(progress: dict) -> None:
+    """The default `progress` hook: reports nothing."""
+
+
+def _never_cancelled() -> bool:
+    """The default `cancelled` hook: the user never asks to stop."""
+    return False
 
 
 @dataclass(frozen=True)
 class TriageContext:
     """What the nodes work with: the freshly loaded data repository, the content guard, the
-    label index and the `extractor` and `judge` chat models."""
+    label index and the `judge` chat model, plus two runtime hooks.
+
+    `progress` gets the pass's progress after every posting and at every phase start, as
+    `{"phase": "checking" | "scoring" | "storing", "score": {"done", "total"} | None}`; `score`
+    is `None` while checking. It runs on the pass's thread. `cancelled` answers whether the
+    user asked to stop; the nodes ask it before every posting. The defaults report nothing and
+    never cancel.
+    """
 
     repository: DataRepository
     guard: ContentGuard
     index: LabelIndex
-    extractor: BaseChatModel
     judge: BaseChatModel
+    progress: Callable[[dict], None] = _no_progress
+    cancelled: Callable[[], bool] = _never_cancelled
 
 
 def checkpoint_path(settings: Settings, data_repository: Path) -> Path:
@@ -90,13 +112,13 @@ def build_graph(saver: BaseCheckpointSaver) -> CompiledStateGraph:
     """The compiled triage graph, checkpointed by `saver`. Invoke it with a `TriageContext` as
     `context` and `run_config(run_id)`; resume a pause with `Command(resume=...)`."""
     graph = StateGraph(TriageState, context_schema=TriageContext)
-    for node in (load, exclude, confirm_unscreened, extract, score, store_scores):
+    for node in (load, exclude, confirm_unscreened, score, store_scores):
         graph.add_node(node.__name__, node)
     graph.add_edge(START, "load")
     graph.add_edge("load", "exclude")
-    graph.add_conditional_edges("exclude", _after_exclude, ["confirm_unscreened", "extract"])
-    graph.add_conditional_edges("confirm_unscreened", _after_confirm, ["extract", END])
-    graph.add_edge("extract", "score")
+    graph.add_conditional_edges("exclude", _after_exclude,
+                                ["confirm_unscreened", "score", END])
+    graph.add_conditional_edges("confirm_unscreened", _after_confirm, ["score", END])
     graph.add_edge("score", "store_scores")
     graph.add_edge("store_scores", END)
     return graph.compile(checkpointer=saver)
@@ -107,11 +129,14 @@ def start_run(graph: CompiledStateGraph, context: TriageContext, run_id: str,
     """Run a new pass until it pauses or ends and return its state. `rescore` makes `load`
     take every posting, scored and rated ones included; the caller sets it for variant `"all"`.
     `batch`, when given, is the exact list of posting IDs
-    to take instead (the eval's held-out postings). The pass's `started_at` is set here."""
+    to take instead (the eval's held-out postings). The pass's `started_at` is set here.
+    It runs with `durability="sync"`: each step's checkpoint is on disk before the next node
+    starts. With the default `"async"` a snapshot read in the write window shows no next node,
+    which `Runs` would report as `done` for a pass that stored nothing."""
     state: TriageState = {"rescore": rescore, "started_at": datetime.now(UTC).isoformat()}
     if batch is not None:
         state["batch"] = batch
-    return graph.invoke(state, run_config(run_id), context=context)
+    return graph.invoke(state, run_config(run_id), context=context, durability="sync")
 
 
 class ScoreRefused(Exception):
@@ -169,7 +194,9 @@ def score_one(context: TriageContext, posting_id: str) -> Score:
 def load(state: TriageState, runtime: Runtime[TriageContext]) -> dict:
     """The batch, in posting-ID order: the caller's explicit `batch`, else `pool.pass_batch`
     (the same function the pool preview uses): every posting without a score, rated or not, or
-    every posting when rescoring. An unreadable score file counts as unscored."""
+    every posting when rescoring. An unreadable score file counts as unscored. Reports the
+    phase `checking`."""
+    _report(runtime.context, "checking")
     if "batch" in state:
         return {"batch": sorted(state["batch"])}
     repository = runtime.context.repository
@@ -180,10 +207,16 @@ def load(state: TriageState, runtime: Runtime[TriageContext]) -> dict:
 def exclude(state: TriageState, runtime: Runtime[TriageContext]) -> dict:
     """Apply the exclusion rules, then the content guard to the rest: a flagged, unreleased
     posting is excluded; an unscreened one is screened now (result stored) when a classifier
-    is configured, else marked `unscreened` for the user to decide."""
-    repository = runtime.context.repository
+    is configured, else marked `unscreened` for the user to decide. Reports the phase
+    `checking`. Asks `cancelled()` before every posting; on a cancel it stops and returns the
+    results so far with `cancelled: True` (the postings it did not reach are left out)."""
+    context = runtime.context
+    repository = context.repository
+    _report(context, "checking")
     results, unscreened = {}, []
     for posting_id in state["batch"]:
+        if context.cancelled():
+            return {"results": results, "unscreened": unscreened, "cancelled": True}
         posting = repository.postings[posting_id]
         if rules := check_exclusions(posting, repository.policy_pack.exclusion_rules):
             results[posting_id] = {"status": "excluded", "rules": rules}
@@ -196,55 +229,54 @@ def exclude(state: TriageState, runtime: Runtime[TriageContext]) -> dict:
 
 def confirm_unscreened(state: TriageState, runtime: Runtime[TriageContext]) -> dict:
     """Pause and ask whether to continue with the unscreened postings; resumed with `True`
-    (continue) or `False` (abort). The answer is not stored anywhere else."""
+    (continue), `False` (abort) or `"cancel"` (the user cancelled the pass while it was on its
+    way here; ends it as cancelled). The answer is not stored anywhere else."""
     proceed = interrupt({"question": "unscreened", "postings": state["unscreened"]})
+    if proceed == "cancel":
+        return {"cancelled": True}
     if not proceed:
         return {"aborted": True}
     return {"aborted": False, "results": state["results"] | {
         posting_id: {"status": "pending"} for posting_id in state["unscreened"]}}
 
 
-def extract(state: TriageState, runtime: Runtime[TriageContext]) -> dict:
-    """Extract the feature set from every pending posting; a failed call fails that posting
-    only. The guard rules again first on the posting as stored now, since a paused run may
-    resume after it was flagged or screening was turned on; an unscreened posting passes only
-    when the user continued with it."""
+def score(state: TriageState, runtime: Runtime[TriageContext]) -> dict:
+    """Score every pending posting with its most similar labeled postings as examples, after
+    syncing the index with the repository's labels. The guard rules again first on the posting
+    as stored now, since a paused run may resume after it was flagged or screening was turned
+    on; an unscreened posting passes only when the user continued with it, any other ruling
+    becomes the posting's result without a model call. A failed call fails that posting only.
+
+    Reports `scoring` after every posting (`design.md` → The progress shape): a failed one
+    counts as done, a ruling removes the posting from the total. Asks `cancelled()` before
+    every posting; on a cancel it returns the results so far with `cancelled: True`, the
+    postings it did not reach still `pending`."""
     context = runtime.context
-    features = feature_set(context.repository.policy_pack.feature_set)
     results = dict(state["results"])
     continued = set(state.get("unscreened", []))
-    for posting_id in _with_status(results, "pending"):
+    queue = _with_status(results, "pending")
+    total, done = len(queue), 0
+    _report(context, "scoring", (done, total))
+    context.index.sync(context.repository)
+    for posting_id in queue:
+        if context.cancelled():
+            return {"results": results, "cancelled": True}
         try:
             ruling = _guard_ruling(context, posting_id)
             if ruling and not (ruling["status"] == "unscreened" and posting_id in continued):
                 results[posting_id] = ruling
+                total -= 1
+                _report(context, "scoring", (done, total))
                 continue
-            posting = context.repository.postings[posting_id]
-            extracted = extract_features(posting, features, context.extractor,
-                                         context.repository.company_of(posting))
-        except Exception as error:  # one bad answer must not end the run
-            results[posting_id] = {"status": "failed", "error": str(error)}
-        else:
-            results[posting_id] = {"status": "extracted", "features": extracted}
-    return {"results": results}
-
-
-def score(state: TriageState, runtime: Runtime[TriageContext]) -> dict:
-    """Score every extracted posting with its most similar labeled postings as examples,
-    after syncing the index with the repository's labels."""
-    context = runtime.context
-    context.index.sync(context.repository)
-    results = dict(state["results"])
-    for posting_id in _with_status(results, "extracted"):
-        try:
             scored = _judge(context, posting_id)
         except Exception as error:  # one bad answer must not end the run
             results[posting_id] = {"status": "failed", "error": str(error)}
         else:
-            results[posting_id] = {"status": "scored",
-                                   "features": results[posting_id]["features"],
-                                   "score": scored.score, "reasoning": scored.reasoning,
+            results[posting_id] = {"status": "scored", "score": scored.score,
+                                   "reasoning": scored.reasoning,
                                    "example_ids": scored.example_ids}
+        done += 1
+        _report(context, "scoring", (done, total))
     return {"results": results}
 
 
@@ -254,13 +286,16 @@ def store_scores(state: TriageState, runtime: Runtime[TriageContext]) -> dict:
     first so a broken file found afterwards cannot discard paid work. The pass's quality
     measure is the correction counter against the pool and the scores from before this pass,
     read before writing, since the pass may have rescored rated postings. The entry's `variant`
-    is `"all"` for a pass with `rescore`, else `"unscored"`. Score times and `finished_at` are
-    one instant."""
+    is `"all"` for a pass with `rescore`, else `"unscored"`; `cancelled` is true when the state
+    says the user cancelled. Score times and `finished_at` are one instant. Reports `storing`
+    with the final counts, only when something is stored, and never asks `cancelled()`: a cancel
+    that arrives from here on ends a complete pass."""
     root = runtime.context.repository.root
     now = datetime.now(UTC)
     scored = _with_status(state["results"], "scored")
     if not scored:
         return {}
+    _report_storing(runtime.context, state)
     before, _ = read_scores(root)
     for posting_id in scored:
         result = state["results"][posting_id]
@@ -272,8 +307,26 @@ def store_scores(state: TriageState, runtime: Runtime[TriageContext]) -> dict:
     append_pass(root, PoolPass(started_at=started, finished_at=now, scored=len(scored),
                                corrections=measured["corrections"], rated=measured["rated"],
                                rate=measured["rate"],
-                               variant="all" if state.get("rescore") else "unscored"))
+                               variant="all" if state.get("rescore") else "unscored",
+                               cancelled=True if state.get("cancelled") else None))
     return {}
+
+
+def _report(context: TriageContext, phase: str, score: tuple[int, int] | None = None) -> None:
+    """Hand the pass's progress to `context.progress`; `score` is `(done, total)`, `None`
+    while checking."""
+    context.progress({"phase": phase, "score": score and {"done": score[0], "total": score[1]}})
+
+
+def _report_storing(context: TriageContext, state: TriageState) -> None:
+    """Report `storing` with the counts as `score` left them, derived from the results:
+    `scored` and `failed` postings are done, one still `pending` (after a cancel) is in the
+    total but not done."""
+    results = state["results"].values()
+    count = {status: sum(r["status"] == status for r in results)
+             for status in ("scored", "failed", "pending")}
+    done = count["scored"] + count["failed"]
+    _report(context, "storing", (done, done + count["pending"]))
 
 
 def _judge(context: TriageContext, posting_id: str) -> Judgement:
@@ -304,11 +357,13 @@ def _guard_ruling(context: TriageContext, posting_id: str) -> dict | None:
 
 
 def _after_exclude(state: TriageState) -> str:
-    return "confirm_unscreened" if state["unscreened"] else "extract"
+    if state.get("cancelled"):
+        return END
+    return "confirm_unscreened" if state["unscreened"] else "score"
 
 
 def _after_confirm(state: TriageState) -> str:
-    return END if state["aborted"] else "extract"
+    return END if state.get("cancelled") or state.get("aborted") else "score"
 
 
 def _with_status(results: dict[str, dict], status: str) -> list[str]:

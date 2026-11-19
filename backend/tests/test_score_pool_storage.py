@@ -90,6 +90,15 @@ def test_a_pass_record_without_a_variant_loads_as_none_and_a_variant_round_trips
     assert read_pool(data_repository) == pool
 
 
+def test_a_pass_that_was_not_cancelled_writes_no_cancelled_key_and_a_cancelled_one_does(
+        data_repository):
+    append_pass(data_repository, _pass(1))
+    append_pass(data_repository, _pass(2).model_copy(update={"cancelled": True}))
+    written = json.loads((data_repository / "pool.json").read_text())["passes"]
+    assert "cancelled" not in written[0] and written[1]["cancelled"] is True
+    assert [p.cancelled for p in read_pool(data_repository).passes] == [None, True]
+
+
 def test_write_pool_keeps_settings(data_repository):
     pool = Pool(schema_version="1", settings=PoolSettings(correction_rate=0.5), passes=[_pass(1)])
     write_pool(data_repository, pool)

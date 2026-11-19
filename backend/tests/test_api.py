@@ -29,6 +29,7 @@ class Api:
 
     def __init__(self, harness: Harness):
         self.harness, self.gate = harness, threading.Event()
+        self.entered = threading.Event()  # set when the judge is first called
         self.gate.set()
         harness.judge = ScriptedModel(self._judge)
         self.runs = Runs(harness.graph, harness.context)
@@ -43,6 +44,7 @@ class Api:
                                  raise_server_exceptions=False)
 
     def _judge(self, schema, prompt):
+        self.entered.set()
         assert self.gate.wait(10), "gate never opened"
         return judge_by_title(schema, prompt)
 
@@ -108,28 +110,35 @@ def test_a_read_racing_the_pass_end_reports_it_running(api, monkeypatch):
     assert api.settled(pass_id)["status"] == "done"
 
 
-def test_progress_counts_the_finished_postings_and_the_pass_stores_them(api, root):
+def test_a_finished_pass_reports_its_last_progress_and_the_scores_it_stored(api, root):
     progress = api.settled(api.start())
-    assert progress["total"] == 6 and progress["done"] == 6 and progress["unscreened"] == []
+    assert progress["scored"] == 5 and progress["unscreened"] == []
     assert progress["error"] is None and progress["started_at"]
-    assert set(progress) == {"pass_id", "status", "started_at", "error", "total", "done",
-                             "unscreened"}
+    assert progress["cancel_requested"] is False
+    assert progress["progress"] == {"phase": "storing", "score": {"done": 5, "total": 5}}
+    assert set(progress) == {"pass_id", "status", "started_at", "error", "progress",
+                             "cancel_requested", "scored", "unscreened"}
     assert read_score(root, "p5").score == 5
     assert read_pool(root).passes[0].scored == 5
 
 
-def test_progress_while_the_pass_computes_has_a_total_or_none_yet(api):
+def test_progress_is_readable_while_the_pass_computes(api):
     api.gate.clear()
-    progress = api.client.get(f"/pool/passes/{api.start()}").json()
-    assert progress["status"] == "running" and progress["done"] <= progress["total"]
+    pass_id = api.start()
+    assert api.entered.wait(10)
+    progress = api.client.get(f"/pool/passes/{pass_id}").json()
+    assert progress["status"] == "running" and progress["scored"] == 0
+    assert progress["progress"] == {"phase": "scoring", "score": {"done": 0, "total": 5}}
     api.gate.set()
+    api.settled(pass_id)
 
 
 def test_a_pass_that_fails_before_its_first_step_reports_failed(api, root):
     write_json(root / "postings/broken.json", {"schema_version": "1"})
     progress = api.settled(api.start())
     assert progress["status"] == "failed" and "postings/broken.json" in progress["error"]
-    assert progress["total"] == 0 and progress["unscreened"] == []
+    assert progress["progress"] is None and progress["scored"] == 0
+    assert progress["cancel_requested"] is False and progress["unscreened"] == []
 
 
 def test_unknown_pass_answers_with_error_and_detail(api):
@@ -137,6 +146,52 @@ def test_unknown_pass_answers_with_error_and_detail(api):
     assert unknown.status_code == 404 and set(unknown.json()) == {"error", "detail"}
     answer = api.client.post("/pool/passes/nope/unscreened", json={"continue": True})
     assert answer.status_code == 404 and set(answer.json()) == {"error", "detail"}
+    cancel = api.client.post("/pool/passes/nope/cancel")
+    assert cancel.status_code == 404 and cancel.json()["error"] == "not found"
+    assert set(cancel.json()) == {"error", "detail"}
+
+
+def test_cancel_answers_202_and_the_pass_stops_after_its_posting_with_its_scores_stored(api, root):
+    api.gate.clear()
+    pass_id = api.start()
+    assert api.entered.wait(10)
+    answer = api.client.post(f"/pool/passes/{pass_id}/cancel")
+    assert answer.status_code == 202 and answer.json() == {"pass_id": pass_id}
+    requested = api.client.get(f"/pool/passes/{pass_id}").json()
+    assert requested["status"] == "running" and requested["cancel_requested"] is True
+    api.gate.set()
+    ended = api.settled(pass_id)
+    assert ended["status"] == "cancelled" and ended["cancel_requested"] is False
+    assert ended["scored"] == 1 and ended["error"] is None
+    assert read_score(root, "p1").score == 1 and read_score(root, "p2") is None
+    assert read_pool(root).passes[0].cancelled is True
+
+
+def test_cancel_of_a_pass_that_waits_for_the_answer_or_has_ended_is_409_not_running(
+        unscreened):
+    waiting = unscreened.settled(unscreened.start())["pass_id"]
+    refused = unscreened.client.post(f"/pool/passes/{waiting}/cancel")
+    assert refused.status_code == 409 and refused.json()["error"] == "pass not running"
+    assert set(refused.json()) == {"error", "detail"}
+    assert unscreened.client.get(f"/pool/passes/{waiting}").json()["status"] == "awaiting_answer"
+    unscreened.client.post(f"/pool/passes/{waiting}/unscreened", json={"continue": True})
+    assert unscreened.settled(waiting)["status"] == "done"
+    ended = unscreened.client.post(f"/pool/passes/{waiting}/cancel")
+    assert ended.status_code == 409 and ended.json()["error"] == "pass not running"
+    assert unscreened.client.get(f"/pool/passes/{waiting}").json()["status"] == "done"
+
+
+def test_cancel_of_a_single_score_is_404_and_the_score_goes_on(api, root):
+    api.gate.clear()
+    answers = []
+    single = threading.Thread(target=lambda: answers.append(post_score(api, "p2").status_code))
+    single.start()
+    assert api.entered.wait(10)
+    refused = api.client.post("/pool/passes/score:p2/cancel")
+    assert refused.status_code == 404 and refused.json()["error"] == "not found"
+    api.gate.set()
+    single.join(10)
+    assert answers == [200] and read_score(root, "p2").score == 2
 
 
 def test_the_old_run_routes_the_rating_route_and_the_run_list_are_gone(api):
@@ -156,7 +211,7 @@ def test_new_label_is_retrievable_in_the_next_pass_without_a_rebuild(api, root):
     write_json(root / "labels/p5.json", LABEL)
     add_posting(root, "similar", "Engineer 8")
     progress = api.settled(api.start())
-    assert progress["total"] == 2 and progress["done"] == 2
+    assert progress["scored"] == 1
     assert "p5" in read_score(root, "similar").example_ids
 
 
@@ -184,8 +239,8 @@ def test_pass_paused_over_unscreened_postings_reports_them_with_title_and_compan
     assert progress["unscreened"] == [{"posting_id": "unscreened",
                                        "title": "Unscreened Engineer 2",
                                        "company": "Example Corp"}]
-    assert progress["done"] < progress["total"]
-    assert unscreened.harness.extractor.calls == []
+    assert progress["scored"] == 0 and progress["progress"]["phase"] == "checking"
+    assert unscreened.harness.judge.calls == []
 
 
 def test_an_unscreened_posting_that_is_gone_falls_back_to_its_id(unscreened, root):
@@ -203,7 +258,7 @@ def test_continue_answer_resumes_the_pass_and_stores_its_scores(unscreened, root
                                       json={"continue": True})
     assert response.status_code == 202 and response.json() == {"pass_id": pass_id}
     progress = unscreened.settled(pass_id)
-    assert progress["status"] == "done" and progress["done"] == progress["total"] == 7
+    assert progress["status"] == "done" and progress["scored"] == 6
     assert read_score(root, "unscreened").score == 2
 
 
@@ -212,7 +267,7 @@ def test_abort_answer_ends_the_pass(unscreened):
     unscreened.settled(pass_id)
     unscreened.client.post(f"/pool/passes/{pass_id}/unscreened", json={"continue": False})
     assert unscreened.settled(pass_id)["status"] == "aborted"
-    assert unscreened.harness.extractor.calls == []
+    assert unscreened.harness.judge.calls == []
 
 
 def test_answer_without_a_pending_question_is_rejected(api):

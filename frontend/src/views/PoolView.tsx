@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
-import { Check, ChevronDown, ChevronUp, Compass, LoaderCircle, ShieldAlert } from 'lucide-react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
+import { Check, ChevronDown, ChevronUp, Compass, LoaderCircle, ShieldAlert, Square } from 'lucide-react'
 import { DropdownMenu } from 'radix-ui'
-import { api, ApiError, type NextPass, type PassState, type PassVariant, type Pool, type PoolRow, type PoolSettings, type RatingAnswer, type ScoreAnswer, type Status, type Strength, type Verdict } from '@/api'
+import { api, ApiError, type NextPass, type PassProgress, type PassState, type PassVariant, type Pool, type PoolRow, type PoolSettings, type RatingAnswer, type ScoreAnswer, type Status, type Strength, type Verdict } from '@/api'
 import { Badge, ChipList, ScoreButton, ScoreProblem, ScoreText, StatusControl } from '@/components/posting'
 import { Legend, ReasonsAndNote, VerdictButtons } from '@/components/rating'
 import { EmptyState, ErrorWithRetry, Loading } from '@/components/states'
@@ -50,12 +50,17 @@ const FILTERS: { id: string; label: string; keep: (row: PoolRow) => boolean }[] 
 ]
 
 /** The scoring pass: starts it, polls it while it runs, remembers its ID across a reload.
- * `onDone` runs when a pass finishes. `busy` is true while one runs or waits for an answer. */
+ * `onDone` runs when a pass ends with scores to show: done or cancelled. `busy` is true while one
+ * runs or waits for an answer. `cancelling` is true from the accepted cancel request on, so a
+ * poll that started before it cannot enable the button again. `cancelledScored` is the number a
+ * cancelled pass stored (null: none was cancelled, or a later pass started). */
 function usePass(onDone: () => void) {
   const [passId, setPassId] = useState<string | null>(storedPass.get)
   const [pass, setPass] = useState<PassState | null>(null)
   const [notice, setNotice] = useState('')
   const [pollFailed, setPollFailed] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
+  const [cancelledScored, setCancelledScored] = useState<number | null>(null)
   const sending = useRef(false)
   const running = passId !== null && (pass === null || pass.status === 'running')
   const busy = running || pass?.status === 'awaiting_answer'
@@ -66,10 +71,11 @@ function usePass(onDone: () => void) {
     const timer = setInterval(() => {
       api<PassState>(`/pool/passes/${passId}`).then((next) => {
         failures = 0
-        if (next.status === 'done') {
+        if (next.status === 'done' || next.status === 'cancelled') {
           storedPass.set(null)
           setPassId(null)
           setPass(null)
+          if (next.status === 'cancelled') setCancelledScored(next.scored)
           onDone()
         } else {
           if (next.status === 'aborted' || next.status === 'failed') storedPass.set(null)
@@ -107,6 +113,8 @@ function usePass(onDone: () => void) {
     storedPass.set(answer.pass_id)
     setPass(null)
     setPollFailed(false)
+    setCancelling(false)
+    setCancelledScored(null)
     setPassId(answer.pass_id)
   }, 'Es wird schon gescort. Warte, bis das fertig ist.',
   'Das Scoren konnte nicht gestartet werden. Ist der Server erreichbar?')
@@ -115,8 +123,66 @@ function usePass(onDone: () => void) {
     setPass((current) => current && { ...current, status: 'running' })
   }, 'Gerade wird schon gescort. Antworte, wenn das fertig ist.',
   'Die Antwort wurde nicht gespeichert. Versuch es noch einmal.')
-  return { pass, busy, notice, start, answer, pollFailed, retryPoll: () => setPollFailed(false) }
+  // A 409 means the pass ended or paused in between; the next poll shows that, so it says nothing.
+  const cancel = () => send(async () => {
+    await api(`/pool/passes/${passId}/cancel`, { method: 'POST' })
+    setCancelling(true)
+  }, '', 'Das Scoren konnte nicht abgebrochen werden. Versuch es noch einmal.')
+  return { pass, busy, notice, start, answer, cancel, cancelling, cancelledScored, pollFailed,
+           retryPoll: () => setPollFailed(false) }
 }
+
+/** How long a button that just appeared after a swap ignores presses, in milliseconds. */
+export const SWAP_LOCK_MS = 1000
+const HINT_DEFAULT = 'Abbrechen hält nach der aktuellen Anzeige an. Was schon gescort ist, bleibt gespeichert.'
+/** The default hint is shorter on a phone (design: A-Phone), so it keeps its two lines there. */
+const HINT_DEFAULT_PHONE = 'Abbrechen hält nach der aktuellen Anzeige an. Gescortes bleibt gespeichert.'
+const HINT_STOPPING = 'Wird nach der aktuellen Anzeige beendet.'
+const HINT_STORING = 'Das Speichern lässt sich nicht mehr abbrechen.'
+
+/** The progress of a running pass, beside the pass button (design variant A): a head line with the
+ * loader, a bar and a hint line, each of fixed height (the hint always has two lines' room), taking
+ * the remaining row width from `sm` (it grows from a 340 px basis, so a neighbour wraps instead of
+ * squeezing it) and the full width below, so the block keeps one size in every
+ * phase (while no pass runs, an empty slot of the same flex keeps the counter in its place). `progress` null
+ * (no report yet) reads like checking: no count, empty bar. The bar fills with `done`/`total`
+ * while scoring and is full while storing. The hint (`#cancel-why`, the cancel button's
+ * description) says what a cancel does, that one was requested (`stopping`), or why storing cannot
+ * be cancelled. Only texts and the bar change. */
+function PassProgressBlock({ progress, stopping }: { progress: PassProgress | null; stopping: boolean }) {
+  const phase = progress?.phase ?? 'checking'
+  const score = progress?.score ?? null
+  const storing = phase === 'storing'
+  const counted = phase === 'checking' ? null : score
+  const total = Math.max(score?.total ?? 1, 1)
+  const [value, max] = storing ? [total, total] : counted ? [counted.done, total] : [0, 1]
+  const head = storing ? 'Scores werden gespeichert'
+    : counted ? `Scoren läuft: ${counted.done} von ${counted.total}` : 'Scoren läuft: Anzeigen prüfen…'
+  // The bar is full while storing, but its name says how many were scored (a cancel stores fewer).
+  const barLabel = counted ? `Scoren: ${counted.done} von ${counted.total}` : storing ? 'Scores speichern' : 'Anzeigen prüfen'
+  return (
+    <section aria-label="Stand des Scorens" className="flex w-full min-w-0 flex-col gap-1.5 sm:w-auto sm:flex-[1_1_340px]">
+      <div className="flex h-6 items-center gap-2">
+        <LoaderCircle className="size-[18px] flex-none motion-safe:animate-spin" aria-hidden="true" />
+        <strong>{head}</strong>
+      </div>
+      <progress value={value} max={max} aria-label={barLabel}
+                className="h-2.5 w-full appearance-none overflow-hidden rounded-full border-0 bg-border [&::-moz-progress-bar]:bg-primary [&::-webkit-progress-bar]:rounded-full [&::-webkit-progress-bar]:bg-border [&::-webkit-progress-value]:rounded-full [&::-webkit-progress-value]:bg-primary" />
+      <p id="cancel-why" className={cn('h-10 text-sm leading-5 text-muted-foreground', stopping && !storing && 'font-bold text-foreground')}>
+        {storing ? HINT_STORING : stopping ? HINT_STOPPING : (
+          <>
+            <span className="sm:hidden">{HINT_DEFAULT_PHONE}</span>
+            <span className="max-sm:hidden">{HINT_DEFAULT}</span>
+          </>
+        )}
+      </p>
+    </section>
+  )
+}
+
+/** The status-region sentence for a cancelled pass that stored `scored` scores. */
+const cancelledText = (scored: number) => `Das Scoren wurde abgebrochen. ${
+  scored === 0 ? 'Keine Anzeige hat' : scored === 1 ? '1 Anzeige hat' : `${scored} Anzeigen haben`} einen neuen Score.`
 
 const VARIANT_TITLE: Record<PassVariant, string> = { unscored: 'Nur Anzeigen ohne Score', all: 'Alle Anzeigen neu scoren' }
 const VARIANT_VERBS: Record<PassVariant, string> = { unscored: 'Anzeigen ohne Score scoren', all: 'Alle Anzeigen neu scoren' }
@@ -125,90 +191,157 @@ const NOTHING_TO_SCORE = {
   all: 'Es gibt nichts zu scoren: Alle Anzeigen sind ausgeschlossen oder zurückgehalten.',
 }
 
-/** What a pass of `variant` over `n` postings costs: two model calls per posting. */
+/** What a pass of `variant` over `n` postings costs: one model call per posting. */
 function costLine(variant: PassVariant, n: number) {
   const postings = n === 1 ? '1 Anzeige' : `${n} Anzeigen`
-  return variant === 'unscored' ? `${postings} ohne Score, je zwei Modellaufrufe.`
-    : `${postings}, je zwei Modellaufrufe. Vorhandene Scores werden ersetzt.`
+  return variant === 'unscored' ? `${postings} ohne Score, je ein Modellaufruf.`
+    : `${postings}, je ein Modellaufruf. Vorhandene Scores werden ersetzt.`
 }
 
-/** The scoring pass as a split button: the main part starts the pass of the `shown` variant, the
- * trigger opens a menu whose entries `onPick` a variant without starting anything. The text under
- * it (`#pass-why`, the main part's description) is the cost line, or the reason the main part is
- * disabled: no postings for the variant, or a pass is `busy`. Only `busy` disables the trigger. */
-function PassButton({ nextPass, shown, busy, onPick, onStart }: {
+/** The scoring pass as a split button that turns into its own cancel button.
+ * Idle (`working` false): the main part starts the pass of the `shown` variant, the trigger opens a
+ * menu whose entries `onPick` a variant without starting anything. The text under it (`#pass-why`,
+ * the main part's description) is the cost line, or the reason the main part is disabled: no
+ * postings for the variant, or a pass is `busy`. Only `busy` disables the trigger.
+ * `working` (a pass computes): the split button gives way to one outline button that calls
+ * `onCancel`. Both sit in one grid cell, the split button stays in the layout, `invisible` and
+ * `inert`, and reserves the width, so nothing beside it moves when a pass starts or ends; the cost
+ * line is not shown. `stopping` (a cancel was requested): the button reads "Wird beendet…".
+ * `storing`: it keeps its label but cannot cancel any more. In both it is `aria-disabled`, not
+ * `disabled`, so it keeps focus and a further Enter does nothing; `#cancel-why` (the progress
+ * block's hint) gives the reason.
+ * Swap delay: for `SWAP_LOCK_MS` after each swap the button that appeared is `aria-disabled` and
+ * ignores presses, so a double click cannot cancel the pass it just started, nor a late cancel
+ * click start a new one.
+ * Focus: the main part is never natively `disabled` (no postings for the variant, a pass `busy`,
+ * the swap delay): it is `aria-disabled` with a click guard, so it keeps focus when a reload or a
+ * pass sets its count to 0 and a further Enter lands on a button, not on the pool's row shortcuts.
+ * When focus was inside the button area before a swap, it moves with the swap: to the cancel button
+ * when a pass starts, back to the main part when it ends, or to the unscreened question's heading
+ * when the pass stopped at that question (never to a button that starts paid work). Focus inside
+ * that question counts as inside the area, so answering it carries focus on the same way. */
+function PassButton({ nextPass, shown, busy, working, stopping, storing, onPick, onStart, onCancel }: {
   nextPass: NextPass
   shown: PassVariant
   busy: boolean
+  working: boolean
+  stopping: boolean
+  storing: boolean
   onPick: (variant: PassVariant) => void
   onStart: (variant: PassVariant) => void
+  onCancel: () => void
 }) {
   const [open, setOpen] = useState(false)
   // A pass that starts while the menu is open closes it (render-time sync, no effect).
   if (busy && open) setOpen(false)
+  // A swap locks the new button for SWAP_LOCK_MS (render-time sync, the timer is the effect).
+  const [seenWorking, setSeenWorking] = useState(working)
+  const [locked, setLocked] = useState(false)
+  const [handoff, setHandoff] = useState(false)
+  if (seenWorking !== working) {
+    setSeenWorking(working)
+    setLocked(true)
+    // Read focus now, before the commit: Chromium blurs a focused button that turns inert, so by
+    // the layout effect `document.activeElement` can already be `body`.
+    setHandoff(document.activeElement?.closest('[data-pass-area]') != null)
+  }
+  useEffect(() => {
+    if (!locked) return
+    const timer = setTimeout(() => setLocked(false), SWAP_LOCK_MS)
+    return () => clearTimeout(timer)
+  }, [locked, seenWorking])
+  const mainRef = useRef<HTMLButtonElement>(null)
+  const cancelRef = useRef<HTMLButtonElement>(null)
+  // Both buttons stay mounted, so the target exists at commit time. Nothing here starts paid work:
+  // the pass button, even when the swap goes back to it, is `aria-disabled` for the swap delay.
+  // Both buttons use `transition-colors`, not the base `transition-all`: a transition on
+  // `visibility` keeps the button that just appeared `hidden` for a moment, and Chromium refuses
+  // `focus()` on it.
+  useLayoutEffect(() => {
+    if (!handoff) return
+    const question = document.getElementById('unscreened-title')
+    const target = seenWorking ? cancelRef.current : question ?? mainRef.current
+    target?.focus()
+  }, [handoff, seenWorking])
   const count = nextPass[shown]
   const why = busy ? 'Das Scoren läuft.' : count === 0 ? NOTHING_TO_SCORE[shown] : costLine(shown, count)
   const Chevron = open ? ChevronUp : ChevronDown
+  const cancelDead = locked || stopping || storing
+  const mainDead = locked || busy || count === 0
   return (
     <div className="flex flex-col gap-1.5 max-sm:w-full">
-      <div role="group" aria-label="Scoren" className="flex">
-        <Button className="min-w-0 flex-1 rounded-r-none" onClick={() => onStart(shown)}
-                disabled={busy || count === 0} aria-describedby="pass-why">
-          {/* Both labels share one grid cell, so the button keeps the wider one's size when the
-              variant changes; the hidden one only reserves space. */}
-          <span className="grid justify-items-center">
-            {(['unscored', 'all'] as const).map((variant) => (
-              <span key={variant} aria-hidden={variant !== shown || undefined}
-                    className={cn('col-start-1 row-start-1', variant !== shown && 'invisible')}>
-                {VARIANT_VERBS[variant]} ({nextPass[variant]})
-              </span>
-            ))}
-          </span>
+      <div data-pass-area className="grid">
+        <div role="group" aria-label="Scoren" inert={working} aria-hidden={working || undefined}
+             className={cn('col-start-1 row-start-1 flex', working && 'invisible')}>
+          <Button ref={mainRef} onClick={() => { if (!mainDead) onStart(shown) }}
+                  aria-disabled={mainDead || undefined} aria-describedby="pass-why"
+                  className={cn('min-w-0 flex-1 rounded-r-none transition-colors', (busy || count === 0) && 'cursor-default opacity-50 hover:bg-primary')}>
+            {/* Both labels share one grid cell, so the button keeps the wider one's size when the
+                variant changes; the hidden one only reserves space. */}
+            <span className="grid justify-items-center">
+              {(['unscored', 'all'] as const).map((variant) => (
+                <span key={variant} aria-hidden={variant !== shown || undefined}
+                      className={cn('col-start-1 row-start-1', variant !== shown && 'invisible')}>
+                  {VARIANT_VERBS[variant]} ({nextPass[variant]})
+                </span>
+              ))}
+            </span>
+          </Button>
+          <DropdownMenu.Root open={open} onOpenChange={setOpen}>
+            <DropdownMenu.Trigger asChild>
+              <Button className="w-11 rounded-l-none border-l border-primary-foreground/45 px-0"
+                      aria-label="Andere Variante wählen" disabled={busy}>
+                <Chevron aria-hidden="true" />
+              </Button>
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.Content align="start" sideOffset={6} collisionPadding={16} aria-label="Variante"
+                                    className="z-50 flex w-[min(380px,calc(100vw-2rem))] flex-col gap-0.5 rounded-xl border bg-card p-1.5 shadow-card">
+                <DropdownMenu.RadioGroup value={shown} onValueChange={(value) => onPick(value as PassVariant)}>
+                  {(['unscored', 'all'] as const).map((variant) => (
+                    <DropdownMenu.RadioItem key={variant} value={variant}
+                                            className="flex min-h-11 cursor-pointer items-start gap-2.5 rounded-md px-2.5 py-2 outline-none data-[highlighted]:bg-muted">
+                      <span className="mt-1 size-4 flex-none text-primary">
+                        <DropdownMenu.ItemIndicator><Check className="size-4" aria-hidden="true" /></DropdownMenu.ItemIndicator>
+                      </span>
+                      <span className="flex flex-col">
+                        <span className="font-bold">{VARIANT_TITLE[variant]} ({nextPass[variant]})</span>
+                        <span className="text-sm text-muted-foreground">{costLine(variant, nextPass[variant])}</span>
+                      </span>
+                    </DropdownMenu.RadioItem>
+                  ))}
+                </DropdownMenu.RadioGroup>
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Root>
+        </div>
+        <Button ref={cancelRef} variant="outline" inert={!working} aria-hidden={!working || undefined}
+                aria-disabled={cancelDead ? true : undefined} aria-describedby="cancel-why"
+                onClick={() => { if (!cancelDead) onCancel() }}
+                className={cn('col-start-1 row-start-1 transition-colors', !working && 'invisible',
+                  (stopping || storing) && 'cursor-default text-muted-foreground hover:bg-card')}>
+          <Square aria-hidden="true" />{stopping && !storing ? 'Wird beendet…' : 'Scoren abbrechen'}
         </Button>
-        <DropdownMenu.Root open={open} onOpenChange={setOpen}>
-          <DropdownMenu.Trigger asChild>
-            <Button className="w-11 rounded-l-none border-l border-primary-foreground/45 px-0"
-                    aria-label="Andere Variante wählen" disabled={busy}>
-              <Chevron aria-hidden="true" />
-            </Button>
-          </DropdownMenu.Trigger>
-          <DropdownMenu.Portal>
-            <DropdownMenu.Content align="start" sideOffset={6} collisionPadding={16} aria-label="Variante"
-                                  className="z-50 flex w-[min(380px,calc(100vw-2rem))] flex-col gap-0.5 rounded-xl border bg-card p-1.5 shadow-card">
-              <DropdownMenu.RadioGroup value={shown} onValueChange={(value) => onPick(value as PassVariant)}>
-                {(['unscored', 'all'] as const).map((variant) => (
-                  <DropdownMenu.RadioItem key={variant} value={variant}
-                                          className="flex min-h-11 cursor-pointer items-start gap-2.5 rounded-md px-2.5 py-2 outline-none data-[highlighted]:bg-muted">
-                    <span className="mt-1 size-4 flex-none text-primary">
-                      <DropdownMenu.ItemIndicator><Check className="size-4" aria-hidden="true" /></DropdownMenu.ItemIndicator>
-                    </span>
-                    <span className="flex flex-col">
-                      <span className="font-bold">{VARIANT_TITLE[variant]} ({nextPass[variant]})</span>
-                      <span className="text-sm text-muted-foreground">{costLine(variant, nextPass[variant])}</span>
-                    </span>
-                  </DropdownMenu.RadioItem>
-                ))}
-              </DropdownMenu.RadioGroup>
-            </DropdownMenu.Content>
-          </DropdownMenu.Portal>
-        </DropdownMenu.Root>
       </div>
       {/* w-0 min-w-full: the line wraps within the button's width instead of setting it. */}
-      <p id="pass-why" className="w-0 min-w-full text-sm text-muted-foreground">{why}</p>
+      {!working && <p id="pass-why" className="w-0 min-w-full text-sm text-muted-foreground">{why}</p>}
     </div>
   )
 }
 
-/** The question over postings the content guard never checked: names them, then go on or abort. */
+/** The question over postings the content guard never checked: names them, then go on or abort.
+ * It is part of the pass button's focus area (`data-pass-area`): an answer unmounts the pressed
+ * button, and `PassButton` then moves focus to the cancel button (the pass goes on) or, once the
+ * aborted pass has ended, to its main part. */
 function UnscreenedQuestion({ pass, onAnswer }: { pass: PassState; onAnswer: (proceed: boolean) => void }) {
   const count = pass.unscreened.length
   return (
-    <section aria-labelledby="unscreened-title"
+    <section aria-labelledby="unscreened-title" data-pass-area
              className="flex max-w-[760px] flex-col gap-4 rounded-xl border bg-card p-6 shadow-card">
       <div className="flex items-start gap-3">
         <ShieldAlert className="mt-0.5 size-6 flex-none text-negative" aria-hidden="true" />
         <div>
-          <h2 id="unscreened-title" className="text-xl font-bold">Das Scoren wartet auf deine Antwort</h2>
+          <h2 id="unscreened-title" tabIndex={-1} className="text-xl font-bold">Das Scoren wartet auf deine Antwort</h2>
           <p className="mt-1.5">
             {count === 1 ? 'Eine Anzeige wurde' : `${count} Anzeigen wurden`} hinzugefügt, während die
             Inhaltsprüfung aus war. Niemand hat sie auf Text geprüft, der sich an die KI richtet, etwa die
@@ -483,7 +616,7 @@ export function PoolView({ active = true }: { active?: boolean }) {
     load()
     clearBusy()
   }, [load, clearBusy])
-  const { pass, busy, notice, start, answer, pollFailed, retryPoll } = usePass(passDone)
+  const { pass, busy, notice, start, answer, cancel, cancelling, cancelledScored, pollFailed, retryPoll } = usePass(passDone)
 
   async function setStatus(postingId: string, status: Status) {
     setSaving((current) => ({ ...current, [postingId]: true }))
@@ -607,6 +740,8 @@ export function PoolView({ active = true }: { active?: boolean }) {
   })
   const counter = pool?.counter
   const working = busy && !pollFailed && pass?.status !== 'awaiting_answer'
+  const stopping = cancelling || (pass?.cancel_requested ?? false)
+  const storing = pass?.progress?.phase === 'storing'
   const defaultVariant = pool?.next_pass.default
   const [seenDefault, setSeenDefault] = useState(defaultVariant)
   if (seenDefault !== defaultVariant) {
@@ -621,14 +756,22 @@ export function PoolView({ active = true }: { active?: boolean }) {
 
       {pool && (
         <div className="flex flex-wrap items-start gap-x-8 gap-y-4">
-          <PassButton nextPass={pool.next_pass} shown={shownVariant} busy={busy} onPick={setPicked} onStart={start} />
+          <PassButton nextPass={pool.next_pass} shown={shownVariant} busy={busy} working={working} stopping={stopping}
+                      storing={storing} onPick={setPicked} onStart={start} onCancel={cancel} />
+          {working ? <PassProgressBlock progress={pass?.progress ?? null} stopping={stopping} />
+            : <div aria-hidden="true" className="min-w-0 max-sm:hidden sm:flex-[1_1_340px]" />}
           {counter && (
-            <div className="flex flex-col gap-1">
-              <p>Korrekturen seit dem letzten Neu-Scoren aller Anzeigen: <strong>{counter.corrections}</strong></p>
-              <p>{counter.rate === null ? 'Anteil ab 10 Bewertungen' : `Anteil: ${Math.round(counter.rate * 100)} %`}</p>
+            <div className="flex w-full flex-col gap-1 sm:w-[280px] sm:flex-none">
+              <p>
+                <strong>{counter.corrections === 1 ? '1 Korrektur' : `${counter.corrections} Korrekturen`}</strong>
+                {counter.rate !== null && `, Anteil ${Math.round(counter.rate * 100)} %`}
+              </p>
               <Badge className={counter.hint === 'rescore' ? 'self-start bg-negative-soft text-negative' : 'self-start bg-positive-soft text-primary'}>
                 {counter.hint === 'rescore' ? 'neu scoren sinnvoll' : 'Ranking passt gut'}
               </Badge>
+              {counter.rate === null && (
+                <p className="text-sm text-muted-foreground">Anteil erst ab 10 Bewertungen (bisher {counter.rated})</p>
+              )}
             </div>
           )}
           <div className="min-w-[280px] flex-[1_1_320px]"><Settings settings={pool.settings} onSaved={load} /></div>
@@ -639,16 +782,12 @@ export function PoolView({ active = true }: { active?: boolean }) {
           visible counts sit outside it. */}
       <div role="status">
         {working && <span className="sr-only">Das Scoren läuft.</span>}
+        {working && stopping && <span className="sr-only">Das Scoren wird nach der aktuellen Anzeige beendet.</span>}
         {pass?.status === 'aborted' && <p className="rounded-xl border bg-card px-4 py-3">Das Scoren wurde abgebrochen.</p>}
+        {cancelledScored !== null && <p className="rounded-xl border bg-card px-4 py-3">{cancelledText(cancelledScored)}</p>}
       </div>
       <p role="status" className="sr-only">{announce}</p>
       <p role="status" className="sr-only">{end}</p>
-      {working && (
-        <p className="flex items-center gap-3 rounded-xl bg-positive-soft px-4 py-3">
-          <LoaderCircle className="size-5 flex-none motion-safe:animate-spin" aria-hidden="true" />
-          <strong>{pass ? `Scoren läuft: ${pass.done} von ${pass.total}` : 'Scoren läuft'}</strong>
-        </p>
-      )}
       {notice && <p role="alert" className="rounded-xl border border-danger bg-danger-soft px-4 py-3">{notice}</p>}
       {busy && pollFailed && (
         <ErrorWithRetry title="Der Stand des Scorens ist gerade nicht abrufbar"

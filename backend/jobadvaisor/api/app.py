@@ -460,14 +460,17 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
 
     @app.get("/pool/passes/{pass_id}")
     def read_pass(pass_id: str) -> dict:
-        """A pass's `status` (running, awaiting_answer, done, aborted, failed), `error`, `total`
-        postings in its results, how many are `done` and the `unscreened` postings with title
-        and company. 404 for an unknown pass."""
+        """A pass's `{pass_id, status, started_at, error, progress, cancel_requested, scored,
+        unscreened}`. `status` is running, awaiting_answer, done, aborted, cancelled or failed.
+        `progress` is the last report `{phase, score: {done, total} | null}` (phase checking,
+        scoring or storing; `score` is `null` while checking), or `null` when this
+        process holds none (before the first report, after a restart). `cancel_requested` is
+        true while the pass runs on after a cancel. `scored` counts the results scored, which a
+        cancelled, ended pass has stored. `unscreened` lists the postings the pass asks about,
+        with title and company. 404 for an unknown pass."""
         run = runs.read(pass_id)
         if run is None:
             return unknown_pass(pass_id)
-        results = run["results"]
-        unfinished = {"pending", "extracted", "unscreened"}
         try:
             postings = load(intake.root).postings
         except DataRepositoryError:
@@ -476,9 +479,25 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
                        "company": postings[i].company if i in postings else i}
                       for i in run["unscreened"]]
         return {"pass_id": pass_id, "status": run["status"], "started_at": run["started_at"],
-                "error": run["error"], "total": len(results),
-                "done": sum(r["status"] not in unfinished for r in results.values()),
+                "error": run["error"], "progress": run["progress"],
+                "cancel_requested": run["cancel_requested"],
+                "scored": sum(r["status"] == "scored" for r in run["results"].values()),
                 "unscreened": unscreened}
+
+    @app.post("/pool/passes/{pass_id}/cancel", status_code=202)
+    def cancel_pass(pass_id: str) -> dict:
+        """Ask the running pass to stop after the posting it works on; answers `{pass_id}` at
+        once and the pass reports `cancel_requested` until it has stopped. 404 `not found` for
+        an unknown pass, a single score (`score:<posting ID>`) included even while it computes;
+        409 `pass not running` for a known pass that waits for the unscreened answer or has
+        ended, also one from before a restart."""
+        try:
+            runs.cancel(pass_id)
+        except KeyError:
+            return unknown_pass(pass_id)
+        except RunStateError as error:
+            return problem(409, "pass not running", str(error))
+        return {"pass_id": pass_id}
 
     @app.post("/pool/passes/{pass_id}/unscreened", status_code=202)
     def answer_unscreened(pass_id: str, body: UnscreenedAnswer) -> dict:
@@ -737,7 +756,7 @@ def configured_runs(settings: Settings) -> Runs:
         return TriageContext(load(root), content_guard(settings),
                              LabelIndex(state_path(settings, root) / "chroma", embedder,
                                         settings.embedding_model),
-                             chat_model("extractor", settings), chat_model("judge", settings))
+                             chat_model("judge", settings))
 
     return Runs(graph, context)
 

@@ -1,11 +1,16 @@
 """Browser walkthrough of scoring: a pass that scores a rated posting without a score, a score from
 a posting's page, a re-score from a pool row, the blocked button, the pool's score range at
 desktop and phone width, and the pass button's variant menu (choosing starts nothing, the main
-part rescores everything, a reload drops the choice, the split button fits a phone). Real app
-(`create_app` served by uvicorn) over a temporary data repository, the built frontend in Chromium,
-fake models. The tests share one server and run in order, each building on the data of the one
-before; run them as a set: `pytest -m e2e` after `npm --prefix frontend run build`."""
+part rescores everything, a reload drops the choice, the split button fits a phone), and a pass
+whose progress beside the pass button shows its counts until a cancel keeps the scores so far, and
+the row of the pass button that keeps its layout in every running state, and the focus that stays in
+the pass button area through a keyboard start, a double click and the end of a pass, and
+follows an answer to the unscreened question (stubbed pass endpoints).
+Real app (`create_app` served by uvicorn) over a temporary data repository, the built frontend in
+Chromium, fake models. The tests share one server and run in order, each building on the data of
+the one before; run them as a set: `pytest -m e2e` after `npm --prefix frontend run build`."""
 
+import re
 import threading
 import time
 
@@ -13,7 +18,7 @@ import pytest
 import uvicorn
 from conftest import LABEL, ScriptedModel, ToolScriptModel, write_json
 from playwright.sync_api import expect, sync_playwright
-from test_triage_graph import POLICY_PACK, Harness, add_posting
+from test_triage_graph import POLICY_PACK, Harness, add_posting, judge_by_title
 
 from jobadvaisor.api.app import create_app
 from jobadvaisor.data.loader import load
@@ -257,5 +262,243 @@ def test_the_split_button_and_its_menu_fit_a_phone(page, app_url):
             ratio=1)
         expect(trigger).to_be_in_viewport(ratio=1)
         assert page.evaluate(fits)
-    finally:  # nothing after this test, but the page stays reusable at desktop width
+    finally:  # later tests share the page: desktop width again
         page.set_viewport_size({"width": 1280, "height": 720})
+
+
+def test_a_pass_shows_its_progress_and_a_cancel_keeps_the_scores_so_far(
+        page, app_url, data_root, harness):
+    """Entry state: `rated` has a score, `fresh` and three new postings have none, `sales` is
+    excluded. The scripted judge waits for the test, so nothing races the 1 s poll: the progress
+    shows scoring at 0 of 4, then 1 of 4. The cancel lands while the second posting is scored: the
+    button reads "Wird beendet…", the notice reports 2 new scores, and only those two show a
+    score in the ranking. Leaves the other two postings unscored."""
+    # scores of 6 and more: the rating keys 1 to 5 sit in each row as text too
+    titles = {"c1": "Weitere Stelle 8", "c2": "Weitere Stelle 9", "c3": "Weitere Stelle 10"}
+    for posting_id, title in titles.items():
+        add_posting(data_root, posting_id, title)
+    titles["fresh"] = FRESH
+    before = stored_scores(data_root)
+    entered, permits = threading.Semaphore(0), threading.Semaphore(0)
+
+    def judge(schema, prompt):
+        """Announce each scoring call, then wait for one permit from the test."""
+        entered.release()
+        assert permits.acquire(timeout=10), "no permit for the judge"
+        return judge_by_title(schema, prompt)
+
+    harness.judge = ScriptedModel(judge)
+    try:
+        page.goto(f"{app_url}/#/pool")
+        page.reload()
+        page.get_by_role("button", name="Anzeigen ohne Score scoren (4)").click()
+        progress = page.get_by_role("region", name="Stand des Scorens")
+        assert entered.acquire(timeout=10)  # the first posting is being scored
+        expect(progress.get_by_text("Scoren läuft: 0 von 4", exact=True)).to_be_visible()
+        assert "Merkmale" not in progress.inner_text()  # a pass reads no features
+        permits.release()
+        assert entered.acquire(timeout=10)  # the second posting is being scored
+        expect(progress.get_by_text("Scoren läuft: 1 von 4", exact=True)).to_be_visible()
+        cancel = page.get_by_role("button", name="Scoren abbrechen")
+        expect(cancel).not_to_have_attribute("aria-disabled", "true")  # the 1 s swap guard is over
+        cancel.click()
+        expect(progress.get_by_text("Wird nach der aktuellen Anzeige beendet.")).to_be_visible()
+        stopping = page.get_by_role("button", name="Wird beendet…")
+        expect(stopping).to_have_attribute("aria-disabled", "true")
+        expect(stopping).to_be_focused()  # a second Enter must not fall through to the pool's keys
+        permits.release()  # the second posting ends; the check before the third stops the pass
+        expect(page.get_by_text(
+            "Das Scoren wurde abgebrochen. 2 Anzeigen haben einen neuen Score.")).to_be_visible()
+        expect(progress).to_have_count(0)
+        assert len(harness.judge.calls) == 2  # the third posting was never judged
+        new = {posting_id: score for posting_id, score in stored_scores(data_root).items()
+               if posting_id not in before}
+        assert len(new) == 2, new
+        for posting_id, title in titles.items():
+            row = pool_row(page, title)
+            if posting_id in new:
+                expect(row.get_by_text(str(new[posting_id]), exact=True)).to_be_visible()
+            else:
+                expect(row.get_by_text("noch kein Score")).to_be_visible()
+        expect(page.get_by_role("button", name="Anzeigen ohne Score scoren (2)")).to_be_enabled()
+    finally:  # a failed assertion must not leave the pass thread waiting
+        permits.release(4)
+
+
+ROW_WIDTHS = (360, 390, 640, 768, 1024, 1280)
+# Run in the page with the progress block as `el`: the elements whose text overflows their own box.
+OVERFLOWING = """(el, where) => [...el.querySelectorAll('*')]
+    .filter((node) => node.scrollWidth > node.clientWidth + 1
+        || node.scrollHeight > node.clientHeight + 1)
+    .map((node) => `${where}: ${node.tagName} ${node.textContent.slice(0, 40)}`)"""
+
+
+def running_pass(phase, score=None, cancel_requested=False):
+    """The body of `GET /pool/passes/<id>` for a pass that computes, with `score` as a
+    `(done, total)` pair."""
+    return {"pass_id": "ps-row", "status": "running", "started_at": None, "error": None,
+            "progress": {"phase": phase, "score": score and {"done": score[0], "total": score[1]}},
+            "cancel_requested": cancel_requested, "scored": 0, "unscreened": []}
+
+
+def test_the_row_of_the_pass_button_keeps_its_layout_in_every_running_state(page, app_url):
+    """The pass endpoint is stubbed, one answer per state: checking, scoring with the longest
+    realistic counts, after a cancel request and storing. Each state is waited for by its text, then
+    the row of the pass button is measured at 360 to 1280 px wide. A width must give one row height
+    and one x position and width for the progress block and the correction counter in all four
+    states, and the cancel button must be as wide as the split button measured while idle (spec:
+    Same size in every phase). From 640 px the counter also keeps its idle x position when a pass
+    starts (spec: nothing moves sideways)."""
+    states = {
+        "checking": (running_pass("checking"), "Scoren läuft: Anzeigen prüfen…"),
+        "scoring": (running_pass("scoring", (120, 179)), "Scoren läuft: 120 von 179"),
+        "cancel requested": (running_pass("scoring", (120, 179), True),
+                             "Wird nach der aktuellen Anzeige beendet."),
+        "storing": (running_pass("storing", (179, 179)), "Scores werden gespeichert"),
+    }
+    current = {}
+    page.route("**/pool/passes/ps-row", lambda route: route.fulfill(json=current["body"]))
+    split = page.locator("[role=group][aria-label=Scoren]")
+    cancel = page.locator("button[aria-describedby=cancel-why]")
+    counter = page.get_by_text(re.compile(r"^\d+ Korrekturen?$")).locator("xpath=../..")
+    idle_split: dict[int, float] = {}
+    idle_counter: dict[int, float] = {}
+    layout: dict[int, dict[str, tuple]] = {width: {} for width in ROW_WIDTHS}
+    overflowing: list[str] = []
+    try:
+        page.goto(f"{app_url}/#/pool")
+        page.reload()
+        expect(split).to_be_visible()
+        for width in ROW_WIDTHS:
+            page.set_viewport_size({"width": width, "height": 900})
+            idle_split[width] = split.bounding_box()["width"]
+            idle_counter[width] = counter.bounding_box()["x"]
+        page.evaluate("sessionStorage.setItem('jobadvaisor.pool-pass', 'ps-row')")
+        current["body"] = states["checking"][0]
+        page.reload()
+        progress = page.get_by_role("region", name="Stand des Scorens")
+        row = progress.locator("xpath=..")
+        for state, (body, text) in states.items():
+            current["body"] = body
+            expect(progress.get_by_text(text, exact=True)).to_be_visible(timeout=15_000)
+            for width in ROW_WIDTHS:
+                page.set_viewport_size({"width": width, "height": 900})
+                block, count = progress.bounding_box(), counter.bounding_box()
+                layout[width][state] = (
+                    row.bounding_box()["height"], block["x"], block["width"], count["x"],
+                    count["width"], cancel.bounding_box()["width"])
+                overflowing += progress.evaluate(OVERFLOWING, f"{width} px, {state}")
+    finally:  # later tests share the page: desktop width, no stored pass
+        page.unroute("**/pool/passes/ps-row")
+        page.evaluate("sessionStorage.removeItem('jobadvaisor.pool-pass')")
+        page.set_viewport_size({"width": 1280, "height": 720})
+    table = "\n".join(
+        f"{width} px (split {idle_split[width]}): {by_state}" for width, by_state in layout.items())
+    # Each tuple: row height, block x, block width, counter x, counter width, cancel width.
+    print("\n" + table)
+    for width, by_state in layout.items():
+        measured = list(by_state.values())
+        assert len({values[:5] for values in measured}) == 1, table
+        assert {values[5] for values in measured} == {idle_split[width]}, table
+        if width >= 640:  # below `sm` the idle slot is hidden by design, the counter moves down
+            assert {values[3] for values in measured} == {idle_counter[width]}, (width, table)
+    assert overflowing == [], overflowing  # a fixed box that clips or spills its text is no fix
+
+
+def test_focus_stays_in_the_pass_button_area_through_a_start_and_an_end(
+        page, app_url, data_root, harness):
+    """Real Chromium blurs a focused element that turns `inert` or `disabled`, which jsdom does not,
+    so this pins the focus handoff of the pass button there. Started with the keyboard (Enter on the
+    focused main part) the pass leaves focus on the cancel button; when it ends, focus is on the
+    pass button again, not on `body`, and one more Enter neither moves the pool's row selection nor
+    starts a pass. A double click on the start does the same. Entry state: `fresh` and the three
+    `Weitere Stelle` postings have no score; it leaves them scored."""
+    for posting_id in ("fresh", "c1", "c2", "c3"):
+        (data_root / f"scores/{posting_id}.json").unlink(missing_ok=True)
+    entered, permits = threading.Semaphore(0), threading.Semaphore(0)
+
+    def judge(schema, prompt):
+        """Announce each scoring call, then wait for one permit from the test."""
+        entered.release()
+        assert permits.acquire(timeout=10), "no permit for the judge"
+        return judge_by_title(schema, prompt)
+
+    harness.judge = ScriptedModel(judge)
+    pass_requests = []
+
+    def note_pass_request(request):
+        """Remember each `POST /pool/passes` the page sends."""
+        if request.method == "POST" and request.url.endswith("/pool/passes"):
+            pass_requests.append(request)
+
+    page.on("request", note_pass_request)
+    try:
+        page.goto(f"{app_url}/#/pool")
+        page.reload()
+        cancel = page.get_by_role("button", name="Scoren abbrechen")
+        page.get_by_role("button", name="Anzeigen ohne Score scoren (4)").focus()
+        page.keyboard.press("Enter")
+        assert entered.acquire(timeout=10)
+        expect(cancel).to_be_focused()
+        permits.release(4)
+        expect(page.get_by_role("button", name="Anzeigen ohne Score scoren (0)")).to_be_focused(
+            timeout=15_000)  # not `body`
+        page.keyboard.press("Enter")  # inside the 1 s guard, on the pass button
+        page.wait_for_timeout(300)
+        assert page.evaluate("document.activeElement.textContent").startswith("Anzeigen ohne Score")
+        assert len(pass_requests) == 1
+        # a double click on the start
+        (data_root / "scores/c1.json").unlink()
+        page.reload()
+        page.get_by_role("button", name="Anzeigen ohne Score scoren (1)").dblclick()
+        assert entered.acquire(timeout=10)
+        expect(cancel).to_be_focused()
+        assert len(pass_requests) == 2
+        permits.release(4)
+        expect(page.get_by_role("button", name="Anzeigen ohne Score scoren (0)")).to_be_focused(
+            timeout=15_000)
+    finally:  # a failed assertion must not leave the pass thread waiting
+        permits.release(4)
+        page.remove_listener("request", note_pass_request)
+
+
+def test_focus_follows_an_answer_to_the_unscreened_question(page, app_url):
+    """The pass endpoints are stubbed (the real app only asks the question with screening on): a
+    pass waits at the question. Answering "Trotzdem scoren" with the keyboard moves focus from the
+    unmounted button to the cancel button; once the pass waits again, answering "Abbrechen" does
+    the same, and when the aborted pass has ended focus is on the pass button, never on `body`."""
+    question = {**running_pass("checking"), "pass_id": "ps-q", "status": "awaiting_answer",
+                "progress": None, "unscreened": [
+                    {"posting_id": "u1", "title": "Ungeprüfte Stelle", "company": "Nordblatt"}]}
+    current = {"body": question}
+
+    def answer(route):
+        """Accept the answer; the pass then runs on or ends aborted, as the test set it."""
+        current["body"] = current["next"]
+        route.fulfill(status=202, json={"pass_id": "ps-q"})
+
+    page.route("**/pool/passes/ps-q", lambda route: route.fulfill(json=current["body"]))
+    page.route("**/pool/passes/ps-q/unscreened", answer)
+    cancel = page.get_by_role("button", name="Scoren abbrechen")
+    try:
+        page.goto(f"{app_url}/#/pool")
+        page.evaluate("sessionStorage.setItem('jobadvaisor.pool-pass', 'ps-q')")
+        page.reload()
+        current["next"] = running_pass("scoring", (1, 3))
+        current["next"]["pass_id"] = "ps-q"
+        page.get_by_role("button", name="Trotzdem scoren").focus()
+        page.keyboard.press("Enter")
+        expect(cancel).to_be_focused()
+        current["body"] = question  # the poll finds the pass waiting again
+        expect(page.get_by_role("button", name="Abbrechen", exact=True)).to_be_visible(
+            timeout=15_000)
+        current["next"] = {**question, "status": "aborted", "unscreened": []}
+        page.get_by_role("button", name="Abbrechen", exact=True).focus()
+        page.keyboard.press("Enter")
+        expect(page.get_by_role("button", name=re.compile("^Anzeigen ohne Score scoren"))
+               ).to_be_focused(timeout=15_000)
+        assert page.evaluate("document.activeElement.textContent").startswith("Anzeigen ohne Score")
+    finally:  # later tests share the page: no stored pass
+        page.unroute("**/pool/passes/ps-q")
+        page.unroute("**/pool/passes/ps-q/unscreened")
+        page.evaluate("sessionStorage.removeItem('jobadvaisor.pool-pass')")
