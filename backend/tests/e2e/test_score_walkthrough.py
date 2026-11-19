@@ -394,7 +394,8 @@ def test_the_row_of_the_pass_button_keeps_its_layout_in_every_running_state(page
         page.set_viewport_size({"width": 1280, "height": 720})
     table = "\n".join(
         f"{width} px (split {idle_split[width]}): {by_state}" for width, by_state in layout.items())
-    print("\n" + table)  # (row height, block x, block width, counter x, counter width, cancel width)
+    # Each tuple: row height, block x, block width, counter x, counter width, cancel width.
+    print("\n" + table)
     for width, by_state in layout.items():
         measured = list(by_state.values())
         assert len({values[:5] for values in measured}) == 1, table
