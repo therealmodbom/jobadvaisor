@@ -61,7 +61,8 @@ class Runs:
 
         `status` is `running`, `awaiting_answer` (the unscreened question), `done`, `aborted`,
         `cancelled` (the user stopped it; scores computed until then are stored) or `failed`
-        (with `error` when this process saw it fail). `started_at` is the ISO time of the
+        (with `error` when this process saw it fail; also a pass the restart ended, an old
+        one stopped before the removed node `extract` included). `started_at` is the ISO time of the
         run's first checkpoint, `None` before it has one. `progress` is the last report of this
         process as a copy (`TriageContext.progress`), `None` when it holds none: before the
         first report or after a restart. `cancel_requested` is true while the run still
@@ -202,5 +203,11 @@ class Runs:
         if not snapshot.next:
             if snapshot.values.get("cancelled"):
                 return "cancelled"
-            return "aborted" if snapshot.values.get("aborted") else "done"
+            if snapshot.values.get("aborted"):
+                return "aborted"
+            # A checkpoint from before the node `extract` left has no next node here, though
+            # its pass never scored: a posting still pending or extracted means it ended early.
+            results = snapshot.values.get("results", {}).values()
+            unfinished = any(r["status"] in ("pending", "extracted") for r in results)
+            return "failed" if unfinished else "done"
         return "failed"

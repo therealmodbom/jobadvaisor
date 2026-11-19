@@ -6,10 +6,12 @@ import threading
 
 import pytest
 from conftest import ScriptedModel, write_json
+from langgraph.graph import END, START, StateGraph
 from test_triage_graph import POLICY_PACK, Harness, add_posting, judge_by_title
 
 from jobadvaisor.data.writer import read_pool, read_score
 from jobadvaisor.triage import graph as graph_module
+from jobadvaisor.triage.graph import run_config, start_run
 from jobadvaisor.triage.runs import RunBusyError, Runs, RunStateError
 
 
@@ -56,8 +58,7 @@ def test_progress_is_readable_while_the_pass_runs(blocking):
     run_id = blocking.start_and_wait_for_the_block()
     running = blocking.runs.read(run_id)
     assert running["status"] == "running" and running["cancel_requested"] is False
-    assert running["progress"] == {"phase": "scoring", "extract": {"done": 3, "total": 3},
-                                   "score": {"done": 1, "total": 3}}
+    assert running["progress"] == {"phase": "scoring", "score": {"done": 1, "total": 3}}
     running["progress"]["score"]["done"] = 99  # a copy: the run's own report stays as it was
     assert blocking.runs.read(run_id)["progress"]["score"]["done"] == 1
     blocking.gate.set()
@@ -75,7 +76,7 @@ def test_cancel_reports_cancel_requested_until_the_pass_has_stopped(blocking):
     blocking.settle()
     ended = blocking.runs.read(run_id)
     assert ended["status"] == "cancelled" and ended["cancel_requested"] is False
-    assert [r["status"] for r in ended["results"].values()] == ["scored", "scored", "extracted"]
+    assert [r["status"] for r in ended["results"].values()] == ["scored", "scored", "pending"]
     assert read_score(blocking.root, "p2").score == 2 and read_score(blocking.root, "p3") is None
     assert read_pool(blocking.root).passes[0].cancelled is True
     assert blocking.runs._cancelled == set()
@@ -128,7 +129,7 @@ def test_a_cancel_after_the_last_check_of_checking_ends_cancelled_without_the_qu
     blocking.settle()
     ended = blocking.runs.read(run_id)
     assert ended["status"] == "cancelled" and ended["unscreened"] == ["unscreened"]
-    assert blocking.harness.extractor.calls == [] and read_pool(blocking.root).passes == []
+    assert blocking.harness.judge.calls == [] and read_pool(blocking.root).passes == []
     assert blocking.runs._cancelled == set() and blocking.runs.start()
     blocking.settle()
 
@@ -293,3 +294,36 @@ def test_a_stale_cancel_does_not_stop_a_pass_resumed_with_the_answer(tmp_path):
     blocking.settle()
     assert runs.read(run_id)["status"] == "done"
     assert read_score(blocking.root, "unscreened").score == 2
+
+
+def graph_with_the_extract_node(saver):
+    """The triage graph as it was before the pass stopped reading features, for a pass without
+    unscreened postings: a node `extract` between `exclude` and `score`, and a static stop before
+    it, which leaves the checkpoint a restart in that node would have left."""
+    old = StateGraph(graph_module.TriageState, context_schema=graph_module.TriageContext)
+    for node in (graph_module.load, graph_module.exclude, graph_module.score,
+                 graph_module.store_scores):
+        old.add_node(node.__name__, node)
+    old.add_node("extract", lambda state: {})
+    old.add_edge(START, "load")
+    old.add_edge("load", "exclude")
+    old.add_edge("exclude", "extract")
+    old.add_edge("extract", "score")
+    old.add_edge("score", "store_scores")
+    old.add_edge("store_scores", END)
+    return old.compile(checkpointer=saver, interrupt_before=["extract"])
+
+
+def test_an_old_checkpoint_whose_next_node_was_extract_reads_failed_not_done(tmp_path):
+    blocking = Blocking(tmp_path)
+    harness = blocking.harness
+    old = graph_with_the_extract_node(harness.graph.checkpointer)
+    start_run(old, harness.context(), "old-run")
+    assert old.get_state(run_config("old-run")).next == ("extract",)
+    assert harness.graph.get_state(run_config("old-run")).next == ()  # the new graph has no node
+    run = blocking.runs.read("old-run")
+    assert run["status"] == "failed"
+    assert run["results"]["p1"] == {"status": "pending"}
+    assert read_pool(blocking.root).passes == []  # nothing was stored
+    with pytest.raises(RunStateError, match="failed"):
+        blocking.runs.cancel("old-run")
