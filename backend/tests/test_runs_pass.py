@@ -228,6 +228,18 @@ def test_a_fresh_runs_over_the_same_saver_knows_no_progress(tmp_path):
     assert restarted["progress"] is None and restarted["cancel_requested"] is False
 
 
+def test_a_restart_during_a_pass_leaves_it_failed_without_progress_and_not_cancellable(blocking):
+    run_id = blocking.start_and_wait_for_the_block()
+    fresh = Runs(blocking.harness.graph, blocking.harness.context)  # the process restarted
+    restarted = fresh.read(run_id)
+    assert restarted["status"] == "failed" and restarted["progress"] is None
+    assert restarted["cancel_requested"] is False
+    with pytest.raises(RunStateError, match="failed"):
+        fresh.cancel(run_id)
+    blocking.gate.set()
+    blocking.settle()
+
+
 def test_a_stale_cancel_does_not_stop_a_pass_resumed_with_the_answer(tmp_path):
     blocking = Blocking(tmp_path, unscreened=True)
     runs = blocking.runs
