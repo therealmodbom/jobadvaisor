@@ -1,14 +1,21 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, expect, test, vi } from 'vitest'
-import type { PassState, Pool, PoolRow, RatingAnswer, RatingBody } from '@/api'
+import type { PassProgress, PassState, Pool, PoolRow, RatingAnswer, RatingBody } from '@/api'
 import { axe } from '@/test-axe'
 import { type Call, pending, stubApi } from '@/test-api'
 import { label, POOL, poolWith, ratingAnswer, row as makeRow } from '@/test-fixtures'
 import { POLL_MS, PoolView } from './PoolView'
 
 const pass = (changes: Partial<PassState>): PassState => ({
-  pass_id: 'ps1', status: 'running', started_at: null, error: null, total: 12, done: 0, unscreened: [], ...changes })
+  pass_id: 'ps1', status: 'running', started_at: null, error: null, progress: null, cancel_requested: false,
+  scored: 0, unscreened: [], ...changes })
+
+/** A running pass in `phase`, with `extract` and `score` as `[done, total]` (null: not counted yet). */
+const running = (phase: PassProgress['phase'], extract: [number, number] | null = null,
+                 score: [number, number] | null = null, changes: Partial<PassState> = {}) => pass({
+  progress: { phase, extract: extract && { done: extract[0], total: extract[1] },
+              score: score && { done: score[0], total: score[1] } }, ...changes })
 
 afterEach(() => {
   vi.useRealTimers()
@@ -312,7 +319,7 @@ test('a picked "Alle" is dropped when its pass ends and the pool reloads', async
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
   let polls = 0
   stubApi({ 'GET /pool': { body: NEXT() }, 'POST /pool/passes': { status: 202, body: { pass_id: 'ps1' } },
-            'GET /pool/passes/ps1': () => ({ body: pass(++polls === 1 ? { done: 4 } : { status: 'done', done: 12 }) }) })
+            'GET /pool/passes/ps1': () => ({ body: pass(++polls === 1 ? running('extracting', [4, 12], [0, 12]) : { status: 'done' }) }) })
   render(<PoolView />)
   await pickAll()
   await act(async () => (await mainPart('Alle Anzeigen neu scoren (12)')).click())
@@ -342,7 +349,7 @@ test('nothing to score at all says all postings are excluded or held back', asyn
 test('while a pass computes both parts are disabled', async () => {
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
   sessionStorage.setItem('jobadvaisor.pool-pass', 'ps1')
-  stubApi({ 'GET /pool': { body: NEXT() }, 'GET /pool/passes/ps1': { body: pass({ done: 2 }) } })
+  stubApi({ 'GET /pool': { body: NEXT() }, 'GET /pool/passes/ps1': { body: running('extracting', [2, 12], [0, 12]) } })
   render(<PoolView />)
   const main = await mainPart(/Anzeigen ohne Score scoren/)
   await tick()
@@ -370,16 +377,19 @@ test('a pass shows its progress, then reloads the pool when done', async () => {
       return { body: reloads === 1 ? POOL : poolWith({ next_pass: { default: 'unscored', unscored: 0, all: 0 } }) }
     },
     'POST /pool/passes': { status: 202, body: { pass_id: 'ps1' } },
-    'GET /pool/passes/ps1': () => ({ body: pass(++polls === 1 ? { done: 4 } : { status: 'done', done: 12 }) }),
+    'GET /pool/passes/ps1': () => ({ body: pass(++polls === 1 ? running('extracting', [4, 12], [0, 12]) : { status: 'done' }) }),
   })
   render(<PoolView />)
   const button = await screen.findByRole('button', { name: 'Anzeigen ohne Score scoren (12)' })
   await act(async () => button.click())
   expect(button).toBeDisabled()
+  // Before the first poll the band is there, without counts, with its cancel button.
+  expect(screen.getByText('Scoren läuft')).toBeVisible()
+  expect(screen.getByRole('button', { name: 'Scoren abbrechen' })).toBeEnabled()
   await tick()
-  expect(screen.getByText('Scoren läuft: 4 von 12')).toBeVisible()
+  expect(screen.getByText('Scoren läuft: Merkmale lesen, 4 von 12')).toBeVisible()
   // The counts change every poll, so they stay out of the live region.
-  expect(screen.getByText('Scoren läuft: 4 von 12').closest('[role="status"]')).toBeNull()
+  expect(screen.getByText('Scoren läuft: Merkmale lesen, 4 von 12').closest('[role="status"]')).toBeNull()
   await tick()
   expect(screen.queryByText(/Scoren läuft/)).toBeNull()
   expect(await screen.findByRole('button', { name: 'Anzeigen ohne Score scoren (0)' })).toBeDisabled()
@@ -390,11 +400,11 @@ test('a pass shows its progress, then reloads the pool when done', async () => {
 test('a stored pass resumes polling after a reload', async () => {
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
   sessionStorage.setItem('jobadvaisor.pool-pass', 'ps1')
-  stubApi({ 'GET /pool': { body: POOL }, 'GET /pool/passes/ps1': { body: pass({ done: 7 }) } })
+  stubApi({ 'GET /pool': { body: POOL }, 'GET /pool/passes/ps1': { body: running('scoring', [12, 12], [7, 12]) } })
   render(<PoolView />)
   await screen.findByRole('button', { name: /Anzeigen ohne Score scoren/ })
   await tick()
-  expect(screen.getByText('Scoren läuft: 7 von 12')).toBeVisible()
+  expect(screen.getByText('Scoren läuft: Scoren, 7 von 12')).toBeVisible()
 })
 
 test('starting while another pass runs says so', async () => {
@@ -453,6 +463,200 @@ test('an aborted pass is announced', async () => {
   expect(screen.getByRole('button', { name: /Anzeigen ohne Score scoren/ })).toBeEnabled()
 })
 
+// --- progress band and cancel -------------------------------------------------------------
+
+const CANCEL_ROUTE = { 'POST /pool/passes/ps1/cancel': { status: 202, body: { pass_id: 'ps1' } } }
+const HINT = 'Abbrechen hält nach der aktuellen Anzeige an. Was schon gescort ist, bleibt gespeichert.'
+const STOPPING = 'wird nach der aktuellen Anzeige beendet…'
+const cancelCalls = (calls: Call[]) => calls.filter((call) => call.path === '/pool/passes/ps1/cancel')
+
+/** A view whose stored pass `ps1` answers `answer()` per poll; waits for the first poll. */
+async function openRunning(answer: PassState | (() => PassState), extra: Parameters<typeof stubApi>[0] = {}) {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  sessionStorage.setItem('jobadvaisor.pool-pass', 'ps1')
+  const calls = stubApi({ 'GET /pool': { body: POOL },
+                          'GET /pool/passes/ps1': () => ({ body: typeof answer === 'function' ? answer() : answer }), ...extra })
+  const view = render(<PoolView />)
+  await screen.findByRole('button', { name: /Anzeigen ohne Score scoren/ })
+  await tick()
+  return { calls, ...view }
+}
+
+const band = () => screen.getByRole('region', { name: 'Stand des Scorens' })
+const steps = () => within(band()).getAllByRole('listitem')
+/** The first line of each step, then its second line. */
+const stepLabels = () => steps().map((item) => item.firstElementChild!.textContent)
+const stepLines = () => steps().map((item) => item.lastElementChild!.textContent)
+/** What must not change from phase to phase: the band's structure and the classes of its fixed boxes. */
+const shape = () => JSON.stringify({
+  children: Array.from(band().children).map((child) => child.tagName),
+  items: steps().map((item) => [item.children.length, item.lastElementChild!.className]),
+  slot: band().querySelector('[data-slot="cancel"]')?.className,
+  // The hint's color and weight change with the state; its reserved height must not.
+  hint: band().querySelector('#cancel-why')?.className.split(' ').filter((name) => name.includes('min-h')),
+})
+
+test('reading features shows the phase and both counts, in the head and in the steps', async () => {
+  await openRunning(running('extracting', [12, 80], [0, 80]))
+  expect(screen.getByText('Scoren läuft: Merkmale lesen, 12 von 80')).toBeVisible()
+  expect(stepLabels()).toEqual(['Anzeigen prüfen', 'Merkmale lesen · 12 von 80', 'Scoren · 0 von 80', 'Speichern'])
+  expect(within(band()).getByRole('progressbar', { name: 'Merkmale lesen: 12 von 80' })).toHaveAttribute('value', '12')
+  expect(within(band()).getByRole('progressbar', { name: 'Scoren: 0 von 80' })).toHaveAttribute('value', '0')
+  expect(stepLines()).toEqual(['fertig', '', '', 'am Ende'])
+  expect(steps()[1]).toHaveAttribute('aria-current', 'step')
+})
+
+test('scoring marks reading features done with its failures, and the bar belongs to scoring', async () => {
+  await openRunning(running('scoring', [80, 80], [30, 79]))
+  expect(screen.getByText('Scoren läuft: Scoren, 30 von 79')).toBeVisible()
+  expect(stepLabels()).toEqual(['Anzeigen prüfen', 'Merkmale lesen · 80 von 80', 'Scoren · 30 von 79', 'Speichern'])
+  expect(stepLines()).toEqual(['fertig', '1 fehlgeschlagen', '', 'am Ende'])
+  expect(within(band()).getAllByRole('progressbar')).toHaveLength(1)
+  expect(steps()[2]).toHaveAttribute('aria-current', 'step')
+})
+
+test('reading features without a failure says only "fertig"', async () => {
+  await openRunning(running('scoring', [80, 80], [30, 80]))
+  expect(stepLines()).toEqual(['fertig', 'fertig', '', 'am Ende'])
+})
+
+test.each([['checking', running('checking'), 'Scoren läuft: Anzeigen prüfen'], ['a missing report', pass({}), 'Scoren läuft']])(
+  '%s shows the pass without counts', async (_name, state, head) => {
+    await openRunning(state)
+    expect(screen.getByText(head)).toBeVisible()
+    expect(stepLabels()).toEqual(['Anzeigen prüfen', 'Merkmale lesen', 'Scoren', 'Speichern'])
+    expect(stepLines()).toEqual(['läuft…', 'noch offen', 'noch offen', 'am Ende'])
+    expect(within(band()).queryByRole('progressbar')).toBeNull()
+    expect(band().textContent).not.toMatch(/\bvon\b/)
+  })
+
+test('the counts move between two polls, outside the live region', async () => {
+  let done = 12
+  await openRunning(() => running('extracting', [done, 80], [0, 80]))
+  expect(screen.getByText('Scoren läuft: Merkmale lesen, 12 von 80')).toBeVisible()
+  done = 13
+  await tick()
+  expect(screen.getByText('Scoren läuft: Merkmale lesen, 13 von 80')).toBeVisible()
+  expect(within(band()).getByRole('progressbar', { name: 'Merkmale lesen: 13 von 80' })).toHaveAttribute('value', '13')
+  expect(band().closest('[role="status"]')).toBeNull()
+})
+
+test('the band keeps its structure and its fixed boxes in every phase, also after a cancel request and while storing', async () => {
+  let current = running('checking')
+  await openRunning(() => current, CANCEL_ROUTE)
+  const first = shape()
+  expect(first).toContain('"slot":"')
+  for (const next of [running('extracting', [12, 80], [0, 80]), running('scoring', [80, 80], [30, 79]),
+                      running('scoring', [80, 80], [30, 79], { cancel_requested: true }),
+                      running('storing', [80, 80], [79, 79])]) {
+    current = next
+    await tick()
+    expect(shape()).toEqual(first)
+    expect(steps()).toHaveLength(4)
+  }
+})
+
+test('a running pass offers a cancel button, and a press cancels at once without a dialog', async () => {
+  const { calls } = await openRunning(running('scoring', [80, 80], [30, 79]), CANCEL_ROUTE)
+  const cancel = screen.getByRole('button', { name: 'Scoren abbrechen' })
+  expect(cancel).toBeEnabled()
+  expect(cancel).toHaveAccessibleDescription(HINT)
+  await act(async () => cancel.click())
+  expect(cancelCalls(calls)).toHaveLength(1)
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(cancel).toBeDisabled()
+  expect(cancel).toHaveAccessibleDescription(STOPPING)
+  expect(screen.getByText('Das Scoren wird nach der aktuellen Anzeige beendet.').closest('[role="status"]')).not.toBeNull()
+})
+
+test('the cancel request holds when a poll that started before it answers without it', async () => {
+  await openRunning(running('scoring', [80, 80], [30, 79]), CANCEL_ROUTE)
+  await act(async () => screen.getByRole('button', { name: 'Scoren abbrechen' }).click())
+  await tick()
+  expect(screen.getByRole('button', { name: 'Scoren abbrechen' })).toBeDisabled()
+  expect(screen.getByText(STOPPING)).toBeVisible()
+})
+
+test('a pass the server reports as cancel_requested shows the same state after a reload', async () => {
+  await openRunning(running('scoring', [80, 80], [30, 79], { cancel_requested: true }))
+  expect(screen.getByRole('button', { name: 'Scoren abbrechen' })).toBeDisabled()
+  expect(screen.getByText(STOPPING)).toBeVisible()
+})
+
+test('a 409 on the cancel request shows no error, another failure shows its text and keeps the button', async () => {
+  let status = 409
+  await openRunning(running('scoring', [80, 80], [30, 79]), {
+    'POST /pool/passes/ps1/cancel': () => ({ status, body: { error: 'pass not running', detail: 'x' } }) })
+  const cancel = screen.getByRole('button', { name: 'Scoren abbrechen' })
+  await act(async () => cancel.click())
+  expect(screen.queryByRole('alert')).toBeNull()
+  status = 500
+  await act(async () => cancel.click())
+  expect(screen.getByRole('alert')).toHaveTextContent('Das Scoren konnte nicht abgebrochen werden. Versuch es noch einmal.')
+  expect(cancel).toBeEnabled()
+  expect(screen.queryByText(STOPPING)).toBeNull()
+})
+
+test('while a pass waits for the unscreened answer there is no cancel button', async () => {
+  await openQuestion()
+  expect(screen.queryByRole('button', { name: 'Scoren abbrechen' })).toBeNull()
+  expect(screen.queryByRole('region', { name: 'Stand des Scorens' })).toBeNull()
+  expect(screen.getByRole('button', { name: 'Abbrechen' })).toBeVisible()
+})
+
+test('while a pass stores there is no cancel button, but the slot stays and the line says why', async () => {
+  await openRunning(running('storing', [80, 80], [80, 80]))
+  expect(screen.getByText('Scoren läuft: Scores werden gespeichert')).toBeVisible()
+  expect(screen.queryByRole('button', { name: 'Scoren abbrechen' })).toBeNull()
+  expect(band().querySelector('[data-slot="cancel"]')).not.toBeNull()
+  expect(screen.getByText('Die Scores werden gespeichert. Das lässt sich nicht mehr abbrechen.')).toBeVisible()
+  expect(stepLines()).toEqual(['fertig', 'fertig', 'fertig', 'läuft…'])
+})
+
+test('Enter on the focused cancel button cancels and does not move the row selection', async () => {
+  const { calls } = await openRunning(running('scoring', [80, 80], [30, 79]), CANCEL_ROUTE)
+  await titles()
+  act(() => screen.getByRole('button', { name: 'Scoren abbrechen' }).focus())
+  await userEvent.keyboard('{Enter}')
+  await vi.waitFor(() => expect(cancelCalls(calls)).toHaveLength(1))
+  expect(document.getElementById('row-p3')).not.toHaveFocus()
+})
+
+test('a running pass band has no accessibility violations', async () => {
+  const { container } = await openRunning(running('extracting', [12, 80], [0, 80]))
+  vi.useRealTimers()
+  expect(await axe(container)).toHaveNoViolations()
+})
+
+test('a band with a cancel request has no accessibility violations', async () => {
+  const { container } = await openRunning(running('scoring', [80, 80], [30, 79]), CANCEL_ROUTE)
+  await act(async () => screen.getByRole('button', { name: 'Scoren abbrechen' }).click())
+  vi.useRealTimers()
+  expect(await axe(container)).toHaveNoViolations()
+})
+
+const CANCELLED = 'Das Scoren wurde abgebrochen.'
+
+test.each([[30, `${CANCELLED} 30 Anzeigen haben einen neuen Score.`], [1, `${CANCELLED} 1 Anzeige hat einen neuen Score.`],
+           [0, `${CANCELLED} Keine Anzeige hat einen neuen Score.`]])(
+  'a cancelled pass with %i scored reloads the pool and says so in the status region', async (scored, text) => {
+    const { calls } = await openRunning(pass({ status: 'cancelled', scored }))
+    await vi.waitFor(() => expect(calls.filter((call) => call.path === '/pool')).toHaveLength(2))
+    expect(screen.getByText(text).closest('[role="status"]')).not.toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryByRole('region', { name: 'Stand des Scorens' })).toBeNull()
+    expect(sessionStorage.length).toBe(0)
+    expect(screen.getByRole('button', { name: /Anzeigen ohne Score scoren/ })).toBeEnabled()
+  })
+
+test('the cancelled notice goes when the next pass starts', async () => {
+  await openRunning(pass({ status: 'cancelled', scored: 30 }), {
+    'POST /pool/passes': { status: 202, body: { pass_id: 'ps2' } }, 'GET /pool/passes/ps2': { body: pass({ pass_id: 'ps2' }) } })
+  expect(screen.getByText(`${CANCELLED} 30 Anzeigen haben einen neuen Score.`)).toBeVisible()
+  await act(async () => screen.getByRole('button', { name: 'Anzeigen ohne Score scoren (12)' }).click())
+  expect(screen.queryByText(/Das Scoren wurde abgebrochen/)).toBeNull()
+})
+
 test('a failed pass shows an error with retry that starts a new pass', async () => {
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
   sessionStorage.setItem('jobadvaisor.pool-pass', 'ps1')
@@ -474,7 +678,7 @@ test('the retry of a failed pass starts the variant the main part shows, not the
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
   let failed = false
   const calls = stubApi({ 'GET /pool': { body: NEXT() }, 'POST /pool/passes': { status: 202, body: { pass_id: 'ps1' } },
-                          'GET /pool/passes/ps1': () => ({ body: failed ? pass({ status: 'failed', error: 'kaputt' }) : pass({ done: 1 }) }) })
+                          'GET /pool/passes/ps1': () => ({ body: failed ? pass({ status: 'failed', error: 'kaputt' }) : running('checking') }) })
   const { unmount } = render(<PoolView />)
   await pickAll()
   await act(async () => (await mainPart('Alle Anzeigen neu scoren (12)')).click())
@@ -1230,7 +1434,7 @@ test('a "scoring in progress" message on a row goes when the pass ends, a failed
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
   let polls = 0
   stubApi({ 'GET /pool': { body: POOL }, 'POST /pool/passes': { status: 202, body: { pass_id: 'ps1' } },
-    'GET /pool/passes/ps1': () => ({ body: pass(++polls === 1 ? { done: 4 } : { status: 'done', done: 12 }) }),
+    'GET /pool/passes/ps1': () => ({ body: pass(++polls === 1 ? running('extracting', [4, 12], [0, 12]) : { status: 'done' }) }),
     'POST /postings/n1/score': { status: 409, body: { error: 'scoring in progress', detail: 'ps1' } },
     'POST /postings/broken/score': { status: 502, body: { error: 'scoring failed', detail: 'x' } } })
   render(<PoolView />)
@@ -1546,7 +1750,7 @@ test('a finished pass reloads the pool and the scored rows leave "ohne Score", e
       ['n1', 'broken'].includes(entry.posting_id) ? { ...entry, ...scoredNow } : entry) }) }),
     'PUT /postings/n1/rating': rateRoute('n1'),
     'POST /pool/passes': { status: 202, body: { pass_id: 'ps1' } },
-    'GET /pool/passes/ps1': { body: pass({ status: 'done', done: 12 }) },
+    'GET /pool/passes/ps1': { body: pass({ status: 'done' }) },
   })
   render(<PoolView />)
   await titles()

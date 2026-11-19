@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
-import { Check, ChevronDown, ChevronUp, Compass, LoaderCircle, ShieldAlert } from 'lucide-react'
+import { Check, ChevronDown, ChevronUp, Compass, LoaderCircle, ShieldAlert, Square } from 'lucide-react'
 import { DropdownMenu } from 'radix-ui'
-import { api, ApiError, type NextPass, type PassState, type PassVariant, type Pool, type PoolRow, type PoolSettings, type RatingAnswer, type ScoreAnswer, type Status, type Strength, type Verdict } from '@/api'
+import { api, ApiError, type NextPass, type PassProgress, type PassState, type PassVariant, type Pool, type PoolRow, type PoolSettings, type RatingAnswer, type ScoreAnswer, type Status, type Strength, type Verdict } from '@/api'
 import { Badge, ChipList, ScoreButton, ScoreProblem, ScoreText, StatusControl } from '@/components/posting'
 import { Legend, ReasonsAndNote, VerdictButtons } from '@/components/rating'
 import { EmptyState, ErrorWithRetry, Loading } from '@/components/states'
@@ -50,12 +50,17 @@ const FILTERS: { id: string; label: string; keep: (row: PoolRow) => boolean }[] 
 ]
 
 /** The scoring pass: starts it, polls it while it runs, remembers its ID across a reload.
- * `onDone` runs when a pass finishes. `busy` is true while one runs or waits for an answer. */
+ * `onDone` runs when a pass ends with scores to show: done or cancelled. `busy` is true while one
+ * runs or waits for an answer. `cancelling` is true from the accepted cancel request on, so a
+ * poll that started before it cannot enable the button again. `cancelledScored` is the number a
+ * cancelled pass stored (null: none was cancelled, or a later pass started). */
 function usePass(onDone: () => void) {
   const [passId, setPassId] = useState<string | null>(storedPass.get)
   const [pass, setPass] = useState<PassState | null>(null)
   const [notice, setNotice] = useState('')
   const [pollFailed, setPollFailed] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
+  const [cancelledScored, setCancelledScored] = useState<number | null>(null)
   const sending = useRef(false)
   const running = passId !== null && (pass === null || pass.status === 'running')
   const busy = running || pass?.status === 'awaiting_answer'
@@ -66,10 +71,11 @@ function usePass(onDone: () => void) {
     const timer = setInterval(() => {
       api<PassState>(`/pool/passes/${passId}`).then((next) => {
         failures = 0
-        if (next.status === 'done') {
+        if (next.status === 'done' || next.status === 'cancelled') {
           storedPass.set(null)
           setPassId(null)
           setPass(null)
+          if (next.status === 'cancelled') setCancelledScored(next.scored)
           onDone()
         } else {
           if (next.status === 'aborted' || next.status === 'failed') storedPass.set(null)
@@ -107,6 +113,8 @@ function usePass(onDone: () => void) {
     storedPass.set(answer.pass_id)
     setPass(null)
     setPollFailed(false)
+    setCancelling(false)
+    setCancelledScored(null)
     setPassId(answer.pass_id)
   }, 'Es wird schon gescort. Warte, bis das fertig ist.',
   'Das Scoren konnte nicht gestartet werden. Ist der Server erreichbar?')
@@ -115,8 +123,106 @@ function usePass(onDone: () => void) {
     setPass((current) => current && { ...current, status: 'running' })
   }, 'Gerade wird schon gescort. Antworte, wenn das fertig ist.',
   'Die Antwort wurde nicht gespeichert. Versuch es noch einmal.')
-  return { pass, busy, notice, start, answer, pollFailed, retryPoll: () => setPollFailed(false) }
+  // A 409 means the pass ended or paused in between; the next poll shows that, so it says nothing.
+  const cancel = () => send(async () => {
+    await api(`/pool/passes/${passId}/cancel`, { method: 'POST' })
+    setCancelling(true)
+  }, '', 'Das Scoren konnte nicht abgebrochen werden. Versuch es noch einmal.')
+  return { pass, busy, notice, start, answer, cancel, cancelling, cancelledScored, pollFailed,
+           retryPoll: () => setPollFailed(false) }
 }
+
+/** Where the steps of a pass stand, in the order a pass moves through them. */
+const PHASES = ['checking', 'extracting', 'scoring', 'storing'] as const
+const countText = (count: { done: number; total: number }) => `${count.done} von ${count.total}`
+
+/** What the head line of the band says per phase; the two counting phases add their count. */
+function bandHead(progress: PassProgress | null) {
+  switch (progress?.phase) {
+    case undefined: return 'Scoren läuft'
+    case 'checking': return 'Scoren läuft: Anzeigen prüfen'
+    case 'extracting': return `Scoren läuft: Merkmale lesen${progress.extract ? `, ${countText(progress.extract)}` : ''}`
+    case 'scoring': return `Scoren läuft: Scoren${progress.score ? `, ${countText(progress.score)}` : ''}`
+    case 'storing': return 'Scoren läuft: Scores werden gespeichert'
+  }
+}
+
+/** The band of a running pass (design variant A): a head line with the loader, the phase and a
+ * fixed-size slot, four steps with a second line of fixed height each, and one hint line. It has
+ * the same structure in every phase: only texts, ticks and bars change, so the page below does
+ * not move. `progress` null (no report yet) reads like checking, without counts. `stopping`: a
+ * cancel was requested. The cancel button fills the slot with `onCancel`, except while storing,
+ * which always finishes: then the slot stays, empty, and the hint says so. */
+function PassBand({ progress, stopping, onCancel }: {
+  progress: PassProgress | null
+  stopping: boolean
+  onCancel: () => void
+}) {
+  const at = PHASES.indexOf(progress?.phase ?? 'checking')
+  const storing = at === PHASES.indexOf('storing')
+  const extract = progress?.extract ?? null
+  const score = progress?.score ?? null
+  // Reading features that left the batch before scoring: the scoring total shrinks by them.
+  const failed = extract && score ? extract.total - score.total : 0
+  const steps = [
+    { name: 'Anzeigen prüfen', count: null, idle: 'noch offen' },
+    { name: 'Merkmale lesen', count: extract, idle: 'noch offen' },
+    { name: 'Scoren', count: score, idle: 'noch offen' },
+    { name: 'Speichern', count: null, idle: 'am Ende' },
+  ]
+  const hint = storing ? 'Die Scores werden gespeichert. Das lässt sich nicht mehr abbrechen.'
+    : stopping ? 'wird nach der aktuellen Anzeige beendet…'
+      : 'Abbrechen hält nach der aktuellen Anzeige an. Was schon gescort ist, bleibt gespeichert.'
+  return (
+    <section aria-label="Stand des Scorens"
+             className="flex flex-col gap-3 rounded-xl bg-positive-soft px-4 py-3.5 sm:px-5">
+      <div className="max-sm:contents sm:flex sm:items-center sm:justify-between sm:gap-3">
+        <div className="flex items-start gap-3 sm:items-center">
+          <LoaderCircle className="mt-0.5 size-5 flex-none motion-safe:animate-spin sm:mt-0" aria-hidden="true" />
+          <strong>{bandHead(progress)}</strong>
+        </div>
+        {/* The slot keeps the button's size while storing, so the band does not shrink. */}
+        <div data-slot="cancel" className="h-11 flex-none max-sm:order-last max-sm:w-full sm:w-[220px]">
+          {!storing && (
+            <Button variant="outline" className="w-full" disabled={stopping} aria-describedby="cancel-why" onClick={onCancel}>
+              <Square aria-hidden="true" />Scoren abbrechen
+            </Button>
+          )}
+        </div>
+      </div>
+      <ol className="grid gap-2.5 sm:grid-cols-4 sm:gap-4">
+        {steps.map((step, index) => {
+          const state = index < at ? 'done' : index === at ? 'current' : 'idle'
+          const label = step.count ? `${step.name} · ${countText(step.count)}` : step.name
+          return (
+            <li key={step.name} aria-current={state === 'current' ? 'step' : undefined} className="flex flex-col gap-0.5 sm:gap-1">
+              <span className={cn('flex items-center gap-1.5 text-[15px] leading-[22px]',
+                state === 'done' && 'text-success', state === 'current' && 'font-bold',
+                state === 'idle' && !step.count && 'text-muted-foreground')}>
+                {state === 'done' && <Check className="size-4 flex-none" aria-hidden="true" />}
+                {label}
+              </span>
+              <span className="flex h-5 items-center text-sm leading-5 text-muted-foreground">
+                {step.count && state !== 'done' ? (
+                  <progress value={step.count.done} max={step.count.total} aria-label={`${step.name}: ${countText(step.count)}`}
+                            className="h-2 w-full appearance-none overflow-hidden rounded-full border-0 bg-card [&::-moz-progress-bar]:bg-primary [&::-webkit-progress-bar]:rounded-full [&::-webkit-progress-bar]:bg-card [&::-webkit-progress-value]:rounded-full [&::-webkit-progress-value]:bg-primary" />
+                ) : state === 'done' ? (index === 1 && failed > 0 ? `${failed} fehlgeschlagen` : 'fertig')
+                  : state === 'current' ? 'läuft…' : step.idle}
+              </span>
+            </li>
+          )
+        })}
+      </ol>
+      <p id="cancel-why" className={cn('min-h-10 text-sm leading-5 text-muted-foreground sm:min-h-5', stopping && !storing && 'font-bold text-foreground')}>
+        {hint}
+      </p>
+    </section>
+  )
+}
+
+/** The status-region sentence for a cancelled pass that stored `scored` scores. */
+const cancelledText = (scored: number) => `Das Scoren wurde abgebrochen. ${
+  scored === 0 ? 'Keine Anzeige hat' : scored === 1 ? '1 Anzeige hat' : `${scored} Anzeigen haben`} einen neuen Score.`
 
 const VARIANT_TITLE: Record<PassVariant, string> = { unscored: 'Nur Anzeigen ohne Score', all: 'Alle Anzeigen neu scoren' }
 const VARIANT_VERBS: Record<PassVariant, string> = { unscored: 'Anzeigen ohne Score scoren', all: 'Alle Anzeigen neu scoren' }
@@ -483,7 +589,7 @@ export function PoolView({ active = true }: { active?: boolean }) {
     load()
     clearBusy()
   }, [load, clearBusy])
-  const { pass, busy, notice, start, answer, pollFailed, retryPoll } = usePass(passDone)
+  const { pass, busy, notice, start, answer, cancel, cancelling, cancelledScored, pollFailed, retryPoll } = usePass(passDone)
 
   async function setStatus(postingId: string, status: Status) {
     setSaving((current) => ({ ...current, [postingId]: true }))
@@ -607,6 +713,7 @@ export function PoolView({ active = true }: { active?: boolean }) {
   })
   const counter = pool?.counter
   const working = busy && !pollFailed && pass?.status !== 'awaiting_answer'
+  const stopping = cancelling || (pass?.cancel_requested ?? false)
   const defaultVariant = pool?.next_pass.default
   const [seenDefault, setSeenDefault] = useState(defaultVariant)
   if (seenDefault !== defaultVariant) {
@@ -639,16 +746,13 @@ export function PoolView({ active = true }: { active?: boolean }) {
           visible counts sit outside it. */}
       <div role="status">
         {working && <span className="sr-only">Das Scoren läuft.</span>}
+        {working && stopping && <span className="sr-only">Das Scoren wird nach der aktuellen Anzeige beendet.</span>}
         {pass?.status === 'aborted' && <p className="rounded-xl border bg-card px-4 py-3">Das Scoren wurde abgebrochen.</p>}
+        {cancelledScored !== null && <p className="rounded-xl border bg-card px-4 py-3">{cancelledText(cancelledScored)}</p>}
       </div>
       <p role="status" className="sr-only">{announce}</p>
       <p role="status" className="sr-only">{end}</p>
-      {working && (
-        <p className="flex items-center gap-3 rounded-xl bg-positive-soft px-4 py-3">
-          <LoaderCircle className="size-5 flex-none motion-safe:animate-spin" aria-hidden="true" />
-          <strong>{pass ? `Scoren läuft: ${pass.done} von ${pass.total}` : 'Scoren läuft'}</strong>
-        </p>
-      )}
+      {working && <PassBand progress={pass?.progress ?? null} stopping={stopping} onCancel={cancel} />}
       {notice && <p role="alert" className="rounded-xl border border-danger bg-danger-soft px-4 py-3">{notice}</p>}
       {busy && pollFailed && (
         <ErrorWithRetry title="Der Stand des Scorens ist gerade nicht abrufbar"

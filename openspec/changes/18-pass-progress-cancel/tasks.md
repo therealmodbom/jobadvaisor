@@ -27,10 +27,10 @@
 
 ## 2. Frontend: the view shows and cancels
 
-- [ ] 2.1 `PassState` in `api.ts` and the `pass()` fixture in `PoolView.test.tsx` follow the new shape. Verify with `npm --prefix frontend run build` (type check).
-- [ ] 2.2 The progress line shows the phase and both counts, as in the Design artifact. Verify with `PoolView.test.tsx`: the counts move between two polls; checking and a `null` progress show no count; the running state has no axe violations (spec: Pass progress line).
-- [ ] 2.3 The cancel button shows while the pass computes, not while it awaits the unscreened answer and not while it stores (spec: No cancel while storing). A press sends one request, and the button is disabled from the 202 on and says the pass stops after the current posting. A 409 shows no error, another failure shows its text, and Enter on the focused button does not move the row selection. Verify with `PoolView.test.tsx`, including an axe check of the cancel-requested state (spec: Cancel button of a pass).
-- [ ] 2.4 `cancelled` clears the stored pass, reloads the pool and shows the result in the status region with the scored count, cleared when the next pass starts. Verify with `PoolView.test.tsx` for 30, 1 and 0 scored (spec: Result of a cancelled pass).
+- [x] 2.1 `PassState` in `api.ts` and the `pass()` fixture in `PoolView.test.tsx` follow the new shape. Verify with `npm --prefix frontend run build` (type check).
+- [x] 2.2 The progress line shows the phase and both counts, as in the Design artifact. Verify with `PoolView.test.tsx`: the counts move between two polls; checking and a `null` progress show no count; the running state has no axe violations (spec: Pass progress line).
+- [x] 2.3 The cancel button shows while the pass computes, not while it awaits the unscreened answer and not while it stores (spec: No cancel while storing). A press sends one request, and the button is disabled from the 202 on and says the pass stops after the current posting. A 409 shows no error, another failure shows its text, and Enter on the focused button does not move the row selection. Verify with `PoolView.test.tsx`, including an axe check of the cancel-requested state (spec: Cancel button of a pass).
+- [x] 2.4 `cancelled` clears the stored pass, reloads the pool and shows the result in the status region with the scored count, cleared when the next pass starts. Verify with `PoolView.test.tsx` for 30, 1 and 0 scored (spec: Result of a cancelled pass).
 
 ## 3. End to end and docs
 
