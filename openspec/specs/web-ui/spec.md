@@ -107,7 +107,7 @@ The UI SHALL show the pool ranked by fit, with the text filter and the state fil
 
 #### Scenario: Start a pass
 - **WHEN** the user presses the main part of the pass button
-- **THEN** the view shows progress, and the new scores appear in the ranking when the pass ends
+- **THEN** the view shows the pass's progress line and its cancel button, and the new scores appear in the ranking when the pass ends
 
 #### Scenario: Unscreened postings in a pass
 - **WHEN** a pass pauses because it holds postings the content guard never checked
@@ -116,6 +116,39 @@ The UI SHALL show the pool ranked by fit, with the text filter and the state fil
 #### Scenario: Change the hint settings
 - **WHEN** the user sets the threshold to 5 and saves
 - **THEN** the hint appears from 5 corrections on
+
+### Requirement: Pass progress line
+While a pass computes, the pool view SHALL name its phase and show the count of reading features and the count of scoring, each as done out of total. The counts SHALL move after every posting.
+
+#### Scenario: Reading features
+- **WHEN** a pass has read the features of 12 of 80 postings
+- **THEN** the view shows that features are being read, with 12 of 80, and scoring with 0 of 80
+
+#### Scenario: Checking
+- **WHEN** a pass is still checking which postings it takes
+- **THEN** the view says the pass is checking, without counts
+
+### Requirement: Cancel button of a pass
+While a pass computes, the pool view SHALL offer a button that cancels it, at once and without a confirm step. After the press, the view SHALL say the pass stops after the current posting, until it has stopped. A pass that waits for the answer about unscreened postings SHALL offer no cancel button, since the question offers its own abort.
+
+#### Scenario: Cancel a pass
+- **WHEN** the user presses the cancel button of a running pass
+- **THEN** the view says the pass stops after the current posting, and no dialog asks to confirm
+
+#### Scenario: Pass waits for an answer
+- **WHEN** a pass asks about unscreened postings
+- **THEN** the view shows the question with its abort, and no cancel button
+
+### Requirement: Result of a cancelled pass
+When a cancelled pass has stopped, the pool view SHALL say that the pass was cancelled and how many postings it scored, and the ranking SHALL show the scores it stored.
+
+#### Scenario: Cancelled after some scores
+- **WHEN** a pass is cancelled after it scored 30 postings
+- **THEN** the view says it was cancelled with 30 postings scored, and those 30 show their new scores in the ranking
+
+#### Scenario: Cancelled before any score
+- **WHEN** a pass is cancelled while it reads features
+- **THEN** the view says it was cancelled with no posting scored, and the ranking is unchanged
 
 ### Requirement: Posting page
 The UI SHALL give each posting its own address (hash route `#/anzeigen/<id>`), and a posting the agent names in a chat answer SHALL link to it. The page SHALL show the full text, the original link, the score with its reasoning, the rating with chips and note, the application status and the import origin, and SHALL allow rating and setting the status. It SHALL also let the user correct the title, company and location behind "Bearbeiten", for postings whose fields intake read wrongly.

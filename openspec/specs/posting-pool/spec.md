@@ -190,7 +190,7 @@ A correction SHALL be a rating whose verdict contradicts the posting's latest sc
 - **THEN** the pool shows the hint „neu scoren sinnvoll“, and both pass variants stay usable below the threshold too
 
 #### Scenario: Pass resets the counter
-- **WHEN** a pass „Alle Anzeigen neu scoren“ finishes and no rating was given while it computed
+- **WHEN** a pass „Alle Anzeigen neu scoren“ finishes without being cancelled, and no rating was given while it computed
 - **THEN** the counter and the share start again at zero
 
 #### Scenario: Correction during a pass
@@ -334,7 +334,7 @@ The default pass variant SHALL be „Alle Anzeigen neu scoren“ while the pool 
 - **THEN** the default is „Alle Anzeigen neu scoren“, announced with 40 postings
 
 ### Requirement: Counter window
-The counter window SHALL start at the start of the last finished pass „Alle Anzeigen neu scoren“, and without one it SHALL hold every rating. A pass „Anzeigen ohne Score scoren“ SHALL leave the window as it is. A stored pass record without a variant SHALL count as a pass over all postings.
+The counter window SHALL start at the start of the last pass „Alle Anzeigen neu scoren“ that finished without being cancelled, and without one it SHALL hold every rating. A pass „Anzeigen ohne Score scoren“ and a cancelled pass of either variant SHALL leave the window as it is. A stored pass record without a variant SHALL count as a pass over all postings.
 
 #### Scenario: Pass over postings without a score keeps the counter
 - **WHEN** 4 corrections are counted and a pass „Anzeigen ohne Score scoren“ finishes that scored no rated posting
@@ -343,3 +343,70 @@ The counter window SHALL start at the start of the last finished pass „Alle An
 #### Scenario: Pass record from before variants
 - **WHEN** the last stored pass record names no variant
 - **THEN** the window starts at that pass's start
+
+#### Scenario: Cancelled pass over all postings keeps the window
+- **WHEN** the window starts at a pass that finished on Monday, and a pass „Alle Anzeigen neu scoren“ is cancelled on Tuesday after it scored 30 postings
+- **THEN** the window still starts at Monday's pass, and the counter measures its ratings against the latest scores, the 30 new ones included
+
+### Requirement: Pass progress per posting
+While a pass runs, the pool SHALL report its phase: checking, reading features, scoring or storing. For reading features and for scoring it SHALL also report how many postings are done out of how many, updated after every posting, not only when the phase ends.
+
+#### Scenario: Progress moves per posting
+- **WHEN** a pass reads the features of 80 postings and has finished 12
+- **THEN** the pool reports the phase as reading features, with 12 of 80 done, and 0 of 80 for scoring
+
+#### Scenario: Scoring follows
+- **WHEN** the same pass has read all 80 and scored 30
+- **THEN** the pool reports the phase as scoring, with 80 of 80 read and 30 of 80 scored
+
+### Requirement: Progress counts only postings a model sees
+Postings an exclusion rule matches or the content guard holds SHALL count in neither progress count. A posting whose feature reading failed SHALL count as done for reading features and SHALL drop out of the scoring count.
+
+#### Scenario: Excluded postings not counted
+- **WHEN** a pass takes 100 postings, of which 15 are excluded and 5 held
+- **THEN** both counts run up to 80
+
+#### Scenario: Failed reading
+- **WHEN** reading the features of one of 80 postings fails
+- **THEN** reading features ends at 80 of 80, and scoring runs up to 79
+
+### Requirement: Cancel a running pass
+The user SHALL be able to cancel a running pass. It SHALL stop after the posting it is working on, in any phase, and SHALL store every score computed until then. Postings it did not reach SHALL keep their earlier score, or stay without one. Until it has stopped, the pool SHALL report that a cancel was requested.
+
+#### Scenario: Cancel during scoring
+- **WHEN** a pass has scored 30 of 80 postings, and the user cancels it while it scores the 31st
+- **THEN** the pass stops once the 31st is scored, those 31 scores are stored, and the other 49 postings keep the score they had before the pass
+
+#### Scenario: Cancel during reading features
+- **WHEN** the user cancels a pass while it reads features
+- **THEN** the pass stops after the current posting, and no score is stored
+
+#### Scenario: Cancel requested
+- **WHEN** the user cancels a pass while a model call for a posting is still open
+- **THEN** the pool reports the pass as running with a cancel requested, until that call has ended and the pass has stopped
+
+#### Scenario: Cancel while storing
+- **WHEN** the user cancels a pass that has reached the storing phase
+- **THEN** the pass stores every score and ends as a complete pass
+
+### Requirement: Cancel only a running pass
+A cancel SHALL be refused for a pass that is not running: one that waits for the answer about unscreened postings, has ended, or is unknown. The refusal SHALL say that the pass is not running.
+
+#### Scenario: Pass waiting for an answer
+- **WHEN** the user cancels a pass that asks about unscreened postings
+- **THEN** the pass is not cancelled, and the answer says it is not running
+
+#### Scenario: Pass already ended
+- **WHEN** the user cancels a pass that has ended
+- **THEN** nothing changes, and the answer says it is not running
+
+### Requirement: Record of a cancelled pass
+A cancelled pass that scored at least one posting SHALL be recorded like a finished pass, with its variant, the number of postings it scored and its share of corrections, and SHALL be marked as cancelled. A cancelled pass that scored no posting SHALL NOT be recorded.
+
+#### Scenario: Cancelled after some scores
+- **WHEN** a pass „Alle Anzeigen neu scoren“ is cancelled after it scored 30 postings
+- **THEN** the pool's passes hold a record of it with 30 scored, marked as cancelled
+
+#### Scenario: Cancelled before any score
+- **WHEN** a pass is cancelled while it reads features
+- **THEN** the pool's passes are unchanged

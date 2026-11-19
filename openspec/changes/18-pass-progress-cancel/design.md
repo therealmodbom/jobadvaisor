@@ -1,0 +1,81 @@
+# Design
+
+## Context
+
+A pass is the triage graph `load → exclude → [confirm_unscreened] → extract → score → store_scores` (`triage/graph.py`). It runs on `Runs`' one-worker executor (`triage/runs.py`) and is checkpointed in SQLite. `extract` and `score` each loop over the whole batch and return `results` only when the loop ends. `GET /pool/passes/{id}` (`api/app.py` `read_pass`) derives `total` and `done` from the snapshot's `results`, so it cannot move during a loop. It also counts excluded and held postings as done from the first step on (proposal → Why).
+
+`exclude` can call the content guard's classifier once per unchecked posting, so checking is a per-posting loop too. `store_scores` reads the scores from before the pass for the quality measure, writes every score, and appends a `PoolPass` only when it scored anything.
+
+`AlertRuns` (`intake/alert_runs.py`) is the sibling background job. It keeps its progress in memory per run and updates it after every entry. This design follows that pattern.
+
+The look of the progress line and the cancel button is drawn in a Design artifact on the „JobAdvAIsor Design System“. Task 0.1 links it here and records the owner's choice.
+
+## Goals / Non-Goals
+
+**Goals:**
+- Progress and the cancel check reach every per-posting loop of the pass without changing how the graph is wired.
+- A cancelled pass ends in a state the checkpoint knows, not only the process.
+- The progress shape is generic enough for #90 (Global progress indicator for running background jobs) to read later.
+
+**Non-Goals:**
+- No change to what a pass scores, to the order of its calls, or to the single score.
+- No new dependency.
+
+## Decisions
+
+- **Progress and cancel live in memory, beside the checkpoint.** The reasons and the rejected per-posting checkpoint step are in [ADR 0013](../../../docs/decisions/0013-pass-progress-and-cancel-in-memory-beside-the-checkpoint.md).
+
+- **Two hooks on `TriageContext`.** `progress: Callable[[dict], None]` gets the pass's progress after every posting and at every phase start. `cancelled: Callable[[], bool]` answers whether the user asked to stop. Both are dataclass fields with defaults (report nothing, never cancel), so `score_one`, the eval `graph_vs_agent` and the tests keep building the context as they do. `Runs` wraps the context from its factory with `dataclasses.replace(context, progress=..., cancelled=...)` for both `start` and `answer_unscreened`, since a resumed pass needs the same hooks. Alternative: a module-level registry keyed by the run ID, read by the nodes. Rejected, because the nodes would need the run ID from the config and the registry would be hidden global state, while the context is already the place for runtime-only inputs.
+
+- **The progress shape.** It is `{"phase", "extract": {"done", "total"}, "score": {"done", "total"}}`, with `phase` one of `checking`, `extracting`, `scoring` and `storing`.
+  - `load` and `exclude` report `checking`, `extract` reports `extracting`, `score` reports `scoring`, and `store_scores` reports `storing`.
+  - `extract.total` is the number of pending postings when `extract` starts. It drops by one when `extract`'s second guard ruling moves a posting to excluded, and `extract.done` counts every posting that was extracted or failed.
+  - `score.total` is `extract.total` minus the postings whose extraction failed, so during extraction it shows the postings still on their way to scoring. `score.done` counts every posting scored or failed in `score`.
+  - Excluded and held postings never enter either count. `exclude` reports the phase but no count, as the spec asks.
+  - Alternative: derive the counts in `read_pass` from `results`. Rejected, because `results` reaches the snapshot only when a node ends, which is the bug this change fixes.
+
+- **Cancel is a flag checked before every posting.** `exclude`, `extract` and `score` ask `cancelled()` before each posting. A node that sees it stops its loop and returns its results so far, with `cancelled: True` in the state.
+  - After `exclude` a cancelled pass goes to `END`. It asks no unscreened question and scores nothing.
+  - `score` skips its loop and the index sync when the state is already cancelled.
+  - `store_scores` stores what was scored and never asks the flag, so a cancel that arrives while storing ends as a complete pass (spec → Cancel while storing).
+  - Postings the pass did not reach keep `pending` or `extracted` in `results`, and nothing is written for them.
+  - Alternative: check only between phases. Rejected, because one phase of a large pass takes many minutes.
+
+- **The status `cancelled`, not `aborted`.** `Runs._status` reports `cancelled` when the run has no next node and its state says `cancelled`. `aborted` keeps its meaning: the unscreened question was answered with abort, and nothing was stored. Alternative: reuse `aborted`. Rejected, because a cancelled pass may have stored scores, so the view must reload the pool and report a count, which it does not do for `aborted`.
+
+- **`Runs.cancel(run_id)`.** It raises `KeyError` for an unknown run and `RunStateError` unless the run is `running`. Otherwise it adds the ID to a set under the lock. The context's `cancelled` hook reads that set. `read()` reports `cancel_requested` while the run is running and its ID is in the set. The ID leaves the set when the run's step ends.
+
+- **API.** `POST /pool/passes/{id}/cancel` answers 202 `{pass_id}`, 404 for an unknown pass (a single score's `score:<id>` has no checkpoint, so it is unknown too), and 409 `pass not running` otherwise. `GET /pool/passes/{id}` answers `{pass_id, status, started_at, error, progress, cancel_requested, scored, unscreened}`.
+  - `progress` is the last reported progress, or `null` when this process holds none: before the first report, or after a restart.
+  - `scored` counts the results with status `scored`. When a cancelled pass has ended, that is the number it stored.
+  - `total` and `done` go away. The web UI is the only client.
+
+- **The pass record.** `PoolPass` gets `cancelled: Literal[True] | None = None`, and `store_scores` sets it when the state says `cancelled`. The writer drops `None`, so the record of a pass that was not cancelled stays byte for byte as today. `counter` starts its window at the last pass whose variant is `"all"` or `None` and that is not cancelled. `schemas/pool.schema.json` is generated again. Alternative: `cancelled: bool = False`. Rejected, because `False` would be written into every new record, and the previous image, which forbids unknown fields, could then not read any pass recorded after the deploy. Alternative: a third `variant` value. Rejected, because the variant names what the pass set out to score, and `counter` treats a missing variant as „all“.
+
+- **The view.**
+  - `usePass` treats `cancelled` like `done`: it clears the stored pass, reloads the pool through `onDone`, and keeps a notice „Das Scoren wurde abgebrochen. N Anzeigen haben einen neuen Score.“ (with „1 Anzeige hat“ and „Keine Anzeige hat“).
+  - The cancel button shows while the pass computes (`working`), not while it asks the unscreened question. A press sends `POST …/cancel` once; the existing `sending` guard covers a double click. While `cancel_requested` is set, the button is disabled and the line says the pass stops after the current posting.
+  - The progress line renders the phase and both counts.
+  - A 409 on cancel means the pass ended in between. The next poll shows its end, so the view shows no error for it.
+  - The new button needs no entry in the pool view's keyboard-shortcut exclusion. That list holds text fields and menus, and Enter on any button already keeps its own meaning. A view test pins that Enter on the focused cancel button cancels and does not jump to the next row.
+  - The live region keeps text that does not change per poll. It announces the cancel request and the result once, not every count.
+  - Texts and placement follow the Design artifact.
+
+- **Eval.** No eval runs. The extractor and the judge get the same input as before, and the change only adds a check and a report between their calls.
+
+- **Tests.**
+  - Graph tests use fake models that record their calls. A cancel test uses a fake whose call sets the cancel flag on the n-th posting, so the order is fixed without `sleep`.
+  - `Runs` and API tests use a fake model that blocks on a `threading.Event`, then cancel and release.
+  - The progress test records every `progress` call and checks the counts after each posting, including an excluded posting, a held posting and a failed extraction.
+  - The e2e walkthrough uses its scripted model to cancel a pass and to see the counts move.
+
+## Risks / Trade-offs
+
+- [A model call in flight cannot be interrupted, so a slow call delays the stop] → `cancel_requested` makes the view say the pass stops after the current posting, so the wait is explained.
+- [A restart loses the live progress] → a restart already ends the running pass as `failed`, and the view shows that.
+- [The progress callback runs on the pass thread while `read()` runs on a request thread] → `Runs` stores each report under its lock as a fresh copy, as `AlertRuns` does.
+- [Overlap with other work on `PoolView.tsx` or `triage/graph.py`] → run the parallel-work check before the PR, and bring `origin/main` in with `git merge`.
+
+## Migration Plan
+
+Deploy as usual. Existing `pool.json` files stay valid, and the counter shows the same figures, since no stored record is cancelled. Rollback: the previous image rejects unknown fields, so a rollback after a cancelled pass was recorded also needs that record's `cancelled` field removed from `pool.json` in the data repository, for example by reverting that commit there.
