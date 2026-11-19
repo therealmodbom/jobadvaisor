@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
 import { Check, ChevronDown, ChevronUp, Compass, LoaderCircle, ShieldAlert, Square } from 'lucide-react'
 import { DropdownMenu } from 'radix-ui'
 import { api, ApiError, type NextPass, type PassProgress, type PassState, type PassVariant, type Pool, type PoolRow, type PoolSettings, type RatingAnswer, type ScoreAnswer, type Status, type Strength, type Verdict } from '@/api'
@@ -132,93 +132,47 @@ function usePass(onDone: () => void) {
            retryPoll: () => setPollFailed(false) }
 }
 
-/** Where the steps of a pass stand, in the order a pass moves through them. */
-const PHASES = ['checking', 'extracting', 'scoring', 'storing'] as const
-const countText = (count: { done: number; total: number }) => `${count.done} von ${count.total}`
+/** How long a button that just appeared after a swap ignores presses, in milliseconds. */
+export const SWAP_LOCK_MS = 1000
+const HINT_DEFAULT = 'Abbrechen hält nach der aktuellen Anzeige an. Was schon gescort ist, bleibt gespeichert.'
+/** The default hint is shorter on a phone (design: A-Phone), so it keeps its two lines there. */
+const HINT_DEFAULT_PHONE = 'Abbrechen hält nach der aktuellen Anzeige an. Gescortes bleibt gespeichert.'
+const HINT_STOPPING = 'Wird nach der aktuellen Anzeige beendet.'
+const HINT_STORING = 'Das Speichern lässt sich nicht mehr abbrechen.'
 
-/** What the head line of the band says per phase; the two counting phases add their count. */
-function bandHead(progress: PassProgress | null) {
-  switch (progress?.phase) {
-    case undefined: return 'Scoren läuft'
-    case 'checking': return 'Scoren läuft: Anzeigen prüfen'
-    case 'extracting': return `Scoren läuft: Merkmale lesen${progress.extract ? `, ${countText(progress.extract)}` : ''}`
-    case 'scoring': return `Scoren läuft: Scoren${progress.score ? `, ${countText(progress.score)}` : ''}`
-    case 'storing': return 'Scoren läuft: Scores werden gespeichert'
-  }
-}
-
-/** The band of a running pass (design variant A): a head line with the loader, the phase and a
- * fixed-size slot, four steps with a second line of fixed height each, and one hint line. It has
- * the same structure in every phase: only texts, ticks and bars change, so the page below does
- * not move. Every line has a fixed height sized for its longest text (the step labels never wrap,
- * the grid drops to fewer columns on narrow widths), so the band keeps one height per width.
- * `progress` null (no report yet) reads like checking, without counts. `stopping`: a cancel was
- * requested. The cancel button fills the slot with `onCancel`, except while storing, which always
- * finishes: then the slot stays, empty, and the hint says so. Once `stopping` the button is only
- * `aria-disabled`, so it keeps keyboard focus and a further Enter does nothing. */
-function PassBand({ progress, stopping, onCancel }: {
-  progress: PassProgress | null
-  stopping: boolean
-  onCancel: () => void
-}) {
-  const at = PHASES.indexOf(progress?.phase ?? 'checking')
-  const storing = at === PHASES.indexOf('storing')
-  const extract = progress?.extract ?? null
+/** The progress of a running pass, beside the pass button (design variant A): a head line with the
+ * loader, a bar and a hint line, each of fixed height (the hint always has two lines' room), 340 px
+ * wide from `sm` and full width below, so the block keeps one size in every phase (while no pass
+ * runs, an empty slot of that width keeps the counter in its place). `progress` null
+ * (no report yet) reads like checking: no count, empty bar. The bar fills with `done`/`total`
+ * while scoring and is full while storing. The hint (`#cancel-why`, the cancel button's
+ * description) says what a cancel does, that one was requested (`stopping`), or why storing cannot
+ * be cancelled. Only texts and the bar change. */
+function PassProgressBlock({ progress, stopping }: { progress: PassProgress | null; stopping: boolean }) {
+  const phase = progress?.phase ?? 'checking'
   const score = progress?.score ?? null
-  // Reading features that left the batch before scoring: the scoring total shrinks by them.
-  const failed = extract && score ? extract.total - score.total : 0
-  const steps = [
-    { name: 'Anzeigen prüfen', count: null, idle: 'noch offen' },
-    { name: 'Merkmale lesen', count: extract, idle: 'noch offen' },
-    { name: 'Scoren', count: score, idle: 'noch offen' },
-    { name: 'Speichern', count: null, idle: 'am Ende' },
-  ]
-  const hint = storing ? 'Die Scores werden gespeichert. Das lässt sich nicht mehr abbrechen.'
-    : stopping ? 'wird nach der aktuellen Anzeige beendet…'
-      : 'Abbrechen hält nach der aktuellen Anzeige an. Was schon gescort ist, bleibt gespeichert.'
+  const storing = phase === 'storing'
+  const counted = phase === 'checking' ? null : score
+  const total = Math.max(score?.total ?? 1, 1)
+  const [value, max] = storing ? [total, total] : counted ? [counted.done, total] : [0, 1]
+  const head = storing ? 'Scores werden gespeichert'
+    : counted ? `Scoren läuft: ${counted.done} von ${counted.total}` : 'Scoren läuft: Anzeigen prüfen…'
+  const barLabel = counted || (storing && score) ? `Scoren: ${value} von ${max}` : storing ? 'Scores speichern' : 'Anzeigen prüfen'
   return (
-    <section aria-label="Stand des Scorens"
-             className="flex flex-col gap-3 rounded-xl bg-positive-soft px-4 py-3.5 sm:px-5">
-      <div className="max-sm:contents sm:flex sm:items-center sm:justify-between sm:gap-3">
-        <div className="flex h-12 min-w-0 items-start gap-3 sm:items-center">
-          <LoaderCircle className="mt-0.5 size-5 flex-none motion-safe:animate-spin sm:mt-0" aria-hidden="true" />
-          <strong>{bandHead(progress)}</strong>
-        </div>
-        {/* The slot keeps the button's size while storing, so the band does not shrink. */}
-        <div data-slot="cancel" className="h-11 flex-none max-sm:order-last max-sm:w-full sm:w-[220px]">
-          {!storing && (
-            <Button variant="outline" className="w-full aria-disabled:opacity-50 aria-disabled:hover:bg-card" aria-disabled={stopping}
-                    aria-describedby="cancel-why" onClick={() => { if (!stopping) onCancel() }}>
-              <Square aria-hidden="true" />Scoren abbrechen
-            </Button>
-          )}
-        </div>
+    <section aria-label="Stand des Scorens" className="flex w-full flex-col gap-1.5 sm:w-[340px] sm:flex-none">
+      <div className="flex h-6 items-center gap-2">
+        <LoaderCircle className="size-[18px] flex-none motion-safe:animate-spin" aria-hidden="true" />
+        <strong>{head}</strong>
       </div>
-      <ol className="grid gap-2.5 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
-        {steps.map((step, index) => {
-          const state = index < at ? 'done' : index === at ? 'current' : 'idle'
-          const label = step.count ? `${step.name} · ${countText(step.count)}` : step.name
-          return (
-            <li key={step.name} aria-current={state === 'current' ? 'step' : undefined} className="flex flex-col gap-0.5 sm:gap-1">
-              <span className={cn('flex h-[22px] items-center gap-1.5 text-[15px] leading-[22px] whitespace-nowrap',
-                state === 'done' && 'text-success', state === 'current' && 'font-bold',
-                state === 'idle' && !step.count && 'text-muted-foreground')}>
-                {state === 'done' && <Check className="size-4 flex-none" aria-hidden="true" />}
-                {label}
-              </span>
-              <span className="flex h-5 items-center text-sm leading-5 text-muted-foreground">
-                {step.count && state !== 'done' ? (
-                  <progress value={step.count.done} max={step.count.total} aria-label={`${step.name}: ${countText(step.count)}`}
-                            className="h-2 w-full appearance-none overflow-hidden rounded-full border-0 bg-card [&::-moz-progress-bar]:bg-primary [&::-webkit-progress-bar]:rounded-full [&::-webkit-progress-bar]:bg-card [&::-webkit-progress-value]:rounded-full [&::-webkit-progress-value]:bg-primary" />
-                ) : state === 'done' ? (index === 1 && failed > 0 ? `${failed} fehlgeschlagen` : 'fertig')
-                  : state === 'current' ? 'läuft…' : step.idle}
-              </span>
-            </li>
-          )
-        })}
-      </ol>
-      <p id="cancel-why" className={cn('h-[60px] text-sm leading-5 text-muted-foreground sm:h-10 md:h-5', stopping && !storing && 'font-bold text-foreground')}>
-        {hint}
+      <progress value={value} max={max} aria-label={barLabel}
+                className="h-2 w-full appearance-none overflow-hidden rounded-full border-0 bg-border [&::-moz-progress-bar]:bg-primary [&::-webkit-progress-bar]:rounded-full [&::-webkit-progress-bar]:bg-border [&::-webkit-progress-value]:rounded-full [&::-webkit-progress-value]:bg-primary" />
+      <p id="cancel-why" className={cn('h-10 text-sm leading-5 text-muted-foreground', stopping && !storing && 'font-bold text-foreground')}>
+        {storing ? HINT_STORING : stopping ? HINT_STOPPING : (
+          <>
+            <span className="sm:hidden">{HINT_DEFAULT_PHONE}</span>
+            <span className="max-sm:hidden">{HINT_DEFAULT}</span>
+          </>
+        )}
       </p>
     </section>
   )
@@ -235,76 +189,125 @@ const NOTHING_TO_SCORE = {
   all: 'Es gibt nichts zu scoren: Alle Anzeigen sind ausgeschlossen oder zurückgehalten.',
 }
 
-/** What a pass of `variant` over `n` postings costs: two model calls per posting. */
+/** What a pass of `variant` over `n` postings costs: one model call per posting. */
 function costLine(variant: PassVariant, n: number) {
   const postings = n === 1 ? '1 Anzeige' : `${n} Anzeigen`
-  return variant === 'unscored' ? `${postings} ohne Score, je zwei Modellaufrufe.`
-    : `${postings}, je zwei Modellaufrufe. Vorhandene Scores werden ersetzt.`
+  return variant === 'unscored' ? `${postings} ohne Score, je ein Modellaufruf.`
+    : `${postings}, je ein Modellaufruf. Vorhandene Scores werden ersetzt.`
 }
 
-/** The scoring pass as a split button: the main part starts the pass of the `shown` variant, the
- * trigger opens a menu whose entries `onPick` a variant without starting anything. The text under
- * it (`#pass-why`, the main part's description) is the cost line, or the reason the main part is
- * disabled: no postings for the variant, or a pass is `busy`. Only `busy` disables the trigger. */
-function PassButton({ nextPass, shown, busy, onPick, onStart }: {
+/** The scoring pass as a split button that turns into its own cancel button.
+ * Idle (`working` false): the main part starts the pass of the `shown` variant, the trigger opens a
+ * menu whose entries `onPick` a variant without starting anything. The text under it (`#pass-why`,
+ * the main part's description) is the cost line, or the reason the main part is disabled: no
+ * postings for the variant, or a pass is `busy`. Only `busy` disables the trigger.
+ * `working` (a pass computes): the split button gives way to one outline button that calls
+ * `onCancel`. Both sit in one grid cell, the split button stays in the layout, `invisible` and
+ * `inert`, and reserves the width, so nothing beside it moves when a pass starts or ends; the cost
+ * line is not shown. `stopping` (a cancel was requested): the button reads "Wird beendet…".
+ * `storing`: it keeps its label but cannot cancel any more. In both it is `aria-disabled`, not
+ * `disabled`, so it keeps focus and a further Enter does nothing; `#cancel-why` (the progress
+ * block's hint) gives the reason.
+ * Swap delay: for `SWAP_LOCK_MS` after each swap the button that appeared is `aria-disabled` and
+ * ignores presses, so a double click cannot cancel the pass it just started, nor a late cancel
+ * click start a new one. When the button that went away had focus, focus moves to the new one. */
+function PassButton({ nextPass, shown, busy, working, stopping, storing, onPick, onStart, onCancel }: {
   nextPass: NextPass
   shown: PassVariant
   busy: boolean
+  working: boolean
+  stopping: boolean
+  storing: boolean
   onPick: (variant: PassVariant) => void
   onStart: (variant: PassVariant) => void
+  onCancel: () => void
 }) {
   const [open, setOpen] = useState(false)
   // A pass that starts while the menu is open closes it (render-time sync, no effect).
   if (busy && open) setOpen(false)
+  // A swap locks the new button for SWAP_LOCK_MS (render-time sync, the timer is the effect).
+  const [seenWorking, setSeenWorking] = useState(working)
+  const [locked, setLocked] = useState(false)
+  if (seenWorking !== working) {
+    setSeenWorking(working)
+    setLocked(true)
+  }
+  useEffect(() => {
+    if (!locked) return
+    const timer = setTimeout(() => setLocked(false), SWAP_LOCK_MS)
+    return () => clearTimeout(timer)
+  }, [locked, seenWorking])
+  const groupRef = useRef<HTMLDivElement>(null)
+  const mainRef = useRef<HTMLButtonElement>(null)
+  const cancelRef = useRef<HTMLButtonElement>(null)
+  const was = useRef(working)
+  // Both buttons stay mounted and only one is shown, so at commit time the old one still holds focus.
+  useLayoutEffect(() => {
+    if (was.current === working) return
+    was.current = working
+    const [from, to] = working ? [groupRef.current, cancelRef.current] : [cancelRef.current, mainRef.current]
+    if (from?.contains(document.activeElement)) to?.focus()
+  }, [working])
   const count = nextPass[shown]
   const why = busy ? 'Das Scoren läuft.' : count === 0 ? NOTHING_TO_SCORE[shown] : costLine(shown, count)
   const Chevron = open ? ChevronUp : ChevronDown
+  const cancelDead = locked || stopping || storing
   return (
     <div className="flex flex-col gap-1.5 max-sm:w-full">
-      <div role="group" aria-label="Scoren" className="flex">
-        <Button className="min-w-0 flex-1 rounded-r-none" onClick={() => onStart(shown)}
-                disabled={busy || count === 0} aria-describedby="pass-why">
-          {/* Both labels share one grid cell, so the button keeps the wider one's size when the
-              variant changes; the hidden one only reserves space. */}
-          <span className="grid justify-items-center">
-            {(['unscored', 'all'] as const).map((variant) => (
-              <span key={variant} aria-hidden={variant !== shown || undefined}
-                    className={cn('col-start-1 row-start-1', variant !== shown && 'invisible')}>
-                {VARIANT_VERBS[variant]} ({nextPass[variant]})
-              </span>
-            ))}
-          </span>
+      <div className="grid">
+        <div ref={groupRef} role="group" aria-label="Scoren" inert={working} aria-hidden={working || undefined}
+             className={cn('col-start-1 row-start-1 flex', working && 'invisible')}>
+          <Button ref={mainRef} className="min-w-0 flex-1 rounded-r-none" onClick={() => { if (!locked) onStart(shown) }}
+                  disabled={busy || count === 0} aria-disabled={locked || undefined} aria-describedby="pass-why">
+            {/* Both labels share one grid cell, so the button keeps the wider one's size when the
+                variant changes; the hidden one only reserves space. */}
+            <span className="grid justify-items-center">
+              {(['unscored', 'all'] as const).map((variant) => (
+                <span key={variant} aria-hidden={variant !== shown || undefined}
+                      className={cn('col-start-1 row-start-1', variant !== shown && 'invisible')}>
+                  {VARIANT_VERBS[variant]} ({nextPass[variant]})
+                </span>
+              ))}
+            </span>
+          </Button>
+          <DropdownMenu.Root open={open} onOpenChange={setOpen}>
+            <DropdownMenu.Trigger asChild>
+              <Button className="w-11 rounded-l-none border-l border-primary-foreground/45 px-0"
+                      aria-label="Andere Variante wählen" disabled={busy}>
+                <Chevron aria-hidden="true" />
+              </Button>
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.Content align="start" sideOffset={6} collisionPadding={16} aria-label="Variante"
+                                    className="z-50 flex w-[min(380px,calc(100vw-2rem))] flex-col gap-0.5 rounded-xl border bg-card p-1.5 shadow-card">
+                <DropdownMenu.RadioGroup value={shown} onValueChange={(value) => onPick(value as PassVariant)}>
+                  {(['unscored', 'all'] as const).map((variant) => (
+                    <DropdownMenu.RadioItem key={variant} value={variant}
+                                            className="flex min-h-11 cursor-pointer items-start gap-2.5 rounded-md px-2.5 py-2 outline-none data-[highlighted]:bg-muted">
+                      <span className="mt-1 size-4 flex-none text-primary">
+                        <DropdownMenu.ItemIndicator><Check className="size-4" aria-hidden="true" /></DropdownMenu.ItemIndicator>
+                      </span>
+                      <span className="flex flex-col">
+                        <span className="font-bold">{VARIANT_TITLE[variant]} ({nextPass[variant]})</span>
+                        <span className="text-sm text-muted-foreground">{costLine(variant, nextPass[variant])}</span>
+                      </span>
+                    </DropdownMenu.RadioItem>
+                  ))}
+                </DropdownMenu.RadioGroup>
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Root>
+        </div>
+        <Button ref={cancelRef} variant="outline" inert={!working} aria-hidden={!working || undefined}
+                aria-disabled={cancelDead ? true : undefined} aria-describedby="cancel-why"
+                onClick={() => { if (!cancelDead) onCancel() }}
+                className={cn('col-start-1 row-start-1', !working && 'invisible',
+                  (stopping || storing) && 'cursor-default text-muted-foreground hover:bg-card')}>
+          <Square aria-hidden="true" />{stopping && !storing ? 'Wird beendet…' : 'Scoren abbrechen'}
         </Button>
-        <DropdownMenu.Root open={open} onOpenChange={setOpen}>
-          <DropdownMenu.Trigger asChild>
-            <Button className="w-11 rounded-l-none border-l border-primary-foreground/45 px-0"
-                    aria-label="Andere Variante wählen" disabled={busy}>
-              <Chevron aria-hidden="true" />
-            </Button>
-          </DropdownMenu.Trigger>
-          <DropdownMenu.Portal>
-            <DropdownMenu.Content align="start" sideOffset={6} collisionPadding={16} aria-label="Variante"
-                                  className="z-50 flex w-[min(380px,calc(100vw-2rem))] flex-col gap-0.5 rounded-xl border bg-card p-1.5 shadow-card">
-              <DropdownMenu.RadioGroup value={shown} onValueChange={(value) => onPick(value as PassVariant)}>
-                {(['unscored', 'all'] as const).map((variant) => (
-                  <DropdownMenu.RadioItem key={variant} value={variant}
-                                          className="flex min-h-11 cursor-pointer items-start gap-2.5 rounded-md px-2.5 py-2 outline-none data-[highlighted]:bg-muted">
-                    <span className="mt-1 size-4 flex-none text-primary">
-                      <DropdownMenu.ItemIndicator><Check className="size-4" aria-hidden="true" /></DropdownMenu.ItemIndicator>
-                    </span>
-                    <span className="flex flex-col">
-                      <span className="font-bold">{VARIANT_TITLE[variant]} ({nextPass[variant]})</span>
-                      <span className="text-sm text-muted-foreground">{costLine(variant, nextPass[variant])}</span>
-                    </span>
-                  </DropdownMenu.RadioItem>
-                ))}
-              </DropdownMenu.RadioGroup>
-            </DropdownMenu.Content>
-          </DropdownMenu.Portal>
-        </DropdownMenu.Root>
       </div>
       {/* w-0 min-w-full: the line wraps within the button's width instead of setting it. */}
-      <p id="pass-why" className="w-0 min-w-full text-sm text-muted-foreground">{why}</p>
+      {!working && <p id="pass-why" className="w-0 min-w-full text-sm text-muted-foreground">{why}</p>}
     </div>
   )
 }
@@ -718,6 +721,7 @@ export function PoolView({ active = true }: { active?: boolean }) {
   const counter = pool?.counter
   const working = busy && !pollFailed && pass?.status !== 'awaiting_answer'
   const stopping = cancelling || (pass?.cancel_requested ?? false)
+  const storing = pass?.progress?.phase === 'storing'
   const defaultVariant = pool?.next_pass.default
   const [seenDefault, setSeenDefault] = useState(defaultVariant)
   if (seenDefault !== defaultVariant) {
@@ -732,7 +736,10 @@ export function PoolView({ active = true }: { active?: boolean }) {
 
       {pool && (
         <div className="flex flex-wrap items-start gap-x-8 gap-y-4">
-          <PassButton nextPass={pool.next_pass} shown={shownVariant} busy={busy} onPick={setPicked} onStart={start} />
+          <PassButton nextPass={pool.next_pass} shown={shownVariant} busy={busy} working={working} stopping={stopping}
+                      storing={storing} onPick={setPicked} onStart={start} onCancel={cancel} />
+          {working ? <PassProgressBlock progress={pass?.progress ?? null} stopping={stopping} />
+            : <div aria-hidden="true" className="max-sm:hidden sm:w-[340px] sm:flex-none" />}
           {counter && (
             <div className="flex flex-col gap-1">
               <p>Korrekturen seit dem letzten Neu-Scoren aller Anzeigen: <strong>{counter.corrections}</strong></p>
@@ -756,7 +763,6 @@ export function PoolView({ active = true }: { active?: boolean }) {
       </div>
       <p role="status" className="sr-only">{announce}</p>
       <p role="status" className="sr-only">{end}</p>
-      {working && <PassBand progress={pass?.progress ?? null} stopping={stopping} onCancel={cancel} />}
       {notice && <p role="alert" className="rounded-xl border border-danger bg-danger-soft px-4 py-3">{notice}</p>}
       {busy && pollFailed && (
         <ErrorWithRetry title="Der Stand des Scorens ist gerade nicht abrufbar"

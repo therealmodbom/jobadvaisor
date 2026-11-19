@@ -178,12 +178,11 @@ export type ScoreAnswer = PostingPageData & { counter: Counter; next_pass: NextP
 export const postScore = (postingId: string) =>
   api<ScoreAnswer>(`/postings/${encodeURIComponent(postingId)}/score`, { method: 'POST' })
 
-/** Where a running pass stands: its `phase` and, from reading features on, both counts as
- * `{done, total}` (`null` while it checks). `score.total` is `extract.total` minus the postings
- * whose extraction failed, so during extraction it counts those still on their way to scoring. */
+/** Where a running pass stands: its `phase` and, from the start of scoring on, the count as
+ * `score: {done, total}` (`null` while it checks). `done` counts every posting scored or failed;
+ * `total` shrinks when a posting drops out of the pass (flagged while a question waited). */
 export type PassProgress = {
-  phase: 'checking' | 'extracting' | 'scoring' | 'storing'
-  extract: { done: number; total: number } | null
+  phase: 'checking' | 'scoring' | 'storing'
   score: { done: number; total: number } | null
 }
 

@@ -1,21 +1,20 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, expect, test, vi } from 'vitest'
 import type { PassProgress, PassState, Pool, PoolRow, RatingAnswer, RatingBody } from '@/api'
 import { axe } from '@/test-axe'
 import { type Call, pending, stubApi } from '@/test-api'
 import { label, POOL, poolWith, ratingAnswer, row as makeRow } from '@/test-fixtures'
-import { POLL_MS, PoolView } from './PoolView'
+import { POLL_MS, PoolView, SWAP_LOCK_MS } from './PoolView'
 
 const pass = (changes: Partial<PassState>): PassState => ({
   pass_id: 'ps1', status: 'running', started_at: null, error: null, progress: null, cancel_requested: false,
   scored: 0, unscreened: [], ...changes })
 
-/** A running pass in `phase`, with `extract` and `score` as `[done, total]` (null: not counted yet). */
-const running = (phase: PassProgress['phase'], extract: [number, number] | null = null,
-                 score: [number, number] | null = null, changes: Partial<PassState> = {}) => pass({
-  progress: { phase, extract: extract && { done: extract[0], total: extract[1] },
-              score: score && { done: score[0], total: score[1] } }, ...changes })
+/** A running pass in `phase`, with `score` as `[done, total]` (null: not counted yet). */
+const running = (phase: PassProgress['phase'], score: [number, number] | null = null,
+                 changes: Partial<PassState> = {}) => pass({
+  progress: { phase, score: score && { done: score[0], total: score[1] } }, ...changes })
 
 afterEach(() => {
   vi.useRealTimers()
@@ -148,7 +147,11 @@ const NEXT = (changes: Partial<Pool['next_pass']> = {}) =>
   poolWith({ next_pass: { default: 'unscored', unscored: 3, all: 12, ...changes } })
 const posts = (calls: Call[]) => calls.filter((call) => call.method === 'POST' && call.path === '/pool/passes')
 const mainPart = (name: string | RegExp) => screen.findByRole('button', { name })
-const COST_ALL = (count: number) => `${count} Anzeigen, je zwei Modellaufrufe. Vorhandene Scores werden ersetzt.`
+/** The split button's group; it is there, hidden, also while a pass computes. */
+const splitGroup = () => document.querySelector<HTMLElement>('[role="group"][aria-label="Scoren"]')!
+/** Wait until the pool is loaded and the pass button rendered, whether or not it is shown. */
+const loaded = () => waitFor(() => expect(splitGroup()).not.toBeNull())
+const COST_ALL = (count: number) => `${count} Anzeigen, je ein Modellaufruf. Vorhandene Scores werden ersetzt.`
 
 /** Open the variant menu by keyboard: jsdom lacks the pointer APIs Radix wants for a click. */
 async function openMenu() {
@@ -162,7 +165,7 @@ test('below the thresholds the main part scores the postings without a score', a
   render(<PoolView />)
   const main = await mainPart('Anzeigen ohne Score scoren (3)')
   expect(main).toBeEnabled()
-  expect(main).toHaveAccessibleDescription('3 Anzeigen ohne Score, je zwei Modellaufrufe.')
+  expect(main).toHaveAccessibleDescription('3 Anzeigen ohne Score, je ein Modellaufruf.')
 })
 
 test('with the rescore hint the main part scores all postings and says it replaces scores', async () => {
@@ -175,13 +178,13 @@ test('with the rescore hint the main part scores all postings and says it replac
 test('one posting without a score is named in the singular', async () => {
   stubApi({ 'GET /pool': { body: NEXT({ unscored: 1 }) } })
   render(<PoolView />)
-  expect(await mainPart('Anzeigen ohne Score scoren (1)')).toHaveAccessibleDescription('1 Anzeige ohne Score, je zwei Modellaufrufe.')
+  expect(await mainPart('Anzeigen ohne Score scoren (1)')).toHaveAccessibleDescription('1 Anzeige ohne Score, je ein Modellaufruf.')
 })
 
 test('one posting to rescore is named in the singular', async () => {
   stubApi({ 'GET /pool': { body: NEXT({ default: 'all', all: 1 }) } })
   render(<PoolView />)
-  expect(await mainPart('Alle Anzeigen neu scoren (1)')).toHaveAccessibleDescription('1 Anzeige, je zwei Modellaufrufe. Vorhandene Scores werden ersetzt.')
+  expect(await mainPart('Alle Anzeigen neu scoren (1)')).toHaveAccessibleDescription('1 Anzeige, je ein Modellaufruf. Vorhandene Scores werden ersetzt.')
 })
 
 test('the menu, opened by keyboard, lists both variants with counts and costs and marks the shown one', async () => {
@@ -193,7 +196,7 @@ test('the menu, opened by keyboard, lists both variants with counts and costs an
   const all = menu.getByRole('menuitemradio', { name: /Alle Anzeigen neu scoren \(12\)/ })
   expect(unscored).toHaveAttribute('aria-checked', 'true')
   expect(all).toHaveAttribute('aria-checked', 'false')
-  expect(unscored).toHaveTextContent('3 Anzeigen ohne Score, je zwei Modellaufrufe.')
+  expect(unscored).toHaveTextContent('3 Anzeigen ohne Score, je ein Modellaufruf.')
   expect(all).toHaveTextContent(COST_ALL(12))
 })
 
@@ -270,14 +273,16 @@ test('an open menu closes when a pass starts', async () => {
   stubApi({ 'GET /pool': { body: NEXT() }, 'GET /pool/passes/ps1': { body: pass({ status: 'failed', error: 'kaputt' }) },
             'POST /pool/passes': { status: 202, body: { pass_id: 'ps2' } }, 'GET /pool/passes/ps2': { body: pass({ pass_id: 'ps2' }) } })
   render(<PoolView />)
-  await mainPart(/Anzeigen ohne Score scoren/)
+  await loaded()
   await tick()
   await openMenu()
   // The modal menu hides the rest from assistive technology and the pointer; a click sent
   // straight to the retry button stands in for a pass started some other way.
   await act(async () => screen.getByRole('button', { name: 'Erneut versuchen', hidden: true }).click())
   await vi.waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
-  expect(screen.getByRole('button', { name: 'Andere Variante wählen' })).toBeDisabled()
+  // The pass button has given way to the cancel button, so no variant can be picked.
+  expect(screen.queryByRole('button', { name: 'Andere Variante wählen' })).toBeNull()
+  expect(screen.getByRole('button', { name: 'Scoren abbrechen' })).toBeVisible()
 })
 
 /** Pick "Alle" in the menu of a view whose default is `unscored`. */
@@ -319,7 +324,7 @@ test('a picked "Alle" is dropped when its pass ends and the pool reloads', async
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
   let polls = 0
   stubApi({ 'GET /pool': { body: NEXT() }, 'POST /pool/passes': { status: 202, body: { pass_id: 'ps1' } },
-            'GET /pool/passes/ps1': () => ({ body: pass(++polls === 1 ? running('extracting', [4, 12], [0, 12]) : { status: 'done' }) }) })
+            'GET /pool/passes/ps1': () => ({ body: pass(++polls === 1 ? running('scoring', [4, 12]) : { status: 'done' }) }) })
   render(<PoolView />)
   await pickAll()
   await act(async () => (await mainPart('Alle Anzeigen neu scoren (12)')).click())
@@ -346,13 +351,18 @@ test('nothing to score at all says all postings are excluded or held back', asyn
   expect(screen.getByRole('button', { name: 'Andere Variante wählen' })).toBeEnabled()
 })
 
-test('while a pass computes both parts are disabled', async () => {
-  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
-  sessionStorage.setItem('jobadvaisor.pool-pass', 'ps1')
-  stubApi({ 'GET /pool': { body: NEXT() }, 'GET /pool/passes/ps1': { body: running('extracting', [2, 12], [0, 12]) } })
-  render(<PoolView />)
-  const main = await mainPart(/Anzeigen ohne Score scoren/)
-  await tick()
+test('while a pass computes the split button is out of the way and its cancel button takes the place', async () => {
+  await openRunning(running('scoring', [2, 12]))
+  expect(screen.queryByRole('button', { name: /Anzeigen ohne Score scoren/ })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Andere Variante wählen' })).toBeNull()
+  expect(splitGroup()).toHaveAttribute('inert')
+  expect(screen.getByRole('button', { name: 'Scoren abbrechen' })).toBeVisible()
+  expect(document.getElementById('pass-why')).toBeNull()
+})
+
+test('while a pass waits for the answer both parts are disabled and say a pass runs', async () => {
+  await openQuestion()
+  const main = screen.getByRole('button', { name: /Anzeigen ohne Score scoren/ })
   expect(main).toBeDisabled()
   expect(main).toHaveAccessibleDescription('Das Scoren läuft.')
   expect(screen.getByRole('button', { name: 'Andere Variante wählen' })).toBeDisabled()
@@ -377,19 +387,20 @@ test('a pass shows its progress, then reloads the pool when done', async () => {
       return { body: reloads === 1 ? POOL : poolWith({ next_pass: { default: 'unscored', unscored: 0, all: 0 } }) }
     },
     'POST /pool/passes': { status: 202, body: { pass_id: 'ps1' } },
-    'GET /pool/passes/ps1': () => ({ body: pass(++polls === 1 ? running('extracting', [4, 12], [0, 12]) : { status: 'done' }) }),
+    'GET /pool/passes/ps1': () => ({ body: pass(++polls === 1 ? running('scoring', [4, 12]) : { status: 'done' }) }),
   })
   render(<PoolView />)
   const button = await screen.findByRole('button', { name: 'Anzeigen ohne Score scoren (12)' })
   await act(async () => button.click())
   expect(button).toBeDisabled()
-  // Before the first poll the band is there, without counts, with its cancel button.
-  expect(screen.getByText('Scoren läuft')).toBeVisible()
-  expect(screen.getByRole('button', { name: 'Scoren abbrechen' })).toBeEnabled()
+  expect(splitGroup()).toHaveAttribute('inert')
+  // Before the first poll the progress is there, without counts, with the cancel button.
+  expect(screen.getByText('Scoren läuft: Anzeigen prüfen…')).toBeVisible()
+  expect(screen.getByRole('button', { name: 'Scoren abbrechen' })).toBeVisible()
   await tick()
-  expect(screen.getByText('Scoren läuft: Merkmale lesen, 4 von 12')).toBeVisible()
+  expect(screen.getByText('Scoren läuft: 4 von 12')).toBeVisible()
   // The counts change every poll, so they stay out of the live region.
-  expect(screen.getByText('Scoren läuft: Merkmale lesen, 4 von 12').closest('[role="status"]')).toBeNull()
+  expect(screen.getByText('Scoren läuft: 4 von 12').closest('[role="status"]')).toBeNull()
   await tick()
   expect(screen.queryByText(/Scoren läuft/)).toBeNull()
   expect(await screen.findByRole('button', { name: 'Anzeigen ohne Score scoren (0)' })).toBeDisabled()
@@ -400,11 +411,11 @@ test('a pass shows its progress, then reloads the pool when done', async () => {
 test('a stored pass resumes polling after a reload', async () => {
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
   sessionStorage.setItem('jobadvaisor.pool-pass', 'ps1')
-  stubApi({ 'GET /pool': { body: POOL }, 'GET /pool/passes/ps1': { body: running('scoring', [12, 12], [7, 12]) } })
+  stubApi({ 'GET /pool': { body: POOL }, 'GET /pool/passes/ps1': { body: running('scoring', [7, 12]) } })
   render(<PoolView />)
-  await screen.findByRole('button', { name: /Anzeigen ohne Score scoren/ })
+  await loaded()
   await tick()
-  expect(screen.getByText('Scoren läuft: Scoren, 7 von 12')).toBeVisible()
+  expect(screen.getByText('Scoren läuft: 7 von 12')).toBeVisible()
 })
 
 test('starting while another pass runs says so', async () => {
@@ -424,7 +435,7 @@ async function openQuestion(answers: Record<string, unknown> = {}) {
   const calls = stubApi({ 'GET /pool': { body: POOL }, 'GET /pool/passes/ps1': { body: QUESTION },
                           'POST /pool/passes/ps1/unscreened': { status: 202, body: { pass_id: 'ps1' } }, ...answers })
   const view = render(<PoolView />)
-  await screen.findByRole('button', { name: /Anzeigen ohne Score scoren/ })
+  await loaded()
   await tick()
   return { calls, ...view }
 }
@@ -457,17 +468,18 @@ test('an aborted pass is announced', async () => {
   sessionStorage.setItem('jobadvaisor.pool-pass', 'ps1')
   stubApi({ 'GET /pool': { body: POOL }, 'GET /pool/passes/ps1': { body: pass({ status: 'aborted' }) } })
   render(<PoolView />)
-  await screen.findByRole('button', { name: /Anzeigen ohne Score scoren/ })
+  await loaded()
   await tick()
   expect(screen.getByText('Das Scoren wurde abgebrochen.')).toBeVisible()
   expect(screen.getByRole('button', { name: /Anzeigen ohne Score scoren/ })).toBeEnabled()
 })
 
-// --- progress band and cancel -------------------------------------------------------------
+// --- progress beside the pass button and cancel ---------------------------------------------
 
 const CANCEL_ROUTE = { 'POST /pool/passes/ps1/cancel': { status: 202, body: { pass_id: 'ps1' } } }
 const HINT = 'Abbrechen hält nach der aktuellen Anzeige an. Was schon gescort ist, bleibt gespeichert.'
-const STOPPING = 'wird nach der aktuellen Anzeige beendet…'
+const STOPPING = 'Wird nach der aktuellen Anzeige beendet.'
+const STORING = 'Das Speichern lässt sich nicht mehr abbrechen.'
 const cancelCalls = (calls: Call[]) => calls.filter((call) => call.path === '/pool/passes/ps1/cancel')
 
 /** A view whose stored pass `ps1` answers `answer()` per poll; waits for the first poll. */
@@ -477,124 +489,134 @@ async function openRunning(answer: PassState | (() => PassState), extra: Paramet
   const calls = stubApi({ 'GET /pool': { body: POOL },
                           'GET /pool/passes/ps1': () => ({ body: typeof answer === 'function' ? answer() : answer }), ...extra })
   const view = render(<PoolView />)
-  await screen.findByRole('button', { name: /Anzeigen ohne Score scoren/ })
+  await loaded()
   await tick()
   return { calls, ...view }
 }
 
-const band = () => screen.getByRole('region', { name: 'Stand des Scorens' })
-const steps = () => within(band()).getAllByRole('listitem')
-/** The first line of each step, then its second line. */
-const stepLabels = () => steps().map((item) => item.firstElementChild!.textContent)
-const stepLines = () => steps().map((item) => item.lastElementChild!.textContent)
-/** What must not change from phase to phase: the band's structure and the classes of its fixed boxes. */
+const block = () => screen.getByRole('region', { name: 'Stand des Scorens' })
+const cancelButton = (name = 'Scoren abbrechen') => screen.getByRole('button', { name })
+const bar = () => within(block()).getByRole('progressbar')
+/** What must not change from phase to phase: the block's structure and the classes of its fixed boxes. */
 const shape = () => JSON.stringify({
-  children: Array.from(band().children).map((child) => child.tagName),
-  items: steps().map((item) => [item.children.length, item.firstElementChild!.className.split(' ').filter((name) => /^(h-|whitespace-)/.test(name)),
-    item.lastElementChild!.className]),
-  slot: band().querySelector('[data-slot="cancel"]')?.className,
-  // The hint's color and weight change with the state; its fixed height must not.
-  hint: band().querySelector('#cancel-why')?.className.split(' ').filter((name) => /(^|:)h-/.test(name)),
+  children: Array.from(block().children).map((child) => [child.tagName, child.className.split(' ').filter((name) => /(^|:)(h-|w-)/.test(name))]),
+  root: block().className.split(' ').filter((name) => /(^|:)w-/.test(name)),
 })
 
-test('reading features shows the phase and both counts, in the head and in the steps', async () => {
-  await openRunning(running('extracting', [12, 80], [0, 80]))
-  expect(screen.getByText('Scoren läuft: Merkmale lesen, 12 von 80')).toBeVisible()
-  expect(stepLabels()).toEqual(['Anzeigen prüfen', 'Merkmale lesen · 12 von 80', 'Scoren · 0 von 80', 'Speichern'])
-  expect(within(band()).getByRole('progressbar', { name: 'Merkmale lesen: 12 von 80' })).toHaveAttribute('value', '12')
-  expect(within(band()).getByRole('progressbar', { name: 'Scoren: 0 von 80' })).toHaveAttribute('value', '0')
-  expect(stepLines()).toEqual(['fertig', '', '', 'am Ende'])
-  expect(steps()[1]).toHaveAttribute('aria-current', 'step')
+test('scoring shows the count in the head and on the bar', async () => {
+  await openRunning(running('scoring', [12, 80]))
+  expect(screen.getByText('Scoren läuft: 12 von 80')).toBeVisible()
+  expect(bar()).toHaveAccessibleName('Scoren: 12 von 80')
+  expect(bar()).toHaveAttribute('value', '12')
+  expect(bar()).toHaveAttribute('max', '80')
+  expect(block()).toHaveTextContent(HINT)
 })
 
-test('scoring marks reading features done with its failures, and the bar belongs to scoring', async () => {
-  await openRunning(running('scoring', [80, 80], [30, 79]))
-  expect(screen.getByText('Scoren läuft: Scoren, 30 von 79')).toBeVisible()
-  expect(stepLabels()).toEqual(['Anzeigen prüfen', 'Merkmale lesen · 80 von 80', 'Scoren · 30 von 79', 'Speichern'])
-  expect(stepLines()).toEqual(['fertig', '1 fehlgeschlagen', '', 'am Ende'])
-  expect(within(band()).getAllByRole('progressbar')).toHaveLength(1)
-  expect(steps()[2]).toHaveAttribute('aria-current', 'step')
-})
-
-test('reading features without a failure says only "fertig"', async () => {
-  await openRunning(running('scoring', [80, 80], [30, 80]))
-  expect(stepLines()).toEqual(['fertig', 'fertig', '', 'am Ende'])
-})
-
-test.each([['checking', running('checking'), 'Scoren läuft: Anzeigen prüfen'], ['a missing report', pass({}), 'Scoren läuft']])(
-  '%s shows the pass without counts', async (_name, state, head) => {
+test.each([['checking', running('checking')], ['a missing report', pass({})]])(
+  '%s shows no count and an empty bar', async (_name, state) => {
     await openRunning(state)
-    expect(screen.getByText(head)).toBeVisible()
-    expect(stepLabels()).toEqual(['Anzeigen prüfen', 'Merkmale lesen', 'Scoren', 'Speichern'])
-    expect(stepLines()).toEqual(['läuft…', 'noch offen', 'noch offen', 'am Ende'])
-    expect(within(band()).queryByRole('progressbar')).toBeNull()
-    expect(band().textContent).not.toMatch(/\bvon\b/)
+    expect(screen.getByText('Scoren läuft: Anzeigen prüfen…')).toBeVisible()
+    expect(block().textContent).not.toMatch(/\bvon\b/)
+    expect(bar()).toHaveAttribute('value', '0')
+    expect(bar()).toHaveAccessibleName('Anzeigen prüfen')
   })
 
-test('the counts move between two polls, outside the live region', async () => {
-  let done = 12
-  await openRunning(() => running('extracting', [done, 80], [0, 80]))
-  expect(screen.getByText('Scoren läuft: Merkmale lesen, 12 von 80')).toBeVisible()
-  done = 13
-  await tick()
-  expect(screen.getByText('Scoren läuft: Merkmale lesen, 13 von 80')).toBeVisible()
-  expect(within(band()).getByRole('progressbar', { name: 'Merkmale lesen: 13 von 80' })).toHaveAttribute('value', '13')
-  expect(band().closest('[role="status"]')).toBeNull()
+test('storing says so and fills the bar', async () => {
+  await openRunning(running('storing', [80, 80]))
+  expect(screen.getByText('Scores werden gespeichert')).toBeVisible()
+  expect(bar()).toHaveAttribute('value', '80')
+  expect(bar()).toHaveAttribute('max', '80')
 })
 
-test('the band keeps its structure and its fixed boxes in every phase, also after a cancel request and while storing', async () => {
+test('the count moves between two polls, outside the live region', async () => {
+  let done = 12
+  await openRunning(() => running('scoring', [done, 80]))
+  expect(screen.getByText('Scoren läuft: 12 von 80')).toBeVisible()
+  done = 13
+  await tick()
+  expect(screen.getByText('Scoren läuft: 13 von 80')).toBeVisible()
+  expect(bar()).toHaveAttribute('value', '13')
+  expect(block().closest('[role="status"]')).toBeNull()
+})
+
+test('the progress block keeps its structure and its fixed boxes in every phase, also after a cancel request and while storing', async () => {
   let current = running('checking')
   await openRunning(() => current, CANCEL_ROUTE)
   const first = shape()
-  expect(first).toContain('"slot":"')
-  for (const next of [running('extracting', [12, 80], [0, 80]), running('scoring', [80, 80], [30, 79]),
-                      running('scoring', [80, 80], [30, 79], { cancel_requested: true }),
-                      running('storing', [80, 80], [79, 79])]) {
+  expect(first).toContain('h-10')
+  for (const next of [running('scoring', [0, 80]), running('scoring', [30, 79]),
+                      running('scoring', [30, 79], { cancel_requested: true }), running('storing', [79, 79])]) {
     current = next
     await tick()
     expect(shape()).toEqual(first)
-    expect(steps()).toHaveLength(4)
   }
 })
 
+test('the progress slot has the same width idle and running, so the counter keeps its place', async () => {
+  stubApi({ 'GET /pool': { body: NEXT() } })
+  const idle = render(<PoolView />)
+  await mainPart(/Anzeigen ohne Score scoren/)
+  const slot = () => splitGroup().parentElement!.parentElement!.nextElementSibling!
+  expect(slot()).toHaveAttribute('aria-hidden', 'true')
+  const idleClasses = slot().className
+  expect(idleClasses).toContain('sm:w-[340px]')
+  idle.unmount()
+  vi.unstubAllGlobals()
+  await openRunning(running('scoring', [30, 79]))
+  expect(slot()).toBe(block())
+  expect(block().className).toContain('sm:w-[340px]')
+  expect(block().className).toContain('sm:flex-none')
+  expect(idleClasses).toContain('sm:flex-none')
+})
+
+test('the cancel button shares the split button\'s grid cell, so the width stays', async () => {
+  await openRunning(running('scoring', [30, 79]))
+  expect(cancelButton().parentElement).toBe(splitGroup().parentElement)
+  for (const element of [cancelButton(), splitGroup()]) expect(element).toHaveClass('col-start-1', 'row-start-1')
+  expect(splitGroup()).toHaveClass('invisible')
+  expect(splitGroup()).toHaveAttribute('inert')
+})
+
 test('a running pass offers a cancel button, and a press cancels at once without a dialog', async () => {
-  const { calls } = await openRunning(running('scoring', [80, 80], [30, 79]), CANCEL_ROUTE)
-  const cancel = screen.getByRole('button', { name: 'Scoren abbrechen' })
-  expect(cancel).toBeEnabled()
-  expect(cancel).toHaveAccessibleDescription(HINT)
+  const { calls } = await openRunning(running('scoring', [30, 79]), CANCEL_ROUTE)
+  const cancel = cancelButton()
+  expect(cancel).not.toHaveAttribute('aria-disabled')
+  // jsdom applies no Tailwind, so the phone and the desktop text of the hint both count here.
+  expect(cancel).toHaveAccessibleDescription(expect.stringContaining(HINT))
   await act(async () => cancel.click())
   expect(cancelCalls(calls)).toHaveLength(1)
   expect(screen.queryByRole('dialog')).toBeNull()
   expect(cancel).toHaveAttribute('aria-disabled', 'true')
+  expect(cancel).toHaveAccessibleName('Wird beendet…')
   expect(cancel).toHaveAccessibleDescription(STOPPING)
   expect(screen.getByText('Das Scoren wird nach der aktuellen Anzeige beendet.').closest('[role="status"]')).not.toBeNull()
 })
 
 test('the cancel request holds when a poll that started before it answers without it', async () => {
-  await openRunning(running('scoring', [80, 80], [30, 79]), CANCEL_ROUTE)
-  await act(async () => screen.getByRole('button', { name: 'Scoren abbrechen' }).click())
+  await openRunning(running('scoring', [30, 79]), CANCEL_ROUTE)
+  await act(async () => cancelButton().click())
   await tick()
-  expect(screen.getByRole('button', { name: 'Scoren abbrechen' })).toHaveAttribute('aria-disabled', 'true')
+  expect(cancelButton('Wird beendet…')).toHaveAttribute('aria-disabled', 'true')
   expect(screen.getByText(STOPPING)).toBeVisible()
 })
 
 test('a pass the server reports as cancel_requested shows the same state after a reload', async () => {
-  await openRunning(running('scoring', [80, 80], [30, 79], { cancel_requested: true }))
-  expect(screen.getByRole('button', { name: 'Scoren abbrechen' })).toHaveAttribute('aria-disabled', 'true')
+  await openRunning(running('scoring', [30, 79], { cancel_requested: true }))
+  expect(cancelButton('Wird beendet…')).toHaveAttribute('aria-disabled', 'true')
   expect(screen.getByText(STOPPING)).toBeVisible()
 })
 
 test('a 409 on the cancel request shows no error, another failure shows its text and keeps the button', async () => {
   let status = 409
-  await openRunning(running('scoring', [80, 80], [30, 79]), {
+  await openRunning(running('scoring', [30, 79]), {
     'POST /pool/passes/ps1/cancel': () => ({ status, body: { error: 'pass not running', detail: 'x' } }) })
-  const cancel = screen.getByRole('button', { name: 'Scoren abbrechen' })
+  const cancel = cancelButton()
   await act(async () => cancel.click())
   expect(screen.queryByRole('alert')).toBeNull()
   status = 500
   await act(async () => cancel.click())
   expect(screen.getByRole('alert')).toHaveTextContent('Das Scoren konnte nicht abgebrochen werden. Versuch es noch einmal.')
-  expect(cancel).toBeEnabled()
+  expect(cancel).not.toHaveAttribute('aria-disabled')
   expect(screen.queryByText(STOPPING)).toBeNull()
 })
 
@@ -605,49 +627,112 @@ test('while a pass waits for the unscreened answer there is no cancel button', a
   expect(screen.getByRole('button', { name: 'Abbrechen' })).toBeVisible()
 })
 
-test('while a pass stores there is no cancel button, but the slot stays and the line says why', async () => {
-  await openRunning(running('storing', [80, 80], [80, 80]))
-  expect(screen.getByText('Scoren läuft: Scores werden gespeichert')).toBeVisible()
-  expect(screen.queryByRole('button', { name: 'Scoren abbrechen' })).toBeNull()
-  expect(band().querySelector('[data-slot="cancel"]')).not.toBeNull()
-  expect(screen.getByText('Die Scores werden gespeichert. Das lässt sich nicht mehr abbrechen.')).toBeVisible()
-  expect(stepLines()).toEqual(['fertig', 'fertig', 'fertig', 'läuft…'])
+test('while a pass stores the button keeps its label and is inert, and the hint says why', async () => {
+  const { calls } = await openRunning(running('storing', [80, 80]), CANCEL_ROUTE)
+  await titles()
+  const cancel = cancelButton()
+  expect(cancel).toHaveAttribute('aria-disabled', 'true')
+  expect(cancel).toHaveAccessibleDescription(STORING)
+  expect(screen.getByText(STORING)).toBeVisible()
+  act(() => cancel.focus())
+  await act(async () => cancel.click())
+  await userEvent.keyboard('{Enter}')
+  expect(cancelCalls(calls)).toHaveLength(0)
+  expect(cancel).toHaveFocus()
+  expect(document.getElementById('row-p3')).not.toHaveFocus()
 })
 
 test('Enter on the focused cancel button cancels and does not move the row selection', async () => {
-  const { calls } = await openRunning(running('scoring', [80, 80], [30, 79]), CANCEL_ROUTE)
+  const { calls } = await openRunning(running('scoring', [30, 79]), CANCEL_ROUTE)
   await titles()
-  act(() => screen.getByRole('button', { name: 'Scoren abbrechen' }).focus())
+  act(() => cancelButton().focus())
   await userEvent.keyboard('{Enter}')
   await vi.waitFor(() => expect(cancelCalls(calls)).toHaveLength(1))
   expect(document.getElementById('row-p3')).not.toHaveFocus()
 })
 
-test('the cancel button keeps keyboard focus after the press, and a second Enter neither cancels again nor moves the row', async () => {
-  const { calls } = await openRunning(running('scoring', [80, 80], [30, 79]), CANCEL_ROUTE)
+test('once a cancel is requested the button is inert to click and Enter and keeps focus', async () => {
+  const { calls } = await openRunning(running('scoring', [30, 79]), CANCEL_ROUTE)
   await titles()
-  const cancel = screen.getByRole('button', { name: 'Scoren abbrechen' })
+  const cancel = cancelButton()
   act(() => cancel.focus())
   await userEvent.keyboard('{Enter}')
   await vi.waitFor(() => expect(cancel).toHaveAttribute('aria-disabled', 'true'))
   expect(cancel).toHaveFocus()
   await userEvent.keyboard('{Enter}')
+  await act(async () => cancel.click())
   expect(cancelCalls(calls)).toHaveLength(1)
   expect(cancel).toHaveFocus()
   expect(document.getElementById('row-p3')).not.toHaveFocus()
 })
 
-test('a running pass band has no accessibility violations', async () => {
-  const { container } = await openRunning(running('extracting', [12, 80], [0, 80]))
-  vi.useRealTimers()
-  expect(await axe(container)).toHaveNoViolations()
+test.each([['running', () => running('scoring', [30, 79])], ['cancel-requested', () => running('scoring', [30, 79], { cancel_requested: true })],
+           ['storing', () => running('storing', [80, 80])]])(
+  'the %s state has no accessibility violations', async (_name, state) => {
+    const { container } = await openRunning(state(), CANCEL_ROUTE)
+    vi.useRealTimers()
+    expect(await axe(container)).toHaveNoViolations()
+  })
+
+// --- the swap delay -------------------------------------------------------------------------
+
+/** Every timer a swap test needs: the poll interval and the 1 s swap delay. */
+const FAKE_ALL = { toFake: ['setInterval' as const, 'clearInterval' as const, 'setTimeout' as const, 'clearTimeout' as const] }
+/** Run out the swap delay without a poll's worth of difference: poll and delay both last 1 s. */
+const unlock = () => act(() => vi.advanceTimersByTimeAsync(SWAP_LOCK_MS))
+
+/** A pool with a startable pass `ps1` that runs until `end()` is called, then answers `finished`;
+ * timers are fake from here on (so no `findBy` or `userEvent` after this: use `act`). */
+async function openStartable(finished: PassState = pass({ status: 'done' })) {
+  let ended = false
+  const calls = stubApi({ 'GET /pool': { body: NEXT() }, 'POST /pool/passes': { status: 202, body: { pass_id: 'ps1' } },
+                          'GET /pool/passes/ps1': () => ({ body: ended ? finished : running('scoring', [5, 12]) }),
+                          ...CANCEL_ROUTE })
+  render(<PoolView />)
+  const main = await mainPart('Anzeigen ohne Score scoren (3)')
+  vi.useFakeTimers(FAKE_ALL)
+  return { calls, main, end: () => { ended = true } }
+}
+
+test('a second press within 1 s of the start sends no cancel, and focus follows to the new button', async () => {
+  const { calls, main } = await openStartable()
+  act(() => main.focus())
+  await act(async () => main.click())
+  const cancel = cancelButton()
+  expect(cancel).toHaveFocus()
+  expect(cancel).toHaveAttribute('aria-disabled', 'true')
+  await act(async () => cancel.click())
+  expect(cancelCalls(calls)).toHaveLength(0)
+  await unlock()
+  expect(cancel).not.toHaveAttribute('aria-disabled')
+  await act(async () => cancel.click())
+  expect(cancelCalls(calls)).toHaveLength(1)
 })
 
-test('a band with a cancel request has no accessibility violations', async () => {
-  const { container } = await openRunning(running('scoring', [80, 80], [30, 79]), CANCEL_ROUTE)
-  await act(async () => screen.getByRole('button', { name: 'Scoren abbrechen' }).click())
-  vi.useRealTimers()
-  expect(await axe(container)).toHaveNoViolations()
+test('a press within 1 s of the end starts no pass, and focus follows to the pass button', async () => {
+  const { calls, main, end } = await openStartable()
+  await act(async () => main.click())
+  await unlock()
+  const cancel = cancelButton()
+  act(() => cancel.focus())
+  end()
+  await tick()
+  await act(async () => {})
+  expect(main).toHaveAttribute('aria-disabled', 'true')
+  expect(main).toHaveFocus()
+  expect(splitGroup()).not.toHaveAttribute('inert')
+  await act(async () => main.click())
+  expect(posts(calls)).toHaveLength(1)
+  await unlock()
+  expect(main).not.toHaveAttribute('aria-disabled')
+  await act(async () => main.click())
+  expect(posts(calls)).toHaveLength(2)
+})
+
+test('the swap delay leaves the focus alone when the old button had none', async () => {
+  const { main } = await openStartable()
+  await act(async () => main.click())
+  expect(cancelButton()).not.toHaveFocus()
 })
 
 const CANCELLED = 'Das Scoren wurde abgebrochen.'
@@ -665,10 +750,15 @@ test.each([[30, `${CANCELLED} 30 Anzeigen haben einen neuen Score.`], [1, `${CAN
   })
 
 test('the cancelled notice goes when the next pass starts', async () => {
-  await openRunning(pass({ status: 'cancelled', scored: 30 }), {
-    'POST /pool/passes': { status: 202, body: { pass_id: 'ps2' } }, 'GET /pool/passes/ps2': { body: pass({ pass_id: 'ps2' }) } })
+  const { calls, main, end } = await openStartable(pass({ status: 'cancelled', scored: 30 }))
+  await act(async () => main.click())
+  end()
+  await tick()
+  await act(async () => {})
   expect(screen.getByText(`${CANCELLED} 30 Anzeigen haben einen neuen Score.`)).toBeVisible()
-  await act(async () => screen.getByRole('button', { name: 'Anzeigen ohne Score scoren (12)' }).click())
+  await unlock()
+  await act(async () => main.click())
+  expect(posts(calls)).toHaveLength(2)
   expect(screen.queryByText(/Das Scoren wurde abgebrochen/)).toBeNull()
 })
 
@@ -678,7 +768,7 @@ test('a failed pass shows an error with retry that starts a new pass', async () 
   const calls = stubApi({ 'GET /pool': { body: POOL }, 'GET /pool/passes/ps1': { body: pass({ status: 'failed', error: 'labels/p1.json: kaputt' }) },
                           'POST /pool/passes': { status: 202, body: { pass_id: 'ps2' } } })
   render(<PoolView />)
-  await screen.findByRole('button', { name: /Anzeigen ohne Score scoren/ })
+  await loaded()
   await tick()
   expect(screen.getByRole('heading', { name: 'Das Scoren ist fehlgeschlagen' })).toBeVisible()
   expect(screen.getByText(/labels\/p1\.json: kaputt/)).toBeVisible()
@@ -700,7 +790,7 @@ test('the retry of a failed pass starts the variant the main part shows, not the
   unmount()
   failed = true
   render(<PoolView />)
-  await mainPart(/Anzeigen ohne Score scoren/)
+  await loaded()
   await tick()
   await act(async () => screen.getByRole('button', { name: 'Erneut versuchen' }).click())
   expect(posts(calls)).toHaveLength(2)
@@ -820,7 +910,7 @@ test('failed polls show a notice with retry after three failures, and retry resu
   const calls = stubApi({ 'GET /pool': { body: POOL },
                           'GET /pool/passes/ps1': () => (down ? { status: 500 } : { body: pass({ status: 'done' }) }) })
   render(<PoolView />)
-  await screen.findByRole('button', { name: /Anzeigen ohne Score scoren/ })
+  await loaded()
   await tick()
   await tick()
   expect(screen.queryByText('Der Stand des Scorens ist gerade nicht abrufbar')).toBeNull()
@@ -1449,7 +1539,7 @@ test('a "scoring in progress" message on a row goes when the pass ends, a failed
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
   let polls = 0
   stubApi({ 'GET /pool': { body: POOL }, 'POST /pool/passes': { status: 202, body: { pass_id: 'ps1' } },
-    'GET /pool/passes/ps1': () => ({ body: pass(++polls === 1 ? running('extracting', [4, 12], [0, 12]) : { status: 'done' }) }),
+    'GET /pool/passes/ps1': () => ({ body: pass(++polls === 1 ? running('scoring', [4, 12]) : { status: 'done' }) }),
     'POST /postings/n1/score': { status: 409, body: { error: 'scoring in progress', detail: 'ps1' } },
     'POST /postings/broken/score': { status: 502, body: { error: 'scoring failed', detail: 'x' } } })
   render(<PoolView />)
