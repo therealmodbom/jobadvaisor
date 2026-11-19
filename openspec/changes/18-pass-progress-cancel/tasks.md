@@ -2,7 +2,7 @@
 
 ## 0. Look
 
-- [ ] 0.1 Draw the progress line (checking, reading features, scoring, storing), the cancel button, the state after a cancel request and the result notice in a Design artifact on the „JobAdvAIsor Design System“, for desktop and phone. Link it in `design.md` → Context, with the owner's choice recorded. Verified when the link is in `design.md` and the owner has chosen.
+- [ ] 0.1 The owner picks variant A or B in the Design artifact linked in `design.md` → Context, and the choice and its texts are recorded there. Verified when `design.md` names the chosen variant.
 
 ## 1. Backend: the pass reports and stops
 
@@ -17,7 +17,7 @@
 
 - [ ] 2.1 `PassState` in `api.ts` and `test-fixtures.ts` follow the new shape. Verify with `npm --prefix frontend run build` (type check).
 - [ ] 2.2 The progress line shows the phase and both counts, as in the Design artifact. Verify with `PoolView.test.tsx`: the counts move between two polls, and checking shows no count (spec: Pass progress line).
-- [ ] 2.3 The cancel button shows while the pass computes, not while it awaits the unscreened answer. It sends one request, then shows the pass stopping after the current posting. A 409 shows no error, and Enter on the focused button does not move the row selection. Verify with `PoolView.test.tsx` (spec: Cancel button of a pass).
+- [ ] 2.3 The cancel button shows while the pass computes, not while it awaits the unscreened answer and not while it stores (spec: No cancel while storing). It sends one request, then shows the pass stopping after the current posting. A 409 shows no error, and Enter on the focused button does not move the row selection. Verify with `PoolView.test.tsx` (spec: Cancel button of a pass).
 - [ ] 2.4 `cancelled` clears the stored pass, reloads the pool and shows the notice with the scored count. Verify with `PoolView.test.tsx` for 30, 1 and 0 scored (spec: Result of a cancelled pass).
 
 ## 3. End to end and docs

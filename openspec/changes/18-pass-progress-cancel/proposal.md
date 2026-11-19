@@ -23,7 +23,7 @@ None.
 ### Modified Capabilities
 
 - `posting-pool`: modifies „Correction counter and hints“ (only a pass over all postings that is not cancelled restarts the counter) and „Counter window“ (a cancelled pass leaves the window alone). Adds „Pass progress per posting“, „Progress counts only postings a model sees“, „Cancel a running pass“, „Cancel only a running pass“ and „Record of a cancelled pass“.
-- `web-ui`: modifies „Pool view“ (its „Start a pass“ scenario names the progress line and the cancel button). Adds „Pass progress line“, „Cancel button of a pass“ and „Result of a cancelled pass“.
+- `web-ui`: modifies „Pool view“ (its „Start a pass“ scenario names the progress line and the cancel button). Adds „Pass progress line“, „Cancel button of a pass“, „No cancel while storing“ and „Result of a cancelled pass“.
 
 ## Impact
 

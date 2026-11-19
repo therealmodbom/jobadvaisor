@@ -24,6 +24,13 @@ While a pass computes, the pool view SHALL offer a button that cancels it, at on
 - **WHEN** a pass asks about unscreened postings
 - **THEN** the view shows the question with its abort, and no cancel button
 
+### Requirement: No cancel while storing
+While a pass stores its scores, the pool view SHALL NOT offer to cancel it, since storing always finishes.
+
+#### Scenario: Pass stores
+- **WHEN** a pass reaches the storing phase
+- **THEN** the view says the scores are being stored, and offers no cancel
+
 ### Requirement: Result of a cancelled pass
 When a cancelled pass has stopped, the pool view SHALL say that the pass was cancelled and how many postings it scored, and the ranking SHALL show the scores it stored.
 

@@ -8,7 +8,11 @@ A pass is the triage graph `load → exclude → [confirm_unscreened] → extrac
 
 `AlertRuns` (`intake/alert_runs.py`) is the sibling background job. It keeps its progress in memory per run and updates it after every entry. This design follows that pattern.
 
-The look of the progress line and the cancel button is drawn in a Design artifact on the „JobAdvAIsor Design System“. Task 0.1 links it here and records the owner's choice.
+The look of the progress line and the cancel button is drawn in the Design artifact [Scoren: Fortschritt und Abbrechen (#18)](https://claude.ai/artifact/KkptMQDoopiQTJF77qLUQT) on the „JobAdvAIsor Design System“. It has two variants, each on desktop, as a sheet of every state, and on a phone:
+- **A:** the phases as four steps with a bar for the current one, and the cancel button inside the progress band.
+- **B:** one line with both counts, and the cancel button in place of the pass button while the pass runs.
+
+Task 0.1 records the owner's choice here.
 
 ## Goals / Non-Goals
 
