@@ -80,6 +80,7 @@ def test_cancel_reports_cancel_requested_until_the_pass_has_stopped(blocking):
     assert read_pool(blocking.root).passes[0].cancelled is True
     assert blocking.runs._cancelled == set()
     assert blocking.runs.start()  # the slot is free again
+    blocking.settle()
 
 
 def test_a_cancel_during_the_first_score_stops_after_that_posting(tmp_path):
@@ -129,6 +130,48 @@ def test_a_cancel_after_the_last_check_of_checking_ends_cancelled_without_the_qu
     assert ended["status"] == "cancelled" and ended["unscreened"] == ["unscreened"]
     assert blocking.harness.extractor.calls == [] and read_pool(blocking.root).passes == []
     assert blocking.runs._cancelled == set() and blocking.runs.start()
+    blocking.settle()
+
+
+def test_a_failing_cancel_resume_is_tried_once_and_frees_the_slot(tmp_path, monkeypatch):
+    blocking = Blocking(tmp_path, unscreened=True)
+    entered, gate = threading.Event(), threading.Event()
+    exclusions = graph_module.check_exclusions
+
+    def last_posting_blocks(posting, rules):
+        if posting.title.startswith("Unscreened"):
+            entered.set()
+            assert gate.wait(10), "gate never opened"
+        return exclusions(posting, rules)
+
+    monkeypatch.setattr(graph_module, "check_exclusions", last_posting_blocks)
+    runs, attempts = blocking.runs, []
+    context = runs._context
+
+    def context_failing_on_the_resume():
+        attempts.append(1)
+        if len(attempts) == 2:  # the first call is the pass's own, the second is the resume's
+            raise OSError("repository unreadable")
+        return context()
+
+    runs._context = context_failing_on_the_resume
+    run_id = runs.start()
+    assert entered.wait(10)
+    runs.cancel(run_id)
+    gate.set()
+    blocking.settle()
+    assert len(attempts) == 2  # one resume, no second try
+    assert runs._computing == set() and runs._cancelled == set()
+    assert "repository unreadable" in runs.read(run_id)["error"]
+    assert runs.start()  # the slot is free
+    blocking.settle()
+
+
+def test_claiming_the_slot_drops_a_cancel_of_an_earlier_step_at_once(tmp_path):
+    runs = Blocking(tmp_path).runs
+    runs._cancelled.add("run-1")  # the request of an earlier step
+    runs._claim("run-1")
+    assert runs._cancelled == set()  # no gap in which a new request could be lost
 
 
 class SpyLock:

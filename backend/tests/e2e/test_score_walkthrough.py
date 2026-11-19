@@ -3,10 +3,9 @@ a posting's page, a re-score from a pool row, the blocked button, the pool's sco
 desktop and phone width, and the pass button's variant menu (choosing starts nothing, the main
 part rescores everything, a reload drops the choice, the split button fits a phone), and a pass
 whose progress band shows its counts and keeps its height until a cancel keeps the scores so far.
-Real app
-(`create_app` served by uvicorn) over a temporary data repository, the built frontend in Chromium,
-fake models. The tests share one server and run in order, each building on the data of the one
-before; run them as a set: `pytest -m e2e` after `npm --prefix frontend run build`."""
+Real app (`create_app` served by uvicorn) over a temporary data repository, the built frontend in
+Chromium, fake models. The tests share one server and run in order, each building on the data of
+the one before; run them as a set: `pytest -m e2e` after `npm --prefix frontend run build`."""
 
 import threading
 import time

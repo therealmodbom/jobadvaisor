@@ -643,7 +643,7 @@ def test_a_cancel_in_reading_features_stores_nothing_and_records_nothing(tmp_pat
     assert not (root / "scores").exists() and read_pool(root).passes == []
     assert harness.graph.get_state(run_config("run-1")).next == ()
     assert report("extracting", (2, 4), (0, 4)) in harness.reports
-    assert "scoring" not in {r["phase"] for r in harness.reports}
+    assert not {"scoring", "storing"} & {r["phase"] for r in harness.reports}  # nothing to store
 
 
 def test_a_cancel_in_checking_stops_before_the_next_posting(tmp_path, root):

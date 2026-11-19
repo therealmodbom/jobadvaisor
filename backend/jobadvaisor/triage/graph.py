@@ -326,14 +326,14 @@ def store_scores(state: TriageState, runtime: Runtime[TriageContext]) -> dict:
     read before writing, since the pass may have rescored rated postings. The entry's `variant`
     is `"all"` for a pass with `rescore`, else `"unscored"`; `cancelled` is true when the state
     says the user cancelled. Score times and `finished_at` are one instant. Reports `storing`
-    with the final counts and never asks `cancelled()`: a cancel that arrives from here on
-    ends a complete pass."""
+    with the final counts, only when something is stored, and never asks `cancelled()`: a cancel
+    that arrives from here on ends a complete pass."""
     root = runtime.context.repository.root
     now = datetime.now(UTC)
     scored = _with_status(state["results"], "scored")
-    _report_storing(runtime.context, state)
     if not scored:
         return {}
+    _report_storing(runtime.context, state)
     before, _ = read_scores(root)
     for posting_id in scored:
         result = state["results"][posting_id]

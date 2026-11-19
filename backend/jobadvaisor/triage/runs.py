@@ -124,10 +124,14 @@ class Runs:
             self._release(run_id)
 
     def _claim(self, run_id: str) -> None:
+        """Take the one slot for `run_id` and drop a cancel request of an earlier step in the
+        same lock section, so a `cancel` arriving once the slot is taken is never lost. Raises
+        `RunBusyError` while another run computes."""
         with self._lock:
             if self._computing:
                 raise RunBusyError(next(iter(self._computing)))
             self._computing.add(run_id)
+            self._cancelled.discard(run_id)
 
     def _release(self, run_id: str) -> None:
         with self._lock:
@@ -148,17 +152,16 @@ class Runs:
 
     def _compute(self, run_id: str, step: Callable[[], object]) -> None:
         self._claim(run_id)
-        with self._lock:  # a request of an earlier step never carries over
-            self._cancelled.discard(run_id)
         self._errors.pop(run_id, None)
         self._executor.submit(self._run, run_id, step)
 
-    def _run(self, run_id: str, step: Callable[[], object]) -> None:
+    def _run(self, run_id: str, step: Callable[[], object], resumed: bool = False) -> None:
         """Run one step, then end it in one lock section: read the snapshot and either free
         the slot and drop a pending cancel, or, when the step paused at the unscreened question
         while a cancel is pending, keep the slot and resume the run with `"cancel"` so it ends
-        `cancelled`. A cancel racing this section is seen here, or finds the slot free and gets
-        its `RunStateError`; none is lost."""
+        `cancelled`. That resume (`resumed`) is tried once: if it fails, the slot is freed and
+        `_errors` keeps the reason. A cancel racing this section is seen here, or finds the
+        slot free and gets its `RunStateError`; none is lost."""
         resume = False
         try:
             step()
@@ -167,7 +170,7 @@ class Runs:
         with self._lock:
             try:
                 paused = bool(self._graph.get_state(run_config(run_id)).interrupts)
-                resume = paused and run_id in self._cancelled
+                resume = paused and run_id in self._cancelled and not resumed
             except Exception as error:  # the snapshot is unreadable: end the step as failed
                 self._errors[run_id] = f"{type(error).__name__}: {error}"
             if not resume:
@@ -175,7 +178,8 @@ class Runs:
                 self._cancelled.discard(run_id)
         if resume:
             self._run(run_id, lambda: self._graph.invoke(
-                Command(resume="cancel"), run_config(run_id), context=self._hooked(run_id)))
+                Command(resume="cancel"), run_config(run_id), context=self._hooked(run_id)),
+                      resumed=True)
 
     def _require(self, run_id: str, *allowed: str) -> str:
         run = self.read(run_id)
