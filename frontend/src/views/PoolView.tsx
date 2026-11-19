@@ -157,7 +157,8 @@ function PassProgressBlock({ progress, stopping }: { progress: PassProgress | nu
   const [value, max] = storing ? [total, total] : counted ? [counted.done, total] : [0, 1]
   const head = storing ? 'Scores werden gespeichert'
     : counted ? `Scoren läuft: ${counted.done} von ${counted.total}` : 'Scoren läuft: Anzeigen prüfen…'
-  const barLabel = counted || (storing && score) ? `Scoren: ${value} von ${max}` : storing ? 'Scores speichern' : 'Anzeigen prüfen'
+  // The bar is full while storing, but its name says how many were scored (a cancel stores fewer).
+  const barLabel = counted ? `Scoren: ${counted.done} von ${counted.total}` : storing ? 'Scores speichern' : 'Anzeigen prüfen'
   return (
     <section aria-label="Stand des Scorens" className="flex w-full flex-col gap-1.5 sm:w-[340px] sm:flex-none">
       <div className="flex h-6 items-center gap-2">
@@ -210,7 +211,13 @@ function costLine(variant: PassVariant, n: number) {
  * block's hint) gives the reason.
  * Swap delay: for `SWAP_LOCK_MS` after each swap the button that appeared is `aria-disabled` and
  * ignores presses, so a double click cannot cancel the pass it just started, nor a late cancel
- * click start a new one. When the button that went away had focus, focus moves to the new one. */
+ * click start a new one.
+ * Focus: the main part is never natively `disabled` (no postings for the variant, a pass `busy`,
+ * the swap delay): it is `aria-disabled` with a click guard, so it keeps focus when a reload or a
+ * pass sets its count to 0 and a further Enter lands on a button, not on the pool's row shortcuts.
+ * When focus was inside the button area before a swap, it moves with the swap: to the cancel button
+ * when a pass starts, back to the main part when it ends, or to the unscreened question's heading
+ * when the pass stopped at that question (never to a button that starts paid work). */
 function PassButton({ nextPass, shown, busy, working, stopping, storing, onPick, onStart, onCancel }: {
   nextPass: NextPass
   shown: PassVariant
@@ -228,37 +235,45 @@ function PassButton({ nextPass, shown, busy, working, stopping, storing, onPick,
   // A swap locks the new button for SWAP_LOCK_MS (render-time sync, the timer is the effect).
   const [seenWorking, setSeenWorking] = useState(working)
   const [locked, setLocked] = useState(false)
+  const [handoff, setHandoff] = useState(false)
   if (seenWorking !== working) {
     setSeenWorking(working)
     setLocked(true)
+    // Read focus now, before the commit: Chromium blurs a focused button that turns inert, so by
+    // the layout effect `document.activeElement` can already be `body`.
+    setHandoff(document.activeElement?.closest('[data-pass-area]') != null)
   }
   useEffect(() => {
     if (!locked) return
     const timer = setTimeout(() => setLocked(false), SWAP_LOCK_MS)
     return () => clearTimeout(timer)
   }, [locked, seenWorking])
-  const groupRef = useRef<HTMLDivElement>(null)
   const mainRef = useRef<HTMLButtonElement>(null)
   const cancelRef = useRef<HTMLButtonElement>(null)
-  const was = useRef(working)
-  // Both buttons stay mounted and only one is shown, so at commit time the old one still holds focus.
+  // Both buttons stay mounted, so the target exists at commit time. Nothing here starts paid work:
+  // the pass button, even when the swap goes back to it, is `aria-disabled` for the swap delay.
+  // Both buttons use `transition-colors`, not the base `transition-all`: a transition on
+  // `visibility` keeps the button that just appeared `hidden` for a moment, and Chromium refuses
+  // `focus()` on it.
   useLayoutEffect(() => {
-    if (was.current === working) return
-    was.current = working
-    const [from, to] = working ? [groupRef.current, cancelRef.current] : [cancelRef.current, mainRef.current]
-    if (from?.contains(document.activeElement)) to?.focus()
-  }, [working])
+    if (!handoff) return
+    const question = document.getElementById('unscreened-title')
+    const target = seenWorking ? cancelRef.current : question ?? mainRef.current
+    target?.focus()
+  }, [handoff, seenWorking])
   const count = nextPass[shown]
   const why = busy ? 'Das Scoren läuft.' : count === 0 ? NOTHING_TO_SCORE[shown] : costLine(shown, count)
   const Chevron = open ? ChevronUp : ChevronDown
   const cancelDead = locked || stopping || storing
+  const mainDead = locked || busy || count === 0
   return (
     <div className="flex flex-col gap-1.5 max-sm:w-full">
-      <div className="grid">
-        <div ref={groupRef} role="group" aria-label="Scoren" inert={working} aria-hidden={working || undefined}
+      <div data-pass-area className="grid">
+        <div role="group" aria-label="Scoren" inert={working} aria-hidden={working || undefined}
              className={cn('col-start-1 row-start-1 flex', working && 'invisible')}>
-          <Button ref={mainRef} className="min-w-0 flex-1 rounded-r-none" onClick={() => { if (!locked) onStart(shown) }}
-                  disabled={busy || count === 0} aria-disabled={locked || undefined} aria-describedby="pass-why">
+          <Button ref={mainRef} onClick={() => { if (!mainDead) onStart(shown) }}
+                  aria-disabled={mainDead || undefined} aria-describedby="pass-why"
+                  className={cn('min-w-0 flex-1 rounded-r-none transition-colors', (busy || count === 0) && 'cursor-default opacity-50 hover:bg-primary')}>
             {/* Both labels share one grid cell, so the button keeps the wider one's size when the
                 variant changes; the hidden one only reserves space. */}
             <span className="grid justify-items-center">
@@ -301,7 +316,7 @@ function PassButton({ nextPass, shown, busy, working, stopping, storing, onPick,
         <Button ref={cancelRef} variant="outline" inert={!working} aria-hidden={!working || undefined}
                 aria-disabled={cancelDead ? true : undefined} aria-describedby="cancel-why"
                 onClick={() => { if (!cancelDead) onCancel() }}
-                className={cn('col-start-1 row-start-1', !working && 'invisible',
+                className={cn('col-start-1 row-start-1 transition-colors', !working && 'invisible',
                   (stopping || storing) && 'cursor-default text-muted-foreground hover:bg-card')}>
           <Square aria-hidden="true" />{stopping && !storing ? 'Wird beendet…' : 'Scoren abbrechen'}
         </Button>
@@ -321,7 +336,7 @@ function UnscreenedQuestion({ pass, onAnswer }: { pass: PassState; onAnswer: (pr
       <div className="flex items-start gap-3">
         <ShieldAlert className="mt-0.5 size-6 flex-none text-negative" aria-hidden="true" />
         <div>
-          <h2 id="unscreened-title" className="text-xl font-bold">Das Scoren wartet auf deine Antwort</h2>
+          <h2 id="unscreened-title" tabIndex={-1} className="text-xl font-bold">Das Scoren wartet auf deine Antwort</h2>
           <p className="mt-1.5">
             {count === 1 ? 'Eine Anzeige wurde' : `${count} Anzeigen wurden`} hinzugefügt, während die
             Inhaltsprüfung aus war. Niemand hat sie auf Text geprüft, der sich an die KI richtet, etwa die

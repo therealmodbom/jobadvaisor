@@ -337,7 +337,7 @@ test('nothing without a score disables the main part with a reason, and the trig
   stubApi({ 'GET /pool': { body: NEXT({ unscored: 0 }) } })
   render(<PoolView />)
   const main = await mainPart('Anzeigen ohne Score scoren (0)')
-  expect(main).toBeDisabled()
+  expect(main).toHaveAttribute('aria-disabled', 'true')
   expect(main).toHaveAccessibleDescription('Es gibt keine Anzeigen ohne Score.')
   expect(screen.getByRole('button', { name: 'Andere Variante wählen' })).toBeEnabled()
 })
@@ -346,7 +346,7 @@ test('nothing to score at all says all postings are excluded or held back', asyn
   stubApi({ 'GET /pool': { body: NEXT({ default: 'all', unscored: 0, all: 0 }) } })
   render(<PoolView />)
   const main = await mainPart('Alle Anzeigen neu scoren (0)')
-  expect(main).toBeDisabled()
+  expect(main).toHaveAttribute('aria-disabled', 'true')
   expect(main).toHaveAccessibleDescription('Es gibt nichts zu scoren: Alle Anzeigen sind ausgeschlossen oder zurückgehalten.')
   expect(screen.getByRole('button', { name: 'Andere Variante wählen' })).toBeEnabled()
 })
@@ -363,7 +363,7 @@ test('while a pass computes the split button is out of the way and its cancel bu
 test('while a pass waits for the answer both parts are disabled and say a pass runs', async () => {
   await openQuestion()
   const main = screen.getByRole('button', { name: /Anzeigen ohne Score scoren/ })
-  expect(main).toBeDisabled()
+  expect(main).toHaveAttribute('aria-disabled', 'true')
   expect(main).toHaveAccessibleDescription('Das Scoren läuft.')
   expect(screen.getByRole('button', { name: 'Andere Variante wählen' })).toBeDisabled()
 })
@@ -392,7 +392,7 @@ test('a pass shows its progress, then reloads the pool when done', async () => {
   render(<PoolView />)
   const button = await screen.findByRole('button', { name: 'Anzeigen ohne Score scoren (12)' })
   await act(async () => button.click())
-  expect(button).toBeDisabled()
+  expect(button).toHaveAttribute('aria-disabled', 'true')
   expect(splitGroup()).toHaveAttribute('inert')
   // Before the first poll the progress is there, without counts, with the cancel button.
   expect(screen.getByText('Scoren läuft: Anzeigen prüfen…')).toBeVisible()
@@ -403,7 +403,7 @@ test('a pass shows its progress, then reloads the pool when done', async () => {
   expect(screen.getByText('Scoren läuft: 4 von 12').closest('[role="status"]')).toBeNull()
   await tick()
   expect(screen.queryByText(/Scoren läuft/)).toBeNull()
-  expect(await screen.findByRole('button', { name: 'Anzeigen ohne Score scoren (0)' })).toBeDisabled()
+  expect(await screen.findByRole('button', { name: 'Anzeigen ohne Score scoren (0)' })).toHaveAttribute('aria-disabled', 'true')
   expect(calls.filter((call) => call.path === '/pool')).toHaveLength(2)
   expect(sessionStorage.length).toBe(0)
 })
@@ -526,6 +526,14 @@ test('storing says so and fills the bar', async () => {
   expect(screen.getByText('Scores werden gespeichert')).toBeVisible()
   expect(bar()).toHaveAttribute('value', '80')
   expect(bar()).toHaveAttribute('max', '80')
+  expect(bar()).toHaveAccessibleName('Scoren: 80 von 80')
+})
+
+test('after a cancel the full storing bar is named with the real count, not with the total', async () => {
+  await openRunning(running('storing', [2, 4], { cancel_requested: true }))
+  expect(bar()).toHaveAttribute('value', '4')
+  expect(bar()).toHaveAttribute('max', '4')
+  expect(bar()).toHaveAccessibleName('Scoren: 2 von 4')
 })
 
 test('the count moves between two polls, outside the live region', async () => {
@@ -735,6 +743,75 @@ test('the swap delay leaves the focus alone when the old button had none', async
   expect(cancelButton()).not.toHaveFocus()
 })
 
+// --- focus in the button area (a real browser blurs what turns disabled or inert, jsdom does not;
+// the e2e walkthrough covers that, these pin where focus is sent and that nothing is `disabled`) ---
+
+test('a main part without postings is aria-disabled, not disabled: it keeps focus and a press starts nothing', async () => {
+  const calls = stubApi({ 'GET /pool': { body: NEXT({ unscored: 0 }) } })
+  render(<PoolView />)
+  const main = await mainPart('Anzeigen ohne Score scoren (0)')
+  expect(main).not.toHaveAttribute('disabled')
+  await titles()
+  act(() => main.focus())
+  await userEvent.keyboard('{Enter}')
+  await userEvent.click(main)
+  expect(posts(calls)).toHaveLength(0)
+  expect(main).toHaveFocus()
+  expect(document.getElementById('row-p3')).not.toHaveFocus()
+})
+
+test('a pass that ends with nothing left to score leaves focus on the pass button, and Enter there starts nothing', async () => {
+  let reloads = 0
+  const calls = stubApi({
+    'GET /pool': () => ({ body: ++reloads === 1 ? NEXT() : NEXT({ unscored: 0 }) }),
+    'POST /pool/passes': { status: 202, body: { pass_id: 'ps1' } },
+    'GET /pool/passes/ps1': () => ({ body: reloads > 1 ? pass({ status: 'done' }) : running('scoring', [5, 12]) }),
+  })
+  render(<PoolView />)
+  const main = await mainPart('Anzeigen ohne Score scoren (3)')
+  vi.useFakeTimers(FAKE_ALL)
+  act(() => main.focus())
+  await act(async () => main.click())
+  const cancel = cancelButton()
+  act(() => cancel.focus())
+  await unlock()
+  reloads = 2
+  await tick()
+  await act(async () => {})
+  expect(main).toHaveAccessibleName('Anzeigen ohne Score scoren (0)')
+  expect(main).toHaveFocus()
+  await act(async () => main.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })))
+  expect(posts(calls)).toHaveLength(1)
+  expect(document.getElementById('row-p3')).not.toHaveFocus()
+})
+
+test('a pass that stops at the unscreened question takes focus from the cancel button to the question, not to a button', async () => {
+  let asking = false
+  await openRunning(() => (asking ? QUESTION : running('scoring', [5, 12])))
+  await titles()
+  act(() => cancelButton().focus())
+  asking = true
+  await tick()
+  const heading = document.getElementById('unscreened-title')!
+  expect(heading).toHaveAttribute('tabindex', '-1')
+  expect(heading).toHaveFocus()
+})
+
+test('when the polls fail the focus moves from the cancel button to the pass button, which stays on the page', async () => {
+  let down = false
+  await openRunning(() => running('scoring', [5, 12]), {
+    'GET /pool/passes/ps1': () => (down ? { status: 500 } : { body: running('scoring', [5, 12]) }) })
+  await titles()
+  act(() => cancelButton().focus())
+  down = true
+  await tick()
+  await tick()
+  await tick()
+  const main = screen.getByRole('button', { name: /Anzeigen ohne Score scoren/ })
+  expect(main).toHaveAttribute('aria-disabled', 'true')
+  expect(main).toHaveFocus()
+})
+
 const CANCELLED = 'Das Scoren wurde abgebrochen.'
 
 test.each([[30, `${CANCELLED} 30 Anzeigen haben einen neuen Score.`], [1, `${CANCELLED} 1 Anzeige hat einen neuen Score.`],
@@ -916,7 +993,7 @@ test('failed polls show a notice with retry after three failures, and retry resu
   expect(screen.queryByText('Der Stand des Scorens ist gerade nicht abrufbar')).toBeNull()
   await tick()
   expect(screen.getByText('Der Stand des Scorens ist gerade nicht abrufbar')).toBeVisible()
-  expect(screen.getByRole('button', { name: /Anzeigen ohne Score scoren/ })).toBeDisabled()
+  expect(screen.getByRole('button', { name: /Anzeigen ohne Score scoren/ })).toHaveAttribute('aria-disabled', 'true')
   const polls = calls.filter((call) => call.path === '/pool/passes/ps1').length
   await tick()
   expect(calls.filter((call) => call.path === '/pool/passes/ps1')).toHaveLength(polls)
@@ -1498,7 +1575,7 @@ test('a row score updates the row, the counter and the pass button count', async
       next_pass: { default: 'all', unscored: 0, all: 8 } }) } })
   render(<PoolView />)
   await titles()
-  expect(await screen.findByRole('button', { name: 'Anzeigen ohne Score scoren (0)' })).toBeDisabled()
+  expect(await screen.findByRole('button', { name: 'Anzeigen ohne Score scoren (0)' })).toHaveAttribute('aria-disabled', 'true')
   await userEvent.click(row(NEW).getByRole('button', { name: 'Score berechnen' }))
   expect(await row(NEW).findByText('9')).toBeVisible()
   expect(row(NEW).getByRole('button', { name: 'Neu berechnen' })).toBeEnabled()

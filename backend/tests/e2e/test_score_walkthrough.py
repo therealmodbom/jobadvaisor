@@ -3,7 +3,8 @@ a posting's page, a re-score from a pool row, the blocked button, the pool's sco
 desktop and phone width, and the pass button's variant menu (choosing starts nothing, the main
 part rescores everything, a reload drops the choice, the split button fits a phone), and a pass
 whose progress beside the pass button shows its counts until a cancel keeps the scores so far, and
-the row of the pass button that keeps its layout in every running state.
+the row of the pass button that keeps its layout in every running state, and the focus that stays in
+the pass button area through a keyboard start, a double click and the end of a pass.
 Real app (`create_app` served by uvicorn) over a temporary data repository, the built frontend in
 Chromium, fake models. The tests share one server and run in order, each building on the data of
 the one before; run them as a set: `pytest -m e2e` after `npm --prefix frontend run build`."""
@@ -344,7 +345,8 @@ def test_the_row_of_the_pass_button_keeps_its_layout_in_every_running_state(page
     the row of the pass button is measured at 360 to 1280 px wide. A width must give one row height
     and one x position and width for the progress block and the correction counter in all four
     states, and the cancel button must be as wide as the split button measured while idle (spec:
-    Same size in every phase)."""
+    Same size in every phase). From 640 px the counter also keeps its idle x position when a pass
+    starts (spec: nothing moves sideways)."""
     states = {
         "checking": (running_pass("checking"), "Scoren läuft: Anzeigen prüfen…"),
         "scoring": (running_pass("scoring", (120, 179)), "Scoren läuft: 120 von 179"),
@@ -358,6 +360,7 @@ def test_the_row_of_the_pass_button_keeps_its_layout_in_every_running_state(page
     cancel = page.locator("button[aria-describedby=cancel-why]")
     counter = page.get_by_text("Korrekturen seit dem letzten Neu-Scoren")
     idle_split: dict[int, float] = {}
+    idle_counter: dict[int, float] = {}
     layout: dict[int, dict[str, tuple]] = {width: {} for width in ROW_WIDTHS}
     overflowing: list[str] = []
     try:
@@ -367,6 +370,7 @@ def test_the_row_of_the_pass_button_keeps_its_layout_in_every_running_state(page
         for width in ROW_WIDTHS:
             page.set_viewport_size({"width": width, "height": 900})
             idle_split[width] = split.bounding_box()["width"]
+            idle_counter[width] = counter.bounding_box()["x"]
         page.evaluate("sessionStorage.setItem('jobadvaisor.pool-pass', 'ps-row')")
         current["body"] = states["checking"][0]
         page.reload()
@@ -393,4 +397,63 @@ def test_the_row_of_the_pass_button_keeps_its_layout_in_every_running_state(page
         measured = list(by_state.values())
         assert len({values[:4] for values in measured}) == 1, table
         assert {values[4] for values in measured} == {idle_split[width]}, table
+        if width >= 640:  # below `sm` the idle slot is hidden by design, the counter moves down
+            assert {values[3] for values in measured} == {idle_counter[width]}, (width, table)
     assert overflowing == [], overflowing  # a fixed box that clips or spills its text is no fix
+
+
+def test_focus_stays_in_the_pass_button_area_through_a_start_and_an_end(
+        page, app_url, data_root, harness):
+    """Real Chromium blurs a focused element that turns `inert` or `disabled`, which jsdom does not,
+    so this pins the focus handoff of the pass button there. Started with the keyboard (Enter on the
+    focused main part) the pass leaves focus on the cancel button; when it ends, focus is on the
+    pass button again, not on `body`, and one more Enter neither moves the pool's row selection nor
+    starts a pass. A double click on the start does the same. Entry state: `fresh` and the three
+    `Weitere Stelle` postings have no score; it leaves them scored."""
+    for posting_id in ("fresh", "c1", "c2", "c3"):
+        (data_root / f"scores/{posting_id}.json").unlink(missing_ok=True)
+    entered, permits = threading.Semaphore(0), threading.Semaphore(0)
+
+    def judge(schema, prompt):
+        """Announce each scoring call, then wait for one permit from the test."""
+        entered.release()
+        assert permits.acquire(timeout=10), "no permit for the judge"
+        return judge_by_title(schema, prompt)
+
+    harness.judge = ScriptedModel(judge)
+    pass_requests = []
+
+    def note_pass_request(request):
+        """Remember each `POST /pool/passes` the page sends."""
+        if request.method == "POST" and request.url.endswith("/pool/passes"):
+            pass_requests.append(request)
+
+    page.on("request", note_pass_request)
+    try:
+        page.goto(f"{app_url}/#/pool")
+        page.reload()
+        cancel = page.get_by_role("button", name="Scoren abbrechen")
+        page.get_by_role("button", name="Anzeigen ohne Score scoren (4)").focus()
+        page.keyboard.press("Enter")
+        assert entered.acquire(timeout=10)
+        expect(cancel).to_be_focused()
+        permits.release(4)
+        expect(page.get_by_role("button", name="Anzeigen ohne Score scoren (0)")).to_be_focused(
+            timeout=15_000)  # not `body`
+        page.keyboard.press("Enter")  # inside the 1 s guard, on the pass button
+        page.wait_for_timeout(300)
+        assert page.evaluate("document.activeElement.textContent").startswith("Anzeigen ohne Score")
+        assert len(pass_requests) == 1
+        # a double click on the start
+        (data_root / "scores/c1.json").unlink()
+        page.reload()
+        page.get_by_role("button", name="Anzeigen ohne Score scoren (1)").dblclick()
+        assert entered.acquire(timeout=10)
+        expect(cancel).to_be_focused()
+        assert len(pass_requests) == 2
+        permits.release(4)
+        expect(page.get_by_role("button", name="Anzeigen ohne Score scoren (0)")).to_be_focused(
+            timeout=15_000)
+    finally:  # a failed assertion must not leave the pass thread waiting
+        permits.release(4)
+        page.remove_listener("request", note_pass_request)
