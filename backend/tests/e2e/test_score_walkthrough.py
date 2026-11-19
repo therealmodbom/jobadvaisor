@@ -2,7 +2,8 @@
 a posting's page, a re-score from a pool row, the blocked button, the pool's score range at
 desktop and phone width, and the pass button's variant menu (choosing starts nothing, the main
 part rescores everything, a reload drops the choice, the split button fits a phone), and a pass
-whose progress band shows its counts and keeps its height until a cancel keeps the scores so far.
+whose progress beside the pass button shows its counts until a cancel keeps the scores so far, and
+the row of the pass button that keeps its layout in every running state.
 Real app (`create_app` served by uvicorn) over a temporary data repository, the built frontend in
 Chromium, fake models. The tests share one server and run in order, each building on the data of
 the one before; run them as a set: `pytest -m e2e` after `npm --prefix frontend run build`."""
@@ -12,7 +13,7 @@ import time
 
 import pytest
 import uvicorn
-from conftest import LABEL, ScriptedModel, ToolScriptModel, unknown_features, write_json
+from conftest import LABEL, ScriptedModel, ToolScriptModel, write_json
 from playwright.sync_api import expect, sync_playwright
 from test_triage_graph import POLICY_PACK, Harness, add_posting, judge_by_title
 
@@ -265,24 +266,17 @@ def test_the_split_button_and_its_menu_fit_a_phone(page, app_url):
 def test_a_pass_shows_its_progress_and_a_cancel_keeps_the_scores_so_far(
         page, app_url, data_root, harness):
     """Entry state: `rated` has a score, `fresh` and three new postings have none, `sales` is
-    excluded. The scripted models wait for the test, so nothing races the 1 s poll: the band shows
-    reading features at 0 of 4, scoring at 0 of 4, then 1 of 4. The cancel lands while the second
-    posting is scored: the band says the pass stops after it, the notice reports 2 new scores,
-    and only those two show a score in the ranking. The band keeps its height throughout.
-    Leaves the other two postings unscored."""
+    excluded. The scripted judge waits for the test, so nothing races the 1 s poll: the progress
+    shows scoring at 0 of 4, then 1 of 4. The cancel lands while the second posting is scored: the
+    button reads "Wird beendet…", the notice reports 2 new scores, and only those two show a
+    score in the ranking. Leaves the other two postings unscored."""
     # scores of 6 and more: the rating keys 1 to 5 sit in each row as text too
     titles = {"c1": "Weitere Stelle 8", "c2": "Weitere Stelle 9", "c3": "Weitere Stelle 10"}
     for posting_id, title in titles.items():
         add_posting(data_root, posting_id, title)
     titles["fresh"] = FRESH
     before = stored_scores(data_root)
-    extract_gate = threading.Event()
     entered, permits = threading.Semaphore(0), threading.Semaphore(0)
-
-    def extract(schema, prompt):
-        """Wait for the test before the first feature reading, then answer with no features."""
-        assert extract_gate.wait(10), "extract gate never opened"
-        return unknown_features(schema, prompt)
 
     def judge(schema, prompt):
         """Announce each scoring call, then wait for one permit from the test."""
@@ -290,33 +284,29 @@ def test_a_pass_shows_its_progress_and_a_cancel_keeps_the_scores_so_far(
         assert permits.acquire(timeout=10), "no permit for the judge"
         return judge_by_title(schema, prompt)
 
-    harness.extractor, harness.judge = ScriptedModel(extract), ScriptedModel(judge)
+    harness.judge = ScriptedModel(judge)
     try:
         page.goto(f"{app_url}/#/pool")
         page.reload()
         page.get_by_role("button", name="Anzeigen ohne Score scoren (4)").click()
-        band = page.get_by_role("region", name="Stand des Scorens")
-        expect(band.get_by_text("Merkmale lesen · 0 von 4", exact=True)).to_be_visible()
-        extracting_height = band.bounding_box()["height"]
-        extract_gate.set()
+        progress = page.get_by_role("region", name="Stand des Scorens")
         assert entered.acquire(timeout=10)  # the first posting is being scored
-        expect(band.get_by_text("Merkmale lesen · 4 von 4", exact=True)).to_be_visible()
-        expect(band.get_by_text("Scoren · 0 von 4", exact=True)).to_be_visible()
-        scoring_height = band.bounding_box()["height"]
+        expect(progress.get_by_text("Scoren läuft: 0 von 4", exact=True)).to_be_visible()
+        assert "Merkmale" not in progress.inner_text()  # a pass reads no features
         permits.release()
         assert entered.acquire(timeout=10)  # the second posting is being scored
-        expect(band.get_by_text("Scoren · 1 von 4", exact=True)).to_be_visible()
-        cancel = band.get_by_role("button", name="Scoren abbrechen")
+        expect(progress.get_by_text("Scoren läuft: 1 von 4", exact=True)).to_be_visible()
+        cancel = page.get_by_role("button", name="Scoren abbrechen")
+        expect(cancel).not_to_have_attribute("aria-disabled", "true")  # the 1 s swap guard is over
         cancel.click()
-        expect(band.get_by_text("wird nach der aktuellen Anzeige beendet…")).to_be_visible()
-        expect(cancel).to_be_disabled()
-        expect(cancel).to_be_focused()  # a second Enter must not fall through to the pool's keys
-        stopping_height = band.bounding_box()["height"]
+        expect(progress.get_by_text("Wird nach der aktuellen Anzeige beendet.")).to_be_visible()
+        stopping = page.get_by_role("button", name="Wird beendet…")
+        expect(stopping).to_have_attribute("aria-disabled", "true")
+        expect(stopping).to_be_focused()  # a second Enter must not fall through to the pool's keys
         permits.release()  # the second posting ends; the check before the third stops the pass
         expect(page.get_by_text(
             "Das Scoren wurde abgebrochen. 2 Anzeigen haben einen neuen Score.")).to_be_visible()
-        expect(band).to_have_count(0)
-        assert extracting_height == scoring_height == stopping_height
+        expect(progress).to_have_count(0)
         assert len(harness.judge.calls) == 2  # the third posting was never judged
         new = {posting_id: score for posting_id, score in stored_scores(data_root).items()
                if posting_id not in before}
@@ -329,66 +319,78 @@ def test_a_pass_shows_its_progress_and_a_cancel_keeps_the_scores_so_far(
                 expect(row.get_by_text("noch kein Score")).to_be_visible()
         expect(page.get_by_role("button", name="Anzeigen ohne Score scoren (2)")).to_be_enabled()
     finally:  # a failed assertion must not leave the pass thread waiting
-        extract_gate.set()
         permits.release(4)
 
 
-BAND_WIDTHS = (360, 390, 640, 768, 1024, 1280)
-# Run in the page with the band as `el`: the elements whose text overflows their own box.
+ROW_WIDTHS = (360, 390, 640, 768, 1024, 1280)
+# Run in the page with the progress block as `el`: the elements whose text overflows their own box.
 OVERFLOWING = """(el, where) => [...el.querySelectorAll('*')]
     .filter((node) => node.scrollWidth > node.clientWidth + 1
         || node.scrollHeight > node.clientHeight + 1)
     .map((node) => `${where}: ${node.tagName} ${node.textContent.slice(0, 40)}`)"""
 
 
-def running_pass(phase, extract=None, score=None, cancel_requested=False):
-    """The body of `GET /pool/passes/<id>` for a pass that computes, with the counts as
-    `(done, total)` pairs."""
-    def counts(pair):
-        return pair and {"done": pair[0], "total": pair[1]}
-
-    return {"pass_id": "ps-band", "status": "running", "started_at": None, "error": None,
-            "progress": {"phase": phase, "extract": counts(extract), "score": counts(score)},
+def running_pass(phase, score=None, cancel_requested=False):
+    """The body of `GET /pool/passes/<id>` for a pass that computes, with `score` as a
+    `(done, total)` pair."""
+    return {"pass_id": "ps-row", "status": "running", "started_at": None, "error": None,
+            "progress": {"phase": phase, "score": score and {"done": score[0], "total": score[1]}},
             "cancel_requested": cancel_requested, "scored": 0, "unscreened": []}
 
 
-def test_the_progress_band_keeps_one_height_per_width_in_every_phase(page, app_url):
-    """The pass endpoint is stubbed, one answer per state: checking, reading features with the
-    longest realistic counts, scoring, after a cancel request and storing. Each state is waited
-    for by its text, then the band is measured at 360 to 1280 px wide; a width must give one
-    height across all five states (spec: Same size in every phase)."""
+def test_the_row_of_the_pass_button_keeps_its_layout_in_every_running_state(page, app_url):
+    """The pass endpoint is stubbed, one answer per state: checking, scoring with the longest
+    realistic counts, after a cancel request and storing. Each state is waited for by its text, then
+    the row of the pass button is measured at 360 to 1280 px wide. A width must give one row height
+    and one x position and width for the progress block and the correction counter in all four
+    states, and the cancel button must be as wide as the split button measured while idle (spec:
+    Same size in every phase)."""
     states = {
-        "checking": (running_pass("checking"), "Scoren läuft: Anzeigen prüfen"),
-        "reading": (running_pass("extracting", (120, 180), (0, 180)),
-                    "Scoren läuft: Merkmale lesen, 120 von 180"),
-        "scoring": (running_pass("scoring", (180, 180), (120, 179)),
-                    "Scoren läuft: Scoren, 120 von 179"),
-        "cancel requested": (running_pass("scoring", (180, 180), (120, 179), True),
-                             "wird nach der aktuellen Anzeige beendet…"),
-        "storing": (running_pass("storing", (180, 180), (179, 179)),
-                    "Scoren läuft: Scores werden gespeichert"),
+        "checking": (running_pass("checking"), "Scoren läuft: Anzeigen prüfen…"),
+        "scoring": (running_pass("scoring", (120, 179)), "Scoren läuft: 120 von 179"),
+        "cancel requested": (running_pass("scoring", (120, 179), True),
+                             "Wird nach der aktuellen Anzeige beendet."),
+        "storing": (running_pass("storing", (179, 179)), "Scores werden gespeichert"),
     }
     current = {}
-    page.route("**/pool/passes/ps-band", lambda route: route.fulfill(json=current["body"]))
-    heights: dict[int, dict[str, float]] = {width: {} for width in BAND_WIDTHS}
+    page.route("**/pool/passes/ps-row", lambda route: route.fulfill(json=current["body"]))
+    split = page.locator("[role=group][aria-label=Scoren]")
+    cancel = page.locator("button[aria-describedby=cancel-why]")
+    counter = page.get_by_text("Korrekturen seit dem letzten Neu-Scoren")
+    idle_split: dict[int, float] = {}
+    layout: dict[int, dict[str, tuple]] = {width: {} for width in ROW_WIDTHS}
     overflowing: list[str] = []
     try:
         page.goto(f"{app_url}/#/pool")
-        page.evaluate("sessionStorage.setItem('jobadvaisor.pool-pass', 'ps-band')")
+        page.reload()
+        expect(split).to_be_visible()
+        for width in ROW_WIDTHS:
+            page.set_viewport_size({"width": width, "height": 900})
+            idle_split[width] = split.bounding_box()["width"]
+        page.evaluate("sessionStorage.setItem('jobadvaisor.pool-pass', 'ps-row')")
         current["body"] = states["checking"][0]
         page.reload()
-        band = page.get_by_role("region", name="Stand des Scorens")
+        progress = page.get_by_role("region", name="Stand des Scorens")
+        row = progress.locator("xpath=..")
         for state, (body, text) in states.items():
             current["body"] = body
-            expect(band.get_by_text(text, exact=True)).to_be_visible(timeout=15_000)
-            for width in BAND_WIDTHS:
+            expect(progress.get_by_text(text, exact=True)).to_be_visible(timeout=15_000)
+            for width in ROW_WIDTHS:
                 page.set_viewport_size({"width": width, "height": 900})
-                heights[width][state] = band.bounding_box()["height"]
-                overflowing += band.evaluate(OVERFLOWING, f"{width} px, {state}")
+                block, count = progress.bounding_box(), counter.bounding_box()
+                layout[width][state] = (
+                    row.bounding_box()["height"], block["x"], block["width"], count["x"],
+                    cancel.bounding_box()["width"])
+                overflowing += progress.evaluate(OVERFLOWING, f"{width} px, {state}")
     finally:  # later tests share the page: desktop width, no stored pass
-        page.unroute("**/pool/passes/ps-band")
+        page.unroute("**/pool/passes/ps-row")
         page.evaluate("sessionStorage.removeItem('jobadvaisor.pool-pass')")
         page.set_viewport_size({"width": 1280, "height": 720})
-    table = "\n".join(f"{width} px: {by_state}" for width, by_state in heights.items())
-    assert all(len(set(by_state.values())) == 1 for by_state in heights.values()), table
+    table = "\n".join(
+        f"{width} px (split {idle_split[width]}): {by_state}" for width, by_state in layout.items())
+    print("\n" + table)  # (row height, block x, block width, counter x, cancel width) per state
+    for width, by_state in layout.items():
+        measured = list(by_state.values())
+        assert len({values[:4] for values in measured}) == 1, table
+        assert {values[4] for values in measured} == {idle_split[width]}, table
     assert overflowing == [], overflowing  # a fixed box that clips or spills its text is no fix
