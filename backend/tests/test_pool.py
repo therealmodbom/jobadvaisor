@@ -201,6 +201,16 @@ def test_a_pass_record_without_a_variant_resets_the_corrections():
     assert counter(repository, scores, _pool(_pass_at(3)))["corrections"] == 0
 
 
+def test_a_cancelled_all_pass_keeps_the_window_where_it_was():
+    repository, scores = _rated(4, 4)
+    cancelled = _pass_at(5, "all").model_copy(update={"cancelled": True})
+    got = counter(repository, scores, _pool(_pass_at(0, "all"), cancelled))
+    assert (got["corrections"], got["since"]) == (4, T0.isoformat())
+    assert counter(repository, scores, _pool(cancelled))["since"] is None
+    legacy = _pass_at(5).model_copy(update={"cancelled": True})  # a record without a variant
+    assert counter(repository, scores, _pool(legacy))["since"] is None
+
+
 def test_without_an_all_pass_every_rating_counts():
     repository, scores = _rated(4, 4)
     got = counter(repository, scores, _pool(_pass_at(3, "unscored")))

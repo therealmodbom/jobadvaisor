@@ -310,10 +310,14 @@ class PoolPass(Entity):
     counts it measured, and the resulting `rate` (absent when too few ratings to compute one).
     `started_at` is when the pass began; absent in passes written before slice 2. `variant` is
     `"all"` for a pass over all postings (rescore), `"unscored"` for one over the unscored only;
-    `None` marks a record from before variants and counts as a pass over all postings."""
+    `None` marks a record from before variants and counts as a pass over all postings.
+    `cancelled` is `True` for a pass the user stopped after it scored something; absent
+    otherwise (never `False`, so older readers that forbid unknown fields still read the
+    records of passes that were not cancelled)."""
 
     started_at: AwareDatetime | None = None
     variant: Literal["unscored", "all"] | None = None
+    cancelled: Literal[True] | None = None
     finished_at: AwareDatetime
     scored: int = Field(ge=0)
     corrections: int = Field(ge=0)
