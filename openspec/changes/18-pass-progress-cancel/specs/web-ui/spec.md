@@ -43,6 +43,13 @@ For about one second after the pass button turns into the cancel button, and aft
 - **WHEN** the user presses the cancel button just as the pass ends
 - **THEN** no new pass starts
 
+### Requirement: Focus stays in the pass button
+An inert main part of the pass button SHALL keep keyboard focus, so that a key press on it does not reach the pool's shortcuts. Focus inside the pass button SHALL stay inside it when the button turns into the cancel button and back, and SHALL go to the question when a pass stops at the unscreened question, never to a button that starts a pass.
+
+#### Scenario: Focus survives a pass
+- **WHEN** the user starts a pass with the keyboard on the main part, and the pass ends with nothing left to score
+- **THEN** focus moves to the cancel button, and back to the main part when the pass ends, and a further Enter starts no pass and moves no row selection
+
 ### Requirement: No cancel while storing
 While a pass stores its scores, the pool view SHALL NOT let the user cancel it, since storing always finishes, and SHALL say so beside the button.
 
@@ -81,3 +88,18 @@ The UI SHALL show the pool ranked by fit, with the text filter and the state fil
 #### Scenario: Change the hint settings
 - **WHEN** the user sets the threshold to 5 and saves
 - **THEN** the hint appears from 5 corrections on
+
+### Requirement: Pass button
+The pass button SHALL be a split button. Its main part SHALL name the shown variant and its count, for example „Anzeigen ohne Score scoren (3)“, and start that variant. Below it the view SHALL say how many postings the shown variant scores, at one model call each, and whether it replaces scores. When the shown variant has nothing to score, the main part SHALL be inert with the reason shown beside it, and the menu SHALL stay usable. While a pass computes, the split button SHALL give way to the cancel button.
+
+#### Scenario: Cost before the start
+- **WHEN** the shown variant is „Alle Anzeigen neu scoren“ with 40 postings
+- **THEN** the main part reads „Alle Anzeigen neu scoren (40)“, and the line below says 40 postings at one model call each, replacing existing scores
+
+#### Scenario: Size stays when the variant changes
+- **WHEN** the user switches the shown variant
+- **THEN** the main part keeps its width, and the line below wraps within it
+
+#### Scenario: Nothing without a score
+- **WHEN** every posting neither excluded nor held has a score and the shown variant is „Anzeigen ohne Score scoren“
+- **THEN** the main part is inert with its reason shown, and the menu still offers „Alle Anzeigen neu scoren“
