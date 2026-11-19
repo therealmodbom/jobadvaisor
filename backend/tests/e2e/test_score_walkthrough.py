@@ -360,7 +360,7 @@ def test_the_row_of_the_pass_button_keeps_its_layout_in_every_running_state(page
     page.route("**/pool/passes/ps-row", lambda route: route.fulfill(json=current["body"]))
     split = page.locator("[role=group][aria-label=Scoren]")
     cancel = page.locator("button[aria-describedby=cancel-why]")
-    counter = page.get_by_text("Korrekturen seit dem letzten Neu-Scoren")
+    counter = page.get_by_text(re.compile(r"^\d+ Korrekturen?$")).locator("xpath=../..")
     idle_split: dict[int, float] = {}
     idle_counter: dict[int, float] = {}
     layout: dict[int, dict[str, tuple]] = {width: {} for width in ROW_WIDTHS}
@@ -386,7 +386,7 @@ def test_the_row_of_the_pass_button_keeps_its_layout_in_every_running_state(page
                 block, count = progress.bounding_box(), counter.bounding_box()
                 layout[width][state] = (
                     row.bounding_box()["height"], block["x"], block["width"], count["x"],
-                    cancel.bounding_box()["width"])
+                    count["width"], cancel.bounding_box()["width"])
                 overflowing += progress.evaluate(OVERFLOWING, f"{width} px, {state}")
     finally:  # later tests share the page: desktop width, no stored pass
         page.unroute("**/pool/passes/ps-row")
@@ -394,11 +394,11 @@ def test_the_row_of_the_pass_button_keeps_its_layout_in_every_running_state(page
         page.set_viewport_size({"width": 1280, "height": 720})
     table = "\n".join(
         f"{width} px (split {idle_split[width]}): {by_state}" for width, by_state in layout.items())
-    print("\n" + table)  # (row height, block x, block width, counter x, cancel width) per state
+    print("\n" + table)  # (row height, block x, block width, counter x, counter width, cancel width)
     for width, by_state in layout.items():
         measured = list(by_state.values())
-        assert len({values[:4] for values in measured}) == 1, table
-        assert {values[4] for values in measured} == {idle_split[width]}, table
+        assert len({values[:5] for values in measured}) == 1, table
+        assert {values[5] for values in measured} == {idle_split[width]}, table
         if width >= 640:  # below `sm` the idle slot is hidden by design, the counter moves down
             assert {values[3] for values in measured} == {idle_counter[width]}, (width, table)
     assert overflowing == [], overflowing  # a fixed box that clips or spills its text is no fix

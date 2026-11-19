@@ -141,9 +141,10 @@ const HINT_STOPPING = 'Wird nach der aktuellen Anzeige beendet.'
 const HINT_STORING = 'Das Speichern lässt sich nicht mehr abbrechen.'
 
 /** The progress of a running pass, beside the pass button (design variant A): a head line with the
- * loader, a bar and a hint line, each of fixed height (the hint always has two lines' room), 340 px
- * wide from `sm` and full width below, so the block keeps one size in every phase (while no pass
- * runs, an empty slot of that width keeps the counter in its place). `progress` null
+ * loader, a bar and a hint line, each of fixed height (the hint always has two lines' room), taking
+ * the remaining row width from `sm` (it grows from a 340 px basis, so a neighbour wraps instead of
+ * squeezing it) and the full width below, so the block keeps one size in every
+ * phase (while no pass runs, an empty slot of the same flex keeps the counter in its place). `progress` null
  * (no report yet) reads like checking: no count, empty bar. The bar fills with `done`/`total`
  * while scoring and is full while storing. The hint (`#cancel-why`, the cancel button's
  * description) says what a cancel does, that one was requested (`stopping`), or why storing cannot
@@ -160,13 +161,13 @@ function PassProgressBlock({ progress, stopping }: { progress: PassProgress | nu
   // The bar is full while storing, but its name says how many were scored (a cancel stores fewer).
   const barLabel = counted ? `Scoren: ${counted.done} von ${counted.total}` : storing ? 'Scores speichern' : 'Anzeigen prüfen'
   return (
-    <section aria-label="Stand des Scorens" className="flex w-full flex-col gap-1.5 sm:w-[340px] sm:flex-none">
+    <section aria-label="Stand des Scorens" className="flex w-full min-w-0 flex-col gap-1.5 sm:w-auto sm:flex-[1_1_340px]">
       <div className="flex h-6 items-center gap-2">
         <LoaderCircle className="size-[18px] flex-none motion-safe:animate-spin" aria-hidden="true" />
         <strong>{head}</strong>
       </div>
       <progress value={value} max={max} aria-label={barLabel}
-                className="h-2 w-full appearance-none overflow-hidden rounded-full border-0 bg-border [&::-moz-progress-bar]:bg-primary [&::-webkit-progress-bar]:rounded-full [&::-webkit-progress-bar]:bg-border [&::-webkit-progress-value]:rounded-full [&::-webkit-progress-value]:bg-primary" />
+                className="h-2.5 w-full appearance-none overflow-hidden rounded-full border-0 bg-border [&::-moz-progress-bar]:bg-primary [&::-webkit-progress-bar]:rounded-full [&::-webkit-progress-bar]:bg-border [&::-webkit-progress-value]:rounded-full [&::-webkit-progress-value]:bg-primary" />
       <p id="cancel-why" className={cn('h-10 text-sm leading-5 text-muted-foreground', stopping && !storing && 'font-bold text-foreground')}>
         {storing ? HINT_STORING : stopping ? HINT_STOPPING : (
           <>
@@ -758,14 +759,19 @@ export function PoolView({ active = true }: { active?: boolean }) {
           <PassButton nextPass={pool.next_pass} shown={shownVariant} busy={busy} working={working} stopping={stopping}
                       storing={storing} onPick={setPicked} onStart={start} onCancel={cancel} />
           {working ? <PassProgressBlock progress={pass?.progress ?? null} stopping={stopping} />
-            : <div aria-hidden="true" className="max-sm:hidden sm:w-[340px] sm:flex-none" />}
+            : <div aria-hidden="true" className="min-w-0 max-sm:hidden sm:flex-[1_1_340px]" />}
           {counter && (
-            <div className="flex flex-col gap-1">
-              <p>Korrekturen seit dem letzten Neu-Scoren aller Anzeigen: <strong>{counter.corrections}</strong></p>
-              <p>{counter.rate === null ? 'Anteil ab 10 Bewertungen' : `Anteil: ${Math.round(counter.rate * 100)} %`}</p>
+            <div className="flex w-full flex-col gap-1 sm:w-[280px] sm:flex-none">
+              <p>
+                <strong>{counter.corrections === 1 ? '1 Korrektur' : `${counter.corrections} Korrekturen`}</strong>
+                {counter.rate !== null && `, Anteil ${Math.round(counter.rate * 100)} %`}
+              </p>
               <Badge className={counter.hint === 'rescore' ? 'self-start bg-negative-soft text-negative' : 'self-start bg-positive-soft text-primary'}>
                 {counter.hint === 'rescore' ? 'neu scoren sinnvoll' : 'Ranking passt gut'}
               </Badge>
+              {counter.rate === null && (
+                <p className="text-sm text-muted-foreground">Anteil erst ab 10 Bewertungen (bisher {counter.rated})</p>
+              )}
             </div>
           )}
           <div className="min-w-[280px] flex-[1_1_320px]"><Settings settings={pool.settings} onSaved={load} /></div>

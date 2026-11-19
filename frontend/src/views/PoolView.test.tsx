@@ -128,16 +128,24 @@ test('the text filter matches title or company, ignoring case', async () => {
 test('the counter shows corrections, share and the fitting hint', async () => {
   stubApi({ 'GET /pool': { body: POOL } })
   render(<PoolView />)
-  const label = 'Korrekturen seit dem letzten Neu-Scoren aller Anzeigen:'
-  expect(await screen.findByText(new RegExp(label))).toHaveTextContent(`${label} 3`)
-  expect(screen.getByText('Anteil: 25 %')).toBeVisible()
+  expect(await screen.findByText('3 Korrekturen')).toBeVisible()
+  expect(screen.getByText('3 Korrekturen').parentElement).toHaveTextContent('3 Korrekturen, Anteil 25 %')
   expect(screen.getByText('Ranking passt gut')).toBeVisible()
+  expect(screen.queryByText(/Anteil erst ab 10 Bewertungen/)).toBeNull()
+  expect(screen.queryByText(/seit dem letzten Neu-Scoren/)).toBeNull()
+})
+
+test('one correction reads in the singular', async () => {
+  stubApi({ 'GET /pool': { body: poolWith({ counter: { ...POOL.counter, corrections: 1 } }) } })
+  render(<PoolView />)
+  expect(await screen.findByText('1 Korrektur')).toBeVisible()
 })
 
 test('below ten ratings the share is not shown and a rescore hint is', async () => {
   stubApi({ 'GET /pool': { body: poolWith({ counter: { ...POOL.counter, rate: null, hint: 'rescore' } }) } })
   render(<PoolView />)
-  expect(await screen.findByText('Anteil ab 10 Bewertungen')).toBeVisible()
+  expect(await screen.findByText(`Anteil erst ab 10 Bewertungen (bisher ${POOL.counter.rated})`)).toBeVisible()
+  expect(screen.getByText('3 Korrekturen').parentElement).toHaveTextContent(/^3 Korrekturen$/)
   expect(screen.getByText('neu scoren sinnvoll')).toBeVisible()
 })
 
@@ -567,14 +575,14 @@ test('the progress slot has the same width idle and running, so the counter keep
   const slot = () => splitGroup().parentElement!.parentElement!.nextElementSibling!
   expect(slot()).toHaveAttribute('aria-hidden', 'true')
   const idleClasses = slot().className
-  expect(idleClasses).toContain('sm:w-[340px]')
+  expect(idleClasses).toContain('sm:flex-[1_1_340px]')
   idle.unmount()
   vi.unstubAllGlobals()
   await openRunning(running('scoring', [30, 79]))
   expect(slot()).toBe(block())
-  expect(block().className).toContain('sm:w-[340px]')
-  expect(block().className).toContain('sm:flex-none')
-  expect(idleClasses).toContain('sm:flex-none')
+  expect(block().className).toContain('sm:flex-[1_1_340px]')
+  expect(block().className).toContain('min-w-0')
+  expect(idleClasses).toContain('min-w-0')
 })
 
 test('the cancel button shares the split button\'s grid cell, so the width stays', async () => {
@@ -1082,7 +1090,7 @@ const puts = (calls: Call[]) => calls.filter((call) => call.method === 'PUT' && 
 const button = (name: string) => screen.getByRole('button', { name })
 /** Expects the shown correction counter to read `count`: only a stored answer changes it. */
 const corrections = (count: number) =>
-  expect(screen.getByText(/Korrekturen seit dem letzten Neu-Scoren/)).toHaveTextContent(`aller Anzeigen: ${count}`)
+  expect(screen.getByText(`${count} Korrekturen`)).toBeVisible()
 
 test('a chip on a posting without a verdict gives it the derived verdict and the counter follows', async () => {
   const calls = stubApi({ 'GET /pool': { body: POOL }, 'PUT /postings/p2/rating': rateRoute('p2') })
@@ -1092,7 +1100,7 @@ test('a chip on a posting without a verdict gives it the derived verdict and the
   expect(puts(calls)[0].body).toEqual({ chips: ['great-stack'], note: null })
   expect(await row(ENGINEER).findByText('Bewertet: Ja')).toBeVisible()
   expect(screen.getByText('neu scoren sinnvoll')).toBeVisible()
-  expect(screen.getByText(/Korrekturen seit dem letzten Neu-Scoren aller Anzeigen:/)).toHaveTextContent('4')
+  expect(screen.getByText('4 Korrekturen')).toBeVisible()
 })
 
 test('chips of both polarities stay selectable, whatever the verdict', async () => {
@@ -1608,7 +1616,7 @@ test('a row score updates the row, the counter and the pass button count', async
   await userEvent.click(row(NEW).getByRole('button', { name: 'Score berechnen' }))
   expect(await row(NEW).findByText('9')).toBeVisible()
   expect(row(NEW).getByRole('button', { name: 'Neu berechnen' })).toBeEnabled()
-  expect(screen.getByText(/Korrekturen seit dem letzten Neu-Scoren/)).toHaveTextContent('Korrekturen seit dem letzten Neu-Scoren aller Anzeigen: 4')
+  expect(screen.getByText('4 Korrekturen')).toBeVisible()
   expect(screen.getByRole('button', { name: 'Alle Anzeigen neu scoren (8)' })).toBeEnabled()
   expect(calls.filter((call) => call.method === 'POST').map((call) => call.path)).toEqual(['/postings/n1/score'])
 })
