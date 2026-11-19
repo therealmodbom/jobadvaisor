@@ -115,8 +115,7 @@ def test_a_finished_pass_reports_its_last_progress_and_the_scores_it_stored(api,
     assert progress["scored"] == 5 and progress["unscreened"] == []
     assert progress["error"] is None and progress["started_at"]
     assert progress["cancel_requested"] is False
-    assert progress["progress"] == {"phase": "storing", "extract": {"done": 5, "total": 5},
-                                    "score": {"done": 5, "total": 5}}
+    assert progress["progress"] == {"phase": "storing", "score": {"done": 5, "total": 5}}
     assert set(progress) == {"pass_id", "status", "started_at", "error", "progress",
                              "cancel_requested", "scored", "unscreened"}
     assert read_score(root, "p5").score == 5
@@ -129,8 +128,7 @@ def test_progress_is_readable_while_the_pass_computes(api):
     assert api.entered.wait(10)
     progress = api.client.get(f"/pool/passes/{pass_id}").json()
     assert progress["status"] == "running" and progress["scored"] == 0
-    assert progress["progress"] == {"phase": "scoring", "extract": {"done": 5, "total": 5},
-                                    "score": {"done": 0, "total": 5}}
+    assert progress["progress"] == {"phase": "scoring", "score": {"done": 0, "total": 5}}
     api.gate.set()
     api.settled(pass_id)
 
@@ -242,7 +240,7 @@ def test_pass_paused_over_unscreened_postings_reports_them_with_title_and_compan
                                        "title": "Unscreened Engineer 2",
                                        "company": "Example Corp"}]
     assert progress["scored"] == 0 and progress["progress"]["phase"] == "checking"
-    assert unscreened.harness.extractor.calls == []
+    assert unscreened.harness.judge.calls == []
 
 
 def test_an_unscreened_posting_that_is_gone_falls_back_to_its_id(unscreened, root):
@@ -269,7 +267,7 @@ def test_abort_answer_ends_the_pass(unscreened):
     unscreened.settled(pass_id)
     unscreened.client.post(f"/pool/passes/{pass_id}/unscreened", json={"continue": False})
     assert unscreened.settled(pass_id)["status"] == "aborted"
-    assert unscreened.harness.extractor.calls == []
+    assert unscreened.harness.judge.calls == []
 
 
 def test_answer_without_a_pending_question_is_rejected(api):

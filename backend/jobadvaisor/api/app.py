@@ -462,8 +462,8 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
     def read_pass(pass_id: str) -> dict:
         """A pass's `{pass_id, status, started_at, error, progress, cancel_requested, scored,
         unscreened}`. `status` is running, awaiting_answer, done, aborted, cancelled or failed.
-        `progress` is the last report `{phase, extract: {done, total} | null, score: {done,
-        total} | null}` (phase checking, extracting, scoring or storing), or `null` when this
+        `progress` is the last report `{phase, score: {done, total} | null}` (phase checking,
+        scoring or storing; `score` is `null` while checking), or `null` when this
         process holds none (before the first report, after a restart). `cancel_requested` is
         true while the pass runs on after a cancel. `scored` counts the results scored, which a
         cancelled, ended pass has stored. `unscreened` lists the postings the pass asks about,
@@ -756,7 +756,7 @@ def configured_runs(settings: Settings) -> Runs:
         return TriageContext(load(root), content_guard(settings),
                              LabelIndex(state_path(settings, root) / "chroma", embedder,
                                         settings.embedding_model),
-                             chat_model("extractor", settings), chat_model("judge", settings))
+                             chat_model("judge", settings))
 
     return Runs(graph, context)
 

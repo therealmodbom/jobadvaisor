@@ -68,7 +68,7 @@ class Harness:
     def __init__(self, tmp_path: Path, root: Path, classifier=None):
         self.root = root
         self.guard = ContentGuard(classifier, classifier.thresholds if classifier else {})
-        self.extractor = ScriptedModel(unknown_features)
+        self.extractor = ScriptedModel(unknown_features)  # for the agent's tests; a pass has none
         self.judge = ScriptedModel(judge_by_title)
         self.index = LabelIndex(tmp_path / "chroma", DeterministicFakeEmbedding(size=16), "fake")
         self.checkpoints = tmp_path / "state" / "checkpoints.sqlite"
@@ -84,8 +84,8 @@ class Harness:
         self.graph = build_graph(checkpointer(self.checkpoints))
 
     def context(self) -> TriageContext:
-        return TriageContext(load(self.root), self.guard, self.index, self.extractor,
-                             self.judge, progress=self._progress, cancelled=self._cancelled)
+        return TriageContext(load(self.root), self.guard, self.index, self.judge,
+                             progress=self._progress, cancelled=self._cancelled)
 
     def _progress(self, report: dict) -> None:
         self.reports.append(copy.deepcopy(report))
@@ -117,7 +117,7 @@ class Harness:
                                  context=self.context())
 
     def model_prompts(self) -> str:
-        return "\n".join(self.extractor.calls + self.judge.calls)
+        return "\n".join(self.judge.calls)
 
 
 @pytest.fixture
@@ -140,7 +140,19 @@ def test_excluded_posting_gets_no_model_call_and_every_posting_is_in_the_result(
     assert results["low"]["status"] == "scored" and results["low"]["score"] == 1
     assert results["backend"]["score"] == 7 and results["backend"]["reasoning"] == "fits"
     assert "Sales Representative" not in harness.model_prompts()
-    assert len(harness.extractor.calls) == len(harness.judge.calls) == 2
+    assert len(harness.judge.calls) == 2
+
+
+def test_a_pass_makes_no_extraction_call_and_keeps_no_features(tmp_path, root):
+    add_posting(root, "backend", "Backend Engineer 7")
+    add_posting(root, "low", "Support Engineer 1")
+    harness = Harness(tmp_path, root)
+    final = harness.start("run-1")
+    assert "extract" not in harness.graph.get_graph().nodes
+    assert all("Posting to score:" in prompt for prompt in harness.judge.calls)
+    assert len(harness.judge.calls) == 2  # the judge is the only model call of the pass
+    assert all("features" not in result for result in final["results"].values())
+    assert "extract_failed" not in final
 
 
 def test_demo_persona_run_covers_every_posting_of_its_batch(tmp_path, demo_copy):
@@ -188,14 +200,14 @@ def screening_off(tmp_path, root) -> Harness:
     return Harness(tmp_path, root)
 
 
-def test_unscreened_posting_with_screening_off_pauses_before_any_extraction(screening_off):
+def test_unscreened_posting_with_screening_off_pauses_before_any_model_call(screening_off):
     paused = screening_off.start("run-1")
     assert [i.value for i in paused["__interrupt__"]] == [
         {"question": "unscreened", "postings": ["unscreened"]}]
     assert screening_off.model_prompts() == ""
 
 
-def test_continue_extracts_scores_and_stores_the_unscreened_posting(screening_off):
+def test_continue_scores_and_stores_the_unscreened_posting(screening_off):
     screening_off.start("run-1")
     results = screening_off.resume("run-1", True)["results"]
     assert results["unscreened"]["status"] == results["clean"]["status"] == "scored"
@@ -219,7 +231,7 @@ def test_posting_flagged_while_the_run_was_paused_gets_no_model_call(screening_o
     assert "Unscreened Engineer" not in screening_off.model_prompts()
 
 
-def test_screening_turned_on_while_paused_screens_before_extraction(screening_off):
+def test_screening_turned_on_while_paused_screens_before_scoring(screening_off):
     screening_off.start("run-1")
     add_posting(screening_off.root, "unscreened", "Unscreened Engineer 1", guard=None,
                 text="INJECT")
@@ -436,7 +448,7 @@ def test_a_rated_posting_without_a_score_gets_one_without_itself_as_an_example(t
     assert scored.score == 7 and scored.reasoning == "fits"
     assert scored.example_ids == ["other"]
     assert read_score(root, "rated") == scored
-    assert harness.extractor.calls == [] and len(harness.judge.calls) == 1
+    assert len(harness.judge.calls) == 1
     assert read_pool(root).passes == []
 
 
@@ -546,12 +558,9 @@ def test_a_checked_posting_is_not_classified_again(tmp_path, root):
     assert classifier.texts == []
 
 
-def report(phase: str, extract: tuple | None = None, score: tuple | None = None) -> dict:
-    """A progress report as the `progress` hook gets it; the counts are `(done, total)`."""
-    def counts(pair):
-        return None if pair is None else {"done": pair[0], "total": pair[1]}
-
-    return {"phase": phase, "extract": counts(extract), "score": counts(score)}
+def report(phase: str, score: tuple | None = None) -> dict:
+    """A progress report as the `progress` hook gets it; `score` is `(done, total)`."""
+    return {"phase": phase, "score": score and {"done": score[0], "total": score[1]}}
 
 
 def failing_on(marker: str, answer):
@@ -567,7 +576,7 @@ def failing_on(marker: str, answer):
 def test_the_hooks_default_to_reporting_nothing_and_never_cancelling(tmp_path, root):
     harness = Harness(tmp_path, root)
     context = TriageContext(harness.context().repository, harness.guard, harness.index,
-                            harness.extractor, harness.judge)
+                            harness.judge)
     assert context.progress({"phase": "checking"}) is None and context.cancelled() is False
 
 
@@ -575,41 +584,44 @@ def test_progress_is_reported_per_posting_and_counts_only_postings_a_model_sees(
     add_posting(root, "a", "Backend Engineer 7")
     add_posting(root, "b", "Sales Representative")
     add_posting(root, "c", "Held Engineer", guard=FLAGGED)
-    add_posting(root, "d", "Brokenread Engineer 3")
-    add_posting(root, "e", "Brokenscore Engineer 4")
-    add_posting(root, "f", "Frontend Engineer 6")
+    add_posting(root, "d", "Brokenscore Engineer 4")
+    add_posting(root, "e", "Frontend Engineer 6")
     harness = Harness(tmp_path, root)
-    harness.extractor = ScriptedModel(failing_on("Brokenread", unknown_features))
     harness.judge = ScriptedModel(failing_on("Brokenscore", judge_by_title))
     harness.start("run-1")
     assert harness.reports == [
         report("checking"), report("checking"),
-        report("extracting", (0, 4), (0, 4)),
-        report("extracting", (1, 4), (0, 4)),  # a
-        report("extracting", (2, 4), (0, 3)),  # d: reading failed, drops out of scoring
-        report("extracting", (3, 4), (0, 3)),  # e
-        report("extracting", (4, 4), (0, 3)),  # f
-        report("scoring", (4, 4), (0, 3)),
-        report("scoring", (4, 4), (1, 3)),  # a
-        report("scoring", (4, 4), (2, 3)),  # e: scoring failed, still done
-        report("scoring", (4, 4), (3, 3)),  # f
-        report("storing", (4, 4), (3, 3)),
+        report("scoring", (0, 3)),
+        report("scoring", (1, 3)),  # a
+        report("scoring", (2, 3)),  # d: scoring failed, still done
+        report("scoring", (3, 3)),  # e
+        report("storing", (3, 3)),
     ]
 
 
-def test_a_posting_the_guard_rules_on_in_extraction_leaves_both_counts(screening_off):
+def test_a_posting_flagged_while_the_question_waited_leaves_the_count(screening_off):
     screening_off.start("run-1")
     add_posting(screening_off.root, "unscreened", "Unscreened Engineer 1", guard=FLAGGED)
     screening_off.reports.clear()
     screening_off.resume("run-1", True)
     assert screening_off.reports == [
-        report("extracting", (0, 2), (0, 2)),
-        report("extracting", (1, 2), (0, 2)),  # clean
-        report("extracting", (1, 1), (0, 1)),  # unscreened, now held: counted nowhere
-        report("scoring", (1, 1), (0, 1)),
-        report("scoring", (1, 1), (1, 1)),
-        report("storing", (1, 1), (1, 1)),
+        report("scoring", (0, 2)),
+        report("scoring", (1, 2)),  # clean
+        report("scoring", (1, 1)),  # unscreened, now held: counted nowhere, no model call
+        report("storing", (1, 1)),
     ]
+    assert len(screening_off.judge.calls) == 1
+
+
+def test_a_cancel_flag_set_while_the_pass_waits_stops_it_before_the_next_posting(tmp_path, root):
+    for n in range(1, 4):
+        add_posting(root, f"p{n}", f"Engineer {n}")
+    harness = Harness(tmp_path, root)
+    harness.cancel_on_check = 4  # the first check of `score` (`exclude` made three)
+    final = harness.start("run-1")
+    assert final["cancelled"] is True and harness.judge.calls == []
+    assert harness.reports[-1] == report("scoring", (0, 3))  # no storing: nothing to store
+    assert not (root / "scores").exists() and read_pool(root).passes == []
 
 
 def test_a_cancel_in_scoring_stores_the_scores_so_far_and_records_a_cancelled_pass(tmp_path, root):
@@ -624,26 +636,12 @@ def test_a_cancel_in_scoring_stores_the_scores_so_far_and_records_a_cancelled_pa
     assert final["cancelled"] is True
     assert [read_score(root, f"p{n}").score for n in range(1, 5)] == [5, 6, 3, 4]
     assert [r["status"] for r in final["results"].values()] == [
-        "scored", "scored", "extracted", "extracted"]
+        "scored", "scored", "pending", "pending"]
     first, cancelled = read_pool(root).passes
     assert first.cancelled is None
     assert (cancelled.scored, cancelled.variant, cancelled.cancelled) == (2, "all", True)
     assert harness.graph.get_state(run_config("run-1")).next == ()
-    assert harness.reports[-1] == report("storing", (4, 4), (2, 4))
-
-
-def test_a_cancel_in_reading_features_stores_nothing_and_records_nothing(tmp_path, root):
-    for n in range(1, 5):
-        add_posting(root, f"p{n}", f"Engineer {n}")
-    harness = Harness(tmp_path, root)
-    harness.cancel_during(harness.extractor, 2)
-    final = harness.start("run-1")
-    assert final["cancelled"] is True
-    assert len(harness.extractor.calls) == 2 and harness.judge.calls == []
-    assert not (root / "scores").exists() and read_pool(root).passes == []
-    assert harness.graph.get_state(run_config("run-1")).next == ()
-    assert report("extracting", (2, 4), (0, 4)) in harness.reports
-    assert not {"scoring", "storing"} & {r["phase"] for r in harness.reports}  # nothing to store
+    assert harness.reports[-1] == report("storing", (2, 4))
 
 
 def test_a_cancel_in_checking_stops_before_the_next_posting(tmp_path, root):

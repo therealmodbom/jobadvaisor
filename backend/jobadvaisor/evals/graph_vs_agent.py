@@ -70,13 +70,13 @@ def triage_copy(repository: DataRepository, split: TimeSplit, directory: Path) -
     return root
 
 
-def graph_variant(root: Path, guard: ContentGuard, index: LabelIndex, extractor: BaseChatModel,
-                  judge: BaseChatModel, batch: list[str]) -> dict[str, dict]:
+def graph_variant(root: Path, guard: ContentGuard, index: LabelIndex, judge: BaseChatModel,
+                  batch: list[str]) -> dict[str, dict]:
     """The triage graph's result for every posting of `batch`, as the run reports it
     (`missing` for one the run left out), from one run over the copy at `root` that takes
     exactly `batch` (a plain pass would score the labeled training postings too)."""
     state = start_run(build_graph(InMemorySaver()),
-                      TriageContext(load(root), guard, index, extractor, judge), "eval",
+                      TriageContext(load(root), guard, index, judge), "eval",
                       batch=batch)
     return {posting_id: state["results"].get(posting_id, {"status": "missing"})
             for posting_id in batch}
@@ -132,8 +132,7 @@ def run(repository: DataRepository, guard: ContentGuard,
     split = time_split(repository, held_out)
     batch = split.held_out
     variants = {
-        "graph": lambda root, indexes: graph_variant(root, guard, indexes[0], extractor, judge,
-                                                     batch),
+        "graph": lambda root, indexes: graph_variant(root, guard, indexes[0], judge, batch),
         "agent": lambda root, indexes: agent_variant(root, guard, indexes, extractor, judge,
                                                      agent_model, batch)}
     rows = {name: {"precision_at_k": [], "costs": [], "uncosted_calls": 0, "errors": []}
