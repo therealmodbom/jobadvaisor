@@ -118,7 +118,7 @@ The UI SHALL show the pool ranked by fit, with the text filter and the state fil
 - **THEN** the hint appears from 5 corrections on
 
 ### Requirement: Pass progress line
-While a pass computes, the pool view SHALL name its phase and show the count of reading features and the count of scoring, each as done out of total. The counts SHALL move after every posting.
+While a pass computes, the pool view SHALL name its phase and, except while it checks, show the count of reading features and the count of scoring, each as done out of total. The counts SHALL move after every posting.
 
 #### Scenario: Reading features
 - **WHEN** a pass has read the features of 12 of 80 postings
@@ -154,7 +154,7 @@ When a cancelled pass has stopped, the pool view SHALL say that the pass was can
 - **THEN** the view says it was cancelled with 30 postings scored, and those 30 show their new scores in the ranking
 
 #### Scenario: Cancelled before any score
-- **WHEN** a pass is cancelled while it reads features
+- **WHEN** a pass is cancelled while it checks or reads features
 - **THEN** the view says it was cancelled with no posting scored, and the ranking is unchanged
 
 ### Requirement: Posting page

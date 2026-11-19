@@ -359,6 +359,10 @@ While a pass runs, the pool SHALL report its phase: checking, reading features, 
 - **WHEN** the same pass has read all 80 and scored 30
 - **THEN** the pool reports the phase as scoring, with 80 of 80 read and 30 of 80 scored
 
+#### Scenario: Restart during a pass
+- **WHEN** the server restarts while a pass runs
+- **THEN** the pool reports the pass as failed, without progress
+
 ### Requirement: Progress counts only postings a model sees
 Postings an exclusion rule matches or the content guard holds SHALL count in neither progress count. A posting whose feature reading failed SHALL count as done for reading features and SHALL drop out of the scoring count.
 
@@ -389,8 +393,16 @@ The user SHALL be able to cancel a running pass. It SHALL stop after the posting
 - **WHEN** the user cancels a pass that has reached the storing phase
 - **THEN** the pass stores every score and ends as a complete pass
 
+#### Scenario: Cancel during the last posting
+- **WHEN** the user cancels a pass while it scores its last posting
+- **THEN** the pass stores every score and ends as a complete pass
+
+#### Scenario: Cancel before the unscreened question
+- **WHEN** the user cancels a pass while it checks, and the pass holds postings the content guard never checked
+- **THEN** the pass ends as cancelled without asking about them, and no score is stored
+
 ### Requirement: Cancel only a running pass
-A cancel SHALL be refused for a pass that is not running: one that waits for the answer about unscreened postings, has ended, or is unknown. The refusal SHALL say that the pass is not running.
+A cancel SHALL be refused for a pass that is not running: one that waits for the answer about unscreened postings or has ended. The refusal SHALL say that the pass is not running. A cancel for an unknown pass, or for a single score, SHALL be refused as unknown.
 
 #### Scenario: Pass waiting for an answer
 - **WHEN** the user cancels a pass that asks about unscreened postings
@@ -399,6 +411,10 @@ A cancel SHALL be refused for a pass that is not running: one that waits for the
 #### Scenario: Pass already ended
 - **WHEN** the user cancels a pass that has ended
 - **THEN** nothing changes, and the answer says it is not running
+
+#### Scenario: Single score
+- **WHEN** a cancel names a single score that is computing
+- **THEN** the score goes on, and the answer says the pass is unknown
 
 ### Requirement: Record of a cancelled pass
 A cancelled pass that scored at least one posting SHALL be recorded like a finished pass, with its variant, the number of postings it scored and its share of corrections, and SHALL be marked as cancelled. A cancelled pass that scored no posting SHALL NOT be recorded.

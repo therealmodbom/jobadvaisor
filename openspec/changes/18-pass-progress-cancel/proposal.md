@@ -36,7 +36,7 @@ None.
 - Frontend:
   - `api.ts` (`PassState`).
   - `views/PoolView.tsx`: progress line, cancel button, handling of `cancelled`.
-  - `test-fixtures.ts` and the view tests.
+  - `views/PoolView.test.tsx` (its `pass()` fixture and the view tests).
 - Tests: `test_triage_graph.py`, a new `test_runs_pass.py`, `test_api.py`, `test_pool.py`, e2e `test_score_walkthrough.py`.
 - Data format: `pool.json` gains an optional field. Existing files stay valid.
 - Docs: the README pool paragraph and the AGENTS.md "Current state" section; an ADR for how progress and cancel reach the pass.
