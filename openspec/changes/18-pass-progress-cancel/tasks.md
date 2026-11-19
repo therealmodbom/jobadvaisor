@@ -18,6 +18,7 @@
   - progress readable mid-pass;
   - cancel → `cancel_requested` → `cancelled`;
   - a cancel accepted after `exclude`'s last check, with a hook that blocks until the cancel is in, ends `cancelled` without `awaiting_answer`;
+  - a cancel sent while `_run`'s end section holds the lock (a saver wrapper whose `get_state` there starts the cancel thread and waits until it blocks on the lock) gets `RunStateError` once the section has freed the slot, and leaves no ID in the set, while the pass shows `awaiting_answer`;
   - `KeyError` for an unknown run and for `score:<id>` while a single score blocks;
   - `RunStateError` while awaiting the answer and after the end, also in a fresh `Runs` over the same saver;
   - a pass resumed with „Trotzdem scoren“ is not cancelled by an earlier request;
