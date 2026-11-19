@@ -3,6 +3,8 @@ rating pause): passes compute in a background thread, one at a time; a pass paus
 unscreened postings does not block a new one. A single score (`Runs.score`) runs in the
 caller's thread but takes the same one slot."""
 
+import copy
+import dataclasses
 import threading
 import uuid
 from collections.abc import Callable
@@ -28,14 +30,18 @@ class RunStateError(Exception):
 
 
 class Runs:
-    """Starts, reads and resumes passes. `context` builds a fresh `TriageContext` for every
-    invocation, so each step sees the data repository as it is on disk."""
+    """Starts, reads, cancels and resumes passes. `context` builds a fresh `TriageContext` for
+    every invocation, so each step sees the data repository as it is on disk; `Runs` sets its
+    `progress` and `cancelled` hooks on it. Progress and cancel requests live in memory only,
+    beside the checkpoint, so a restart forgets them (ADR 0013)."""
 
     def __init__(self, graph: CompiledStateGraph, context: Callable[[], TriageContext]):
         self._graph, self._context = graph, context
         self._executor = ThreadPoolExecutor(max_workers=1)
         self._lock = threading.Lock()
         self._computing: set[str] = set()
+        self._cancelled: set[str] = set()
+        self._progress: dict[str, dict] = {}
         self._errors: dict[str, str] = {}
 
     def start(self, rescore: bool = False) -> str:
@@ -43,31 +49,58 @@ class Runs:
         `start_run` (true for the pass variant `"all"`). Raises `RunBusyError` while another
         pass or a single score computes."""
         run_id = uuid.uuid4().hex
-        self._compute(run_id, lambda: start_run(self._graph, self._context(), run_id,
+        self._compute(run_id, lambda: start_run(self._graph, self._hooked(run_id), run_id,
                                                 rescore))
         return run_id
 
     def read(self, run_id: str) -> dict | None:
         """The run's status, result and unscreened postings, or `None` for an unknown run.
 
-        `status` is `running`, `awaiting_answer` (the unscreened question), `done`, `aborted`
-        or `failed` (with `error` when this process saw it fail). `started_at` is the ISO time
-        of the run's first checkpoint, `None` before it has one.
+        `status` is `running`, `awaiting_answer` (the unscreened question), `done`, `aborted`,
+        `cancelled` (the user stopped it; scores computed until then are stored) or `failed`
+        (with `error` when this process saw it fail). `started_at` is the ISO time of the
+        run's first checkpoint, `None` before it has one. `progress` is the last report of this
+        process as a copy (`TriageContext.progress`), `None` when it holds none: before the
+        first report or after a restart. `cancel_requested` is true while the run still
+        computes after a cancel.
         """
         config = run_config(run_id)
         with self._lock:  # a run ending between the two reads would be judged by a stale snapshot
             computing = run_id in self._computing
             snapshot = self._graph.get_state(config)
+            progress = copy.deepcopy(self._progress.get(run_id))
+            requested = computing and run_id in self._cancelled
         values = snapshot.values
         if not values and not computing:
             if run_id in self._errors:  # it failed before its first checkpoint
                 return {"run_id": run_id, "status": "failed", "results": {}, "unscreened": [],
-                        "error": self._errors[run_id], "started_at": None}
+                        "error": self._errors[run_id], "started_at": None, "progress": None,
+                        "cancel_requested": False}
             return None
         first = next(iter(reversed(list(self._graph.get_state_history(config)))), None)
         return {"run_id": run_id, "status": self._status(snapshot, computing),
                 "results": values.get("results", {}), "unscreened": values.get("unscreened", []),
-                "error": self._errors.get(run_id), "started_at": first and first.created_at}
+                "error": self._errors.get(run_id), "started_at": first and first.created_at,
+                "progress": progress, "cancel_requested": requested}
+
+    def cancel(self, run_id: str) -> None:
+        """Ask the computing pass `run_id` to stop after the posting it works on; returns at
+        once. It ends `cancelled` with the scores computed until then stored, except that a
+        cancel arriving after the last posting of `score`, or while storing, ends a complete
+        pass. Raises `KeyError` for an ID that is no pass (a single score `score:<id>`, or one
+        no checkpoint knows) and `RunStateError` unless the run computes (it waits for the
+        unscreened answer or has ended, also when it did so before a restart)."""
+        if run_id.startswith("score:"):
+            raise KeyError(run_id)
+        with self._lock:  # check and add in one section, so the end of a step cannot slip between
+            if run_id in self._computing:
+                self._cancelled.add(run_id)
+                return
+            snapshot = self._graph.get_state(run_config(run_id))
+            if not snapshot.values and run_id not in self._errors:
+                raise KeyError(run_id)
+            status = self._status(snapshot, False) if snapshot.values else "failed"
+        raise RunStateError(f"run {run_id} is {status}, not running")
 
     def answer_unscreened(self, run_id: str, proceed: bool) -> None:
         """Resume a run paused over unscreened postings in the background: continue with them
@@ -75,7 +108,7 @@ class Runs:
         `RunBusyError` while another run computes."""
         self._require(run_id, "awaiting_answer")
         self._compute(run_id, lambda: self._graph.invoke(
-            Command(resume=proceed), run_config(run_id), context=self._context()))
+            Command(resume=proceed), run_config(run_id), context=self._hooked(run_id)))
 
     def score(self, posting_id: str) -> Score:
         """Score one posting now, in the caller's thread, and return the stored score
@@ -100,18 +133,49 @@ class Runs:
         with self._lock:
             self._computing.discard(run_id)
 
+    def _hooked(self, run_id: str) -> TriageContext:
+        """A fresh context whose `progress` stores the report as a copy under the lock and
+        whose `cancelled` asks whether `run_id` has a cancel pending."""
+        def report(progress: dict) -> None:
+            with self._lock:
+                self._progress[run_id] = copy.deepcopy(progress)
+
+        def requested() -> bool:
+            with self._lock:
+                return run_id in self._cancelled
+
+        return dataclasses.replace(self._context(), progress=report, cancelled=requested)
+
     def _compute(self, run_id: str, step: Callable[[], object]) -> None:
         self._claim(run_id)
+        with self._lock:  # a request of an earlier step never carries over
+            self._cancelled.discard(run_id)
         self._errors.pop(run_id, None)
         self._executor.submit(self._run, run_id, step)
 
     def _run(self, run_id: str, step: Callable[[], object]) -> None:
+        """Run one step, then end it in one lock section: read the snapshot and either free
+        the slot and drop a pending cancel, or, when the step paused at the unscreened question
+        while a cancel is pending, keep the slot and resume the run with `"cancel"` so it ends
+        `cancelled`. A cancel racing this section is seen here, or finds the slot free and gets
+        its `RunStateError`; none is lost."""
+        resume = False
         try:
             step()
         except Exception as error:  # reported through read(), the thread must not die silently
             self._errors[run_id] = f"{type(error).__name__}: {error}"
-        finally:
-            self._release(run_id)
+        with self._lock:
+            try:
+                paused = bool(self._graph.get_state(run_config(run_id)).interrupts)
+                resume = paused and run_id in self._cancelled
+            except Exception as error:  # the snapshot is unreadable: end the step as failed
+                self._errors[run_id] = f"{type(error).__name__}: {error}"
+            if not resume:
+                self._computing.discard(run_id)
+                self._cancelled.discard(run_id)
+        if resume:
+            self._run(run_id, lambda: self._graph.invoke(
+                Command(resume="cancel"), run_config(run_id), context=self._hooked(run_id)))
 
     def _require(self, run_id: str, *allowed: str) -> str:
         run = self.read(run_id)
@@ -128,5 +192,7 @@ class Runs:
         if snapshot.interrupts:
             return "awaiting_answer"
         if not snapshot.next:
+            if snapshot.values.get("cancelled"):
+                return "cancelled"
             return "aborted" if snapshot.values.get("aborted") else "done"
         return "failed"
