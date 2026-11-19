@@ -133,11 +133,14 @@ def start_run(graph: CompiledStateGraph, context: TriageContext, run_id: str,
     """Run a new pass until it pauses or ends and return its state. `rescore` makes `load`
     take every posting, scored and rated ones included; the caller sets it for variant `"all"`.
     `batch`, when given, is the exact list of posting IDs
-    to take instead (the eval's held-out postings). The pass's `started_at` is set here."""
+    to take instead (the eval's held-out postings). The pass's `started_at` is set here.
+    It runs with `durability="sync"`: each step's checkpoint is on disk before the next node
+    starts. With the default `"async"` a snapshot read in the write window shows no next node,
+    which `Runs` would report as `done` for a pass that stored nothing."""
     state: TriageState = {"rescore": rescore, "started_at": datetime.now(UTC).isoformat()}
     if batch is not None:
         state["batch"] = batch
-    return graph.invoke(state, run_config(run_id), context=context)
+    return graph.invoke(state, run_config(run_id), context=context, durability="sync")
 
 
 class ScoreRefused(Exception):

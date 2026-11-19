@@ -33,7 +33,10 @@ class Runs:
     """Starts, reads, cancels and resumes passes. `context` builds a fresh `TriageContext` for
     every invocation, so each step sees the data repository as it is on disk; `Runs` sets its
     `progress` and `cancelled` hooks on it. Progress and cancel requests live in memory only,
-    beside the checkpoint, so a restart forgets them (ADR 0013)."""
+    beside the checkpoint, so a restart forgets them (ADR 0013). Every graph call runs with
+    `durability="sync"`, so a step's checkpoint is on disk before the next node starts; with
+    the default `"async"` a read in the write window (or a restart in it) shows no next node
+    and `_status` would say `done` for a pass that stored nothing."""
 
     def __init__(self, graph: CompiledStateGraph, context: Callable[[], TriageContext]):
         self._graph, self._context = graph, context
@@ -108,7 +111,8 @@ class Runs:
         `RunBusyError` while another run computes."""
         self._require(run_id, "awaiting_answer")
         self._compute(run_id, lambda: self._graph.invoke(
-            Command(resume=proceed), run_config(run_id), context=self._hooked(run_id)))
+            Command(resume=proceed), run_config(run_id), context=self._hooked(run_id),
+            durability="sync"))
 
     def score(self, posting_id: str) -> Score:
         """Score one posting now, in the caller's thread, and return the stored score
@@ -178,8 +182,8 @@ class Runs:
                 self._cancelled.discard(run_id)
         if resume:
             self._run(run_id, lambda: self._graph.invoke(
-                Command(resume="cancel"), run_config(run_id), context=self._hooked(run_id)),
-                      resumed=True)
+                Command(resume="cancel"), run_config(run_id), context=self._hooked(run_id),
+                durability="sync"), resumed=True)
 
     def _require(self, run_id: str, *allowed: str) -> str:
         run = self.read(run_id)
