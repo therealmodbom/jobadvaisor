@@ -40,7 +40,8 @@ The owner chose A on 2026-11-19 (task 0.1), with one condition: the band keeps i
   - Alternative: derive the counts in `read_pass` from `results`. Rejected, because `results` reaches the snapshot only when a node ends, which is the bug this change fixes.
 
 - **Cancel is a flag checked before every posting.** `exclude`, `extract` and `score` ask `cancelled()` before each posting. A node that sees it stops its loop and returns its results so far, with `cancelled: True` in the state. `TriageState` gains `cancelled: bool`, named in its docstring, because LangGraph silently drops a key the state schema does not declare.
-  - `exclude` asks once more after its loop, so a cancel that arrives during its last posting is not lost. A cancelled pass then goes to `END` through a new branch in `_after_exclude`. It asks no unscreened question and scores nothing.
+  - A pass cancelled in `exclude` goes to `END` through a new branch in `_after_exclude`. It asks no unscreened question and scores nothing.
+  - A cancel can still land after `exclude`'s last check, while the graph is on its way to the unscreened interrupt. `Runs` closes that gap after the step, not inside the graph (see `Runs.cancel` below). `confirm_unscreened` accepts a third answer, `"cancel"`, besides `True` and `False`, and returns `cancelled: True`, so `_after_confirm` routes it to `END`.
   - `score` skips its loop and the index sync when the state is already cancelled.
   - `store_scores` stores what was scored and never asks the flag. A cancel that arrives while storing, or during the last posting of `score`, therefore ends as a complete pass (spec → Cancel while storing).
   - The postings the pass did not reach: `exclude` leaves them out of `results`, since it builds `results` from scratch, and `extract` and `score` leave them `pending` or `extracted`. Nothing is written for them.
@@ -48,9 +49,16 @@ The owner chose A on 2026-11-19 (task 0.1), with one condition: the band keeps i
 
 - **The status `cancelled`, not `aborted`.** `Runs._status` reports `cancelled` when the run has no next node and its state says `cancelled`. `aborted` keeps its meaning: the unscreened question was answered with abort, and nothing was stored. Alternative: reuse `aborted`. Rejected, because a cancelled pass may have stored scores, so the view must reload the pool and report a count, which it does not do for `aborted`.
 
-- **`Runs.cancel(run_id)`.** It raises `KeyError` for an ID that `Runs` never started as a pass, and `RunStateError` unless the pass is computing. A single score's `score:<posting ID>` sits in `_computing` too, so `cancel` accepts only IDs that `start` handed out, kept in a set. The check and the add happen in one lock section, so the run cannot pause or end between them. The context's `cancelled` hook reads the set of cancelled IDs. `read()` reports `cancel_requested` while the run computes and its ID is in that set. The ID leaves the set when a step starts (`_compute`) and when it ends (`_release`). A cancel that lands just before the pass pauses at the unscreened question is thus seen by `exclude`'s last check, and never carries over into a resumed step after „Trotzdem scoren“.
+- **`Runs.cancel(run_id)`.**
+  - It raises `KeyError` for an ID that names a single score (prefix `score:`, which sits in `_computing` while it runs) or that `read()` does not know.
+  - It raises `RunStateError` unless the run is computing.
+  - Any pass ID the checkpoint knows is accepted on these terms, also one from before a restart. Such a pass is `awaiting_answer` or ended, so it gets the 409, not a 404.
+  - The check and the add happen in one lock section. The context's `cancelled` hook reads the set of cancelled IDs, and `read()` reports `cancel_requested` while the run computes and its ID is in that set.
+  - When a step ends (`_run`), `Runs` looks at the snapshot before it frees the slot. If the step ended paused at the unscreened question while the ID is in the set, the cancel was accepted after the graph's last check. `Runs` then resumes the run at once with `Command(resume="cancel")`, still holding the slot, so the pass ends `cancelled` and the question never shows.
+  - Only after that does the ID leave the set. It also leaves at the start of every later step (`_compute`), so an earlier request never carries over into a step resumed with „Trotzdem scoren“.
+  - Alternative: clear the flag when the step ends and rely on the graph's checks alone. Rejected, because a cancel that arrives between the last check and the interrupt would answer 202 and then be lost.
 
-- **API.** `POST /pool/passes/{id}/cancel` answers 202 `{pass_id}`, 404 `not found` for an unknown pass (a single score's `score:<id>` included, even while it computes), and 409 `pass not running` for a pass that waits for the unscreened answer or has ended. `GET /pool/passes/{id}` answers `{pass_id, status, started_at, error, progress, cancel_requested, scored, unscreened}`.
+- **API.** `POST /pool/passes/{id}/cancel` answers 202 `{pass_id}`, 404 `not found` for an unknown pass (a single score's `score:<id>` included, even while it computes), and 409 `pass not running` for a known pass that waits for the unscreened answer or has ended, before or after a restart. `GET /pool/passes/{id}` answers `{pass_id, status, started_at, error, progress, cancel_requested, scored, unscreened}`.
   - `progress` is the last reported progress, or `null` when this process holds none: before the first report, or after a restart.
   - `scored` counts the results with status `scored`. When a cancelled pass has ended, that is the number it stored.
   - `total` and `done` go away. The web UI is the only client.

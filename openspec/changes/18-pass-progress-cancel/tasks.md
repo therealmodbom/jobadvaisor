@@ -8,17 +8,18 @@
 
 - [ ] 1.1 `TriageContext` gets the hooks `progress` and `cancelled` with defaults that report nothing and never cancel. Verify that `test_triage_graph.py`, `test_runs_score.py` and `test_eval_graph_vs_agent.py` pass unchanged.
 - [ ] 1.2 `load`, `exclude`, `extract`, `score` and `store_scores` report the phase. `extract` and `score` report both counts after every posting, as `design.md` → The progress shape defines them. Verify with a test in `test_triage_graph.py` that records every report over a batch with one excluded, one held and one failed extraction, and checks the counts after each posting (spec: Pass progress per posting, Progress counts only postings a model sees).
-- [ ] 1.3 `TriageState` gains `cancelled: bool`. `exclude`, `extract` and `score` ask `cancelled()` before every posting, `exclude` once more after its loop, and a cancelled node stops with `cancelled: True` and routes as `design.md` → Cancel describes. `store_scores` records the pass with `cancelled` and never asks the flag. Verify with graph tests where a recording fake sets the flag on the n-th call:
+- [ ] 1.3 `TriageState` gains `cancelled: bool`. `exclude`, `extract` and `score` ask `cancelled()` before every posting, a cancelled node stops with `cancelled: True` and routes as `design.md` → Cancel describes, and `confirm_unscreened` turns the answer `"cancel"` into `cancelled: True` and `END`. `store_scores` records the pass with `cancelled` and never asks the flag. Verify with graph tests where a recording fake sets the flag on the n-th call:
   - a cancel in scoring stores the scores so far and records a cancelled pass;
   - a cancel in reading features or checking stores nothing and records nothing;
   - a cancel during checking over an unscreened posting ends as cancelled without the question;
   - a cancel during the last scored posting, or while storing, ends as a complete pass.
 - [ ] 1.4 `PoolPass.cancelled: Literal[True] | None`, and `counter` skips cancelled passes for the window. Regenerate `schemas/pool.schema.json`. Verify with `test_pool.py` (spec: Counter window, „Cancelled pass over all postings keeps the window“), a check that a pass that was not cancelled writes no `cancelled` key, and `test_schemas.py`.
-- [ ] 1.5 `Runs`: `cancel(run_id)` for pass IDs only, check and add in one lock section, both hooks wrapped into the context for `start` and `answer_unscreened`, the ID cleared at step start and end, progress kept under the lock, `cancel_requested` and status `cancelled` in `read()`. Verify in the new `test_runs_pass.py` with a fake model that blocks on a `threading.Event`:
+- [ ] 1.5 `Runs`: `cancel(run_id)` for every known pass ID and never for `score:<id>`, with check and add in one lock section. Both hooks are wrapped into the context for `start` and `answer_unscreened`. A step that ends paused at the question with a cancel pending is resumed with `"cancel"` before the slot is freed. The ID is cleared after that and at every step start. Progress is kept under the lock, and `read()` reports `cancel_requested` and the status `cancelled`. Verify in the new `test_runs_pass.py` with a fake model that blocks on a `threading.Event`:
   - progress readable mid-pass;
   - cancel → `cancel_requested` → `cancelled`;
+  - a cancel accepted after `exclude`'s last check, with a hook that blocks until the cancel is in, ends `cancelled` without `awaiting_answer`;
   - `KeyError` for an unknown run and for `score:<id>` while a single score blocks;
-  - `RunStateError` while awaiting the answer and after the end;
+  - `RunStateError` while awaiting the answer and after the end, also in a fresh `Runs` over the same saver;
   - a pass resumed with „Trotzdem scoren“ is not cancelled by an earlier request;
   - `progress` is `null` in a fresh `Runs` over the same saver.
 - [ ] 1.6 `read_pass` returns the new shape, and `POST /pool/passes/{id}/cancel` answers 202, 404 or 409. Verify with `test_api.py` through `ApiHarness`, including `score:<id>` → 404 while that score blocks, and `scored` after a cancelled pass.
