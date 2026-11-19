@@ -797,6 +797,35 @@ test('a pass that stops at the unscreened question takes focus from the cancel b
   expect(heading).toHaveFocus()
 })
 
+test('answering "Trotzdem scoren" with focus on it moves focus to the cancel button, not to body', async () => {
+  await openQuestion()
+  act(() => screen.getByRole('button', { name: 'Trotzdem scoren' }).focus())
+  await act(async () => screen.getByRole('button', { name: 'Trotzdem scoren' }).click())
+  expect(screen.queryByRole('button', { name: 'Trotzdem scoren' })).toBeNull()
+  expect(cancelButton()).toHaveFocus()
+})
+
+test('answering with "Abbrechen" moves focus to the cancel button and, once the aborted pass has ended, to the pass button', async () => {
+  let aborted = false
+  await openQuestion({
+    'GET /pool/passes/ps1': () => ({ body: aborted ? pass({ status: 'aborted' }) : QUESTION }),
+    'POST /pool/passes/ps1/unscreened': () => {
+      aborted = true
+      return { status: 202, body: { pass_id: 'ps1' } }
+    } })
+  act(() => screen.getByRole('button', { name: 'Abbrechen' }).focus())
+  await act(async () => screen.getByRole('button', { name: 'Abbrechen' }).click())
+  expect(cancelButton()).toHaveFocus()
+  await tick()
+  expect(screen.getByRole('button', { name: /Anzeigen ohne Score scoren/ })).toHaveFocus()
+})
+
+test('an answer given with focus elsewhere moves no focus', async () => {
+  await openQuestion()
+  await act(async () => screen.getByRole('button', { name: 'Trotzdem scoren' }).click())
+  expect(cancelButton()).not.toHaveFocus()
+})
+
 test('when the polls fail the focus moves from the cancel button to the pass button, which stays on the page', async () => {
   let down = false
   await openRunning(() => running('scoring', [5, 12]), {

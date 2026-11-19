@@ -217,7 +217,8 @@ function costLine(variant: PassVariant, n: number) {
  * pass sets its count to 0 and a further Enter lands on a button, not on the pool's row shortcuts.
  * When focus was inside the button area before a swap, it moves with the swap: to the cancel button
  * when a pass starts, back to the main part when it ends, or to the unscreened question's heading
- * when the pass stopped at that question (never to a button that starts paid work). */
+ * when the pass stopped at that question (never to a button that starts paid work). Focus inside
+ * that question counts as inside the area, so answering it carries focus on the same way. */
 function PassButton({ nextPass, shown, busy, working, stopping, storing, onPick, onStart, onCancel }: {
   nextPass: NextPass
   shown: PassVariant
@@ -327,11 +328,14 @@ function PassButton({ nextPass, shown, busy, working, stopping, storing, onPick,
   )
 }
 
-/** The question over postings the content guard never checked: names them, then go on or abort. */
+/** The question over postings the content guard never checked: names them, then go on or abort.
+ * It is part of the pass button's focus area (`data-pass-area`): an answer unmounts the pressed
+ * button, and `PassButton` then moves focus to the cancel button (the pass goes on) or, once the
+ * aborted pass has ended, to its main part. */
 function UnscreenedQuestion({ pass, onAnswer }: { pass: PassState; onAnswer: (proceed: boolean) => void }) {
   const count = pass.unscreened.length
   return (
-    <section aria-labelledby="unscreened-title"
+    <section aria-labelledby="unscreened-title" data-pass-area
              className="flex max-w-[760px] flex-col gap-4 rounded-xl border bg-card p-6 shadow-card">
       <div className="flex items-start gap-3">
         <ShieldAlert className="mt-0.5 size-6 flex-none text-negative" aria-hidden="true" />

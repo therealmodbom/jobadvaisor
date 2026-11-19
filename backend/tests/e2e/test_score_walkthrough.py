@@ -4,11 +4,13 @@ desktop and phone width, and the pass button's variant menu (choosing starts not
 part rescores everything, a reload drops the choice, the split button fits a phone), and a pass
 whose progress beside the pass button shows its counts until a cancel keeps the scores so far, and
 the row of the pass button that keeps its layout in every running state, and the focus that stays in
-the pass button area through a keyboard start, a double click and the end of a pass.
+the pass button area through a keyboard start, a double click and the end of a pass, and
+follows an answer to the unscreened question (stubbed pass endpoints).
 Real app (`create_app` served by uvicorn) over a temporary data repository, the built frontend in
 Chromium, fake models. The tests share one server and run in order, each building on the data of
 the one before; run them as a set: `pytest -m e2e` after `npm --prefix frontend run build`."""
 
+import re
 import threading
 import time
 
@@ -457,3 +459,45 @@ def test_focus_stays_in_the_pass_button_area_through_a_start_and_an_end(
     finally:  # a failed assertion must not leave the pass thread waiting
         permits.release(4)
         page.remove_listener("request", note_pass_request)
+
+
+def test_focus_follows_an_answer_to_the_unscreened_question(page, app_url):
+    """The pass endpoints are stubbed (the real app only asks the question with screening on): a
+    pass waits at the question. Answering "Trotzdem scoren" with the keyboard moves focus from the
+    unmounted button to the cancel button; once the pass waits again, answering "Abbrechen" does
+    the same, and when the aborted pass has ended focus is on the pass button, never on `body`."""
+    question = {**running_pass("checking"), "pass_id": "ps-q", "status": "awaiting_answer",
+                "progress": None, "unscreened": [
+                    {"posting_id": "u1", "title": "Ungeprüfte Stelle", "company": "Nordblatt"}]}
+    current = {"body": question}
+
+    def answer(route):
+        """Accept the answer; the pass then runs on or ends aborted, as the test set it."""
+        current["body"] = current["next"]
+        route.fulfill(status=202, json={"pass_id": "ps-q"})
+
+    page.route("**/pool/passes/ps-q", lambda route: route.fulfill(json=current["body"]))
+    page.route("**/pool/passes/ps-q/unscreened", answer)
+    cancel = page.get_by_role("button", name="Scoren abbrechen")
+    try:
+        page.goto(f"{app_url}/#/pool")
+        page.evaluate("sessionStorage.setItem('jobadvaisor.pool-pass', 'ps-q')")
+        page.reload()
+        current["next"] = running_pass("scoring", (1, 3))
+        current["next"]["pass_id"] = "ps-q"
+        page.get_by_role("button", name="Trotzdem scoren").focus()
+        page.keyboard.press("Enter")
+        expect(cancel).to_be_focused()
+        current["body"] = question  # the poll finds the pass waiting again
+        expect(page.get_by_role("button", name="Abbrechen", exact=True)).to_be_visible(
+            timeout=15_000)
+        current["next"] = {**question, "status": "aborted", "unscreened": []}
+        page.get_by_role("button", name="Abbrechen", exact=True).focus()
+        page.keyboard.press("Enter")
+        expect(page.get_by_role("button", name=re.compile("^Anzeigen ohne Score scoren"))
+               ).to_be_focused(timeout=15_000)
+        assert page.evaluate("document.activeElement.textContent").startswith("Anzeigen ohne Score")
+    finally:  # later tests share the page: no stored pass
+        page.unroute("**/pool/passes/ps-q")
+        page.unroute("**/pool/passes/ps-q/unscreened")
+        page.evaluate("sessionStorage.removeItem('jobadvaisor.pool-pass')")

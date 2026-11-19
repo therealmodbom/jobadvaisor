@@ -165,6 +165,10 @@ An inert main part of the pass button SHALL keep keyboard focus, so that a key p
 - **WHEN** the user starts a pass with the keyboard on the main part, and the pass ends with nothing left to score
 - **THEN** focus moves to the cancel button, and back to the main part when the pass ends, and a further Enter starts no pass and moves no row selection
 
+#### Scenario: Focus follows an answer to the question
+- **WHEN** the user answers the unscreened question with focus on its button
+- **THEN** focus moves to the cancel button when the pass goes on, and to the pass button when the aborted pass has ended
+
 ### Requirement: No cancel while storing
 While a pass stores its scores, the pool view SHALL NOT let the user cancel it, since storing always finishes, and SHALL say so beside the button.
 
