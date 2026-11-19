@@ -3,7 +3,11 @@
 ## ADDED Requirements
 
 ### Requirement: Pass progress line
-While a pass computes, the pool view SHALL name its phase and, except while it checks, show the count of reading features and the count of scoring, each as done out of total. The counts SHALL move after every posting.
+While a pass computes, the pool view SHALL name its phase and, except while it checks, show the count of reading features and the count of scoring, each as done out of total. The counts SHALL move after every posting. The progress line SHALL show all four phases in every phase and keep its size from one phase to the next.
+
+#### Scenario: Same size in every phase
+- **WHEN** a pass moves from checking to reading features, to scoring and to storing, and the user asks to cancel on the way
+- **THEN** the progress line keeps its size, and only its texts and bars change
 
 #### Scenario: Reading features
 - **WHEN** a pass has read the features of 12 of 80 postings

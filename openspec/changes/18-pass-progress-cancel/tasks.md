@@ -2,7 +2,7 @@
 
 ## 0. Look
 
-- [ ] 0.1 The owner picks variant A or B in the Design artifact linked in `design.md` → Context, and the choice and its texts are recorded there. Verified when `design.md` names the chosen variant.
+- [x] 0.1 The owner picks variant A or B in the Design artifact linked in `design.md` → Context, and the choice and its texts are recorded there. Verified when `design.md` names the chosen variant.
 
 ## 1. Backend: the pass reports and stops
 
@@ -33,6 +33,6 @@
 ## 3. End to end and docs
 
 - [ ] 3.1 The e2e walkthrough in `test_score_walkthrough.py` starts a pass, sees the counts move, cancels it, and sees the notice and the new scores in the ranking. Its scripted callable waits on a `threading.Event` the test releases, so the steps do not race the 1 s poll. Verify with `env -C backend uv run pytest -m e2e -q` after `npm --prefix frontend run build`.
-- [ ] 3.2 Click test in Chromium on the built app with a demo copy and the e2e harness's scripted models: start, watch, cancel. Verify by screenshots attached to the PR description.
+- [ ] 3.2 Click test in Chromium on the built app with a demo copy and the e2e harness's scripted models: start, watch, cancel. Verify by screenshots attached to the PR description, and by the band's measured height, which is the same in checking, reading features, scoring, after a cancel request and while storing (spec: Pass progress line, „Same size in every phase“).
 - [ ] 3.3 Update the README pool paragraph and the AGENTS.md "Current state" section. Retake `docs/images/pool.png` with `scripts/readme_images.py` only if the screenshot shows the change. Verify that the README describes cancel and phases, and that `git status` shows the images only if they changed.
 - [ ] 3.4 Run every check: `env -C backend uv run pytest -q`, `env -C backend uv run ruff check .`, `npm --prefix frontend test`, `npm --prefix frontend run lint` and `npm --prefix frontend run build`. Verified when all of them pass.

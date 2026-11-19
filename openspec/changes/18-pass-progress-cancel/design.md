@@ -12,7 +12,7 @@ The look of the progress line and the cancel button is drawn in the Design artif
 - **A:** the phases as four steps with a bar for the current one, and the cancel button inside the progress band.
 - **B:** one line with both counts, and the cancel button in place of the pass button while the pass runs.
 
-Task 0.1 records the owner's choice here.
+The owner chose A on 2026-11-19 (task 0.1), with one condition: the band keeps its size in every phase. The boards of A were redrawn to that rule (see Decisions → The view).
 
 ## Goals / Non-Goals
 
@@ -60,7 +60,8 @@ Task 0.1 records the owner's choice here.
 - **The view.**
   - `usePass` treats `cancelled` like `done`: it clears the stored pass, reloads the pool through `onDone`, and shows „Das Scoren wurde abgebrochen. N Anzeigen haben einen neuen Score.“ (with „1 Anzeige hat“ and „Keine Anzeige hat“). The text sits in the status region where „Das Scoren wurde abgebrochen.“ sits today, not in the `role="alert"` error box, and it clears when the next pass starts.
   - The cancel button shows while the pass computes (`working`), not while it asks the unscreened question and not in the phase `storing`. A press sends `POST …/cancel`. On the 202 the hook sets `cancel_requested: true` on its local state, as `answer` sets `status: 'running'`, so the button is disabled at once and not only after the next poll. While `cancel_requested` is set, the button stays disabled and the line says the pass stops after the current posting.
-  - The progress line renders the phase and both counts. While checking, and while `progress` is `null`, it shows „Scoren läuft“ with the phase name only, without counts.
+  - The progress band follows variant A. A head line holds the loader, „Scoren läuft: <phase>[, x von y]“ and a slot of fixed width for the cancel button. Below it sit always four steps („Anzeigen prüfen“, „Merkmale lesen · x von y“, „Scoren · x von y“, „Speichern“), each with a second line of fixed height for „fertig“, „läuft…“, „noch offen“, „am Ende“, „N fehlgeschlagen“ or a `<progress>` bar. Under the steps comes one hint line, whose text changes with the state: the default hint, „wird nach der aktuellen Anzeige beendet…“ after a cancel request, or the storing text. While storing, the button's slot stays empty but keeps its width.
+  - So the band keeps its size from phase to phase. Only texts, ticks and bars change. While checking, and while `progress` is `null`, the steps show no counts.
   - The cancel request passes `send` an empty conflict text. A 409 means the pass ended or paused in between, and the next poll shows that. Any other failure shows „Das Scoren konnte nicht abgebrochen werden. Versuch es noch einmal.“
   - The new button needs no entry in the pool view's keyboard-shortcut exclusion. That list holds text fields and menus, and Enter on any button already keeps its own meaning. A view test pins that Enter on the focused cancel button cancels and does not jump to the next row.
   - The live region keeps text that does not change per poll. It announces the cancel request and the result once, not every count.
