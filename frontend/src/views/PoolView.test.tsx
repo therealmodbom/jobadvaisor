@@ -490,10 +490,11 @@ const stepLines = () => steps().map((item) => item.lastElementChild!.textContent
 /** What must not change from phase to phase: the band's structure and the classes of its fixed boxes. */
 const shape = () => JSON.stringify({
   children: Array.from(band().children).map((child) => child.tagName),
-  items: steps().map((item) => [item.children.length, item.lastElementChild!.className]),
+  items: steps().map((item) => [item.children.length, item.firstElementChild!.className.split(' ').filter((name) => /^(h-|whitespace-)/.test(name)),
+    item.lastElementChild!.className]),
   slot: band().querySelector('[data-slot="cancel"]')?.className,
-  // The hint's color and weight change with the state; its reserved height must not.
-  hint: band().querySelector('#cancel-why')?.className.split(' ').filter((name) => name.includes('min-h')),
+  // The hint's color and weight change with the state; its fixed height must not.
+  hint: band().querySelector('#cancel-why')?.className.split(' ').filter((name) => /(^|:)h-/.test(name)),
 })
 
 test('reading features shows the phase and both counts, in the head and in the steps', async () => {
@@ -564,7 +565,7 @@ test('a running pass offers a cancel button, and a press cancels at once without
   await act(async () => cancel.click())
   expect(cancelCalls(calls)).toHaveLength(1)
   expect(screen.queryByRole('dialog')).toBeNull()
-  expect(cancel).toBeDisabled()
+  expect(cancel).toHaveAttribute('aria-disabled', 'true')
   expect(cancel).toHaveAccessibleDescription(STOPPING)
   expect(screen.getByText('Das Scoren wird nach der aktuellen Anzeige beendet.').closest('[role="status"]')).not.toBeNull()
 })
@@ -573,13 +574,13 @@ test('the cancel request holds when a poll that started before it answers withou
   await openRunning(running('scoring', [80, 80], [30, 79]), CANCEL_ROUTE)
   await act(async () => screen.getByRole('button', { name: 'Scoren abbrechen' }).click())
   await tick()
-  expect(screen.getByRole('button', { name: 'Scoren abbrechen' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Scoren abbrechen' })).toHaveAttribute('aria-disabled', 'true')
   expect(screen.getByText(STOPPING)).toBeVisible()
 })
 
 test('a pass the server reports as cancel_requested shows the same state after a reload', async () => {
   await openRunning(running('scoring', [80, 80], [30, 79], { cancel_requested: true }))
-  expect(screen.getByRole('button', { name: 'Scoren abbrechen' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Scoren abbrechen' })).toHaveAttribute('aria-disabled', 'true')
   expect(screen.getByText(STOPPING)).toBeVisible()
 })
 
@@ -619,6 +620,20 @@ test('Enter on the focused cancel button cancels and does not move the row selec
   act(() => screen.getByRole('button', { name: 'Scoren abbrechen' }).focus())
   await userEvent.keyboard('{Enter}')
   await vi.waitFor(() => expect(cancelCalls(calls)).toHaveLength(1))
+  expect(document.getElementById('row-p3')).not.toHaveFocus()
+})
+
+test('the cancel button keeps keyboard focus after the press, and a second Enter neither cancels again nor moves the row', async () => {
+  const { calls } = await openRunning(running('scoring', [80, 80], [30, 79]), CANCEL_ROUTE)
+  await titles()
+  const cancel = screen.getByRole('button', { name: 'Scoren abbrechen' })
+  act(() => cancel.focus())
+  await userEvent.keyboard('{Enter}')
+  await vi.waitFor(() => expect(cancel).toHaveAttribute('aria-disabled', 'true'))
+  expect(cancel).toHaveFocus()
+  await userEvent.keyboard('{Enter}')
+  expect(cancelCalls(calls)).toHaveLength(1)
+  expect(cancel).toHaveFocus()
   expect(document.getElementById('row-p3')).not.toHaveFocus()
 })
 

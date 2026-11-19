@@ -150,9 +150,12 @@ function bandHead(progress: PassProgress | null) {
 /** The band of a running pass (design variant A): a head line with the loader, the phase and a
  * fixed-size slot, four steps with a second line of fixed height each, and one hint line. It has
  * the same structure in every phase: only texts, ticks and bars change, so the page below does
- * not move. `progress` null (no report yet) reads like checking, without counts. `stopping`: a
- * cancel was requested. The cancel button fills the slot with `onCancel`, except while storing,
- * which always finishes: then the slot stays, empty, and the hint says so. */
+ * not move. Every line has a fixed height sized for its longest text (the step labels never wrap,
+ * the grid drops to fewer columns on narrow widths), so the band keeps one height per width.
+ * `progress` null (no report yet) reads like checking, without counts. `stopping`: a cancel was
+ * requested. The cancel button fills the slot with `onCancel`, except while storing, which always
+ * finishes: then the slot stays, empty, and the hint says so. Once `stopping` the button is only
+ * `aria-disabled`, so it keeps keyboard focus and a further Enter does nothing. */
 function PassBand({ progress, stopping, onCancel }: {
   progress: PassProgress | null
   stopping: boolean
@@ -177,26 +180,27 @@ function PassBand({ progress, stopping, onCancel }: {
     <section aria-label="Stand des Scorens"
              className="flex flex-col gap-3 rounded-xl bg-positive-soft px-4 py-3.5 sm:px-5">
       <div className="max-sm:contents sm:flex sm:items-center sm:justify-between sm:gap-3">
-        <div className="flex items-start gap-3 sm:items-center">
+        <div className="flex h-12 min-w-0 items-start gap-3 sm:items-center">
           <LoaderCircle className="mt-0.5 size-5 flex-none motion-safe:animate-spin sm:mt-0" aria-hidden="true" />
           <strong>{bandHead(progress)}</strong>
         </div>
         {/* The slot keeps the button's size while storing, so the band does not shrink. */}
         <div data-slot="cancel" className="h-11 flex-none max-sm:order-last max-sm:w-full sm:w-[220px]">
           {!storing && (
-            <Button variant="outline" className="w-full" disabled={stopping} aria-describedby="cancel-why" onClick={onCancel}>
+            <Button variant="outline" className="w-full aria-disabled:opacity-50 aria-disabled:hover:bg-card" aria-disabled={stopping}
+                    aria-describedby="cancel-why" onClick={() => { if (!stopping) onCancel() }}>
               <Square aria-hidden="true" />Scoren abbrechen
             </Button>
           )}
         </div>
       </div>
-      <ol className="grid gap-2.5 sm:grid-cols-4 sm:gap-4">
+      <ol className="grid gap-2.5 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
         {steps.map((step, index) => {
           const state = index < at ? 'done' : index === at ? 'current' : 'idle'
           const label = step.count ? `${step.name} · ${countText(step.count)}` : step.name
           return (
             <li key={step.name} aria-current={state === 'current' ? 'step' : undefined} className="flex flex-col gap-0.5 sm:gap-1">
-              <span className={cn('flex items-center gap-1.5 text-[15px] leading-[22px]',
+              <span className={cn('flex h-[22px] items-center gap-1.5 text-[15px] leading-[22px] whitespace-nowrap',
                 state === 'done' && 'text-success', state === 'current' && 'font-bold',
                 state === 'idle' && !step.count && 'text-muted-foreground')}>
                 {state === 'done' && <Check className="size-4 flex-none" aria-hidden="true" />}
@@ -213,7 +217,7 @@ function PassBand({ progress, stopping, onCancel }: {
           )
         })}
       </ol>
-      <p id="cancel-why" className={cn('min-h-10 text-sm leading-5 text-muted-foreground sm:min-h-5', stopping && !storing && 'font-bold text-foreground')}>
+      <p id="cancel-why" className={cn('h-[60px] text-sm leading-5 text-muted-foreground sm:h-10 md:h-5', stopping && !storing && 'font-bold text-foreground')}>
         {hint}
       </p>
     </section>
