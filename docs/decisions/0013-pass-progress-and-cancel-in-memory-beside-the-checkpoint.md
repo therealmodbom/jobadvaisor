@@ -6,7 +6,7 @@ Accepted, 2026-11-19.
 
 ## Context
 
-A scoring pass is a LangGraph graph run in a background thread and checkpointed in SQLite. Its nodes `extract` and `score` each loop over the whole batch, and the state reaches the checkpoint only when a node ends. A poll therefore cannot see a single posting finish, and nothing can stop the loop. #18 (Cancel button and per-posting progress for a running scoring pass) asks for both: progress after every posting, and a cooperative cancel checked between postings.
+A scoring pass is a LangGraph graph run in a background thread and checkpointed in SQLite. Its nodes `exclude` and `score` each loop over the whole batch, and the state reaches the checkpoint only when a node ends. A poll therefore cannot see a single posting finish, and nothing can stop the loop. #18 (Cancel button and per-posting progress for a running scoring pass) asks for both: progress after every posting, and a cooperative cancel checked between postings.
 
 ## Decision
 
@@ -14,7 +14,7 @@ The pass keeps its nodes and their loops. It reports through two hooks it gets w
 
 ## Alternatives considered
 
-- **One checkpointed graph step per posting** (a node that handles one posting and loops back to itself). Progress would then be the checkpoint itself and would survive a restart, which would open the way to resuming a pass without redoing paid calls. It was rejected for two reasons. First, the SQLite saver stores the whole state in every checkpoint, and `results` holds the features of every posting, so a pass over N postings writes on the order of N² posting results: hundreds of megabytes for a full pass over a few hundred postings. Second, resuming is not wanted now, and a restart already ends a running pass as `failed`. Fanning the postings out with `Send` instead of a loop would run them concurrently, which belongs to the bounded concurrency of #81 (Scoring pass: phases and progress, and bounded concurrency after measuring), not to this decision.
+- **One checkpointed graph step per posting** (a node that handles one posting and loops back to itself). Progress would then be the checkpoint itself and would survive a restart, which would open the way to resuming a pass without redoing paid calls. It was rejected for two reasons. First, the SQLite saver stores the whole state in every checkpoint, and `results` holds every posting's result with the judge's reasoning, so a pass over N postings writes on the order of N² posting results: tens of megabytes for a full pass over a few hundred postings, growing with the square of the pool. Second, resuming is not wanted now, and a restart already ends a running pass as `failed`. Fanning the postings out with `Send` instead of a loop would run them concurrently, which belongs to the bounded concurrency of #81 (Scoring pass: phases and progress, and bounded concurrency after measuring), not to this decision.
 - **LangGraph custom stream events**, consumed by the run manager while the UI keeps polling. They would carry the progress, but not the cancel: a running node can only learn of a cancel through something it is handed, so the cancel needs a context hook anyway. Progress takes the same path, which keeps one mechanism instead of two.
 
 ## Consequences

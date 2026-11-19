@@ -2,38 +2,53 @@
 
 ## ADDED Requirements
 
-### Requirement: Pass progress line
-While a pass computes, the pool view SHALL name its phase and, except while it checks, show the count of reading features and the count of scoring, each as done out of total. The counts SHALL move after every posting. The progress line SHALL show all four phases in every phase and keep its size from one phase to the next.
+### Requirement: Pass progress beside the pass button
+While a pass computes, the pool view SHALL show its progress in the row of the pass button, between the button and the correction counter. The progress SHALL name the phase, show a bar and, while the pass scores, the count as done out of total, moving after every posting. It SHALL keep its size from one phase to the next.
 
 #### Scenario: Same size in every phase
-- **WHEN** a pass moves from checking to reading features, to scoring and to storing, and the user asks to cancel on the way
-- **THEN** the progress line keeps its size, and only its texts and bars change
+- **WHEN** a pass moves from checking to scoring and to storing, and the user asks to cancel on the way
+- **THEN** the progress keeps its size, and only its texts and its bar change
 
-#### Scenario: Reading features
-- **WHEN** a pass has read the features of 12 of 80 postings
-- **THEN** the view shows that features are being read, with 12 of 80, and scoring with 0 of 80
+#### Scenario: Scoring
+- **WHEN** a pass has scored 12 of 80 postings
+- **THEN** the view shows 12 of 80 with a bar filled to that share
 
 #### Scenario: Checking
 - **WHEN** a pass is still checking which postings it takes
-- **THEN** the view says the pass is checking, without counts
+- **THEN** the view says the pass is checking, without a count
 
 ### Requirement: Cancel button of a pass
-While a pass computes, the pool view SHALL offer a button that cancels it, at once and without a confirm step. After the press, the view SHALL say the pass stops after the current posting, until it has stopped. A pass that waits for the answer about unscreened postings SHALL offer no cancel button, since the question offers its own abort.
+While a pass computes, the pass button SHALL give way to a button of the same width that cancels the pass, at once and without a confirm step. After the press, the view SHALL say the pass stops after the current posting, until it has stopped. A pass that waits for the answer about unscreened postings SHALL offer no cancel button, since the question offers its own abort.
 
 #### Scenario: Cancel a pass
 - **WHEN** the user presses the cancel button of a running pass
 - **THEN** the view says the pass stops after the current posting, and no dialog asks to confirm
 
+#### Scenario: Nothing moves sideways
+- **WHEN** a pass starts or ends
+- **THEN** the button keeps its width, and the progress and the correction counter keep their place in the row
+
 #### Scenario: Pass waits for an answer
 - **WHEN** a pass asks about unscreened postings
 - **THEN** the view shows the question with its abort, and no cancel button
 
+### Requirement: No double press on the pass button
+For about one second after the pass button turns into the cancel button, and after the cancel button turns back, the button that appeared SHALL ignore presses.
+
+#### Scenario: Double press on start
+- **WHEN** the user presses the pass button twice in quick succession
+- **THEN** the pass starts and is not cancelled
+
+#### Scenario: Cancel as the pass ends
+- **WHEN** the user presses the cancel button just as the pass ends
+- **THEN** no new pass starts
+
 ### Requirement: No cancel while storing
-While a pass stores its scores, the pool view SHALL NOT offer to cancel it, since storing always finishes.
+While a pass stores its scores, the pool view SHALL NOT let the user cancel it, since storing always finishes, and SHALL say so beside the button.
 
 #### Scenario: Pass stores
 - **WHEN** a pass reaches the storing phase
-- **THEN** the view says the scores are being stored, and offers no cancel
+- **THEN** the view says the scores are being stored and that this cannot be cancelled, and a press on the button does nothing
 
 ### Requirement: Result of a cancelled pass
 When a cancelled pass has stopped, the pool view SHALL say that the pass was cancelled and how many postings it scored, and the ranking SHALL show the scores it stored.
@@ -43,7 +58,7 @@ When a cancelled pass has stopped, the pool view SHALL say that the pass was can
 - **THEN** the view says it was cancelled with 30 postings scored, and those 30 show their new scores in the ranking
 
 #### Scenario: Cancelled before any score
-- **WHEN** a pass is cancelled while it checks or reads features
+- **WHEN** a pass is cancelled while it checks
 - **THEN** the view says it was cancelled with no posting scored, and the ranking is unchanged
 
 ## MODIFIED Requirements
@@ -57,7 +72,7 @@ The UI SHALL show the pool ranked by fit, with the text filter and the state fil
 
 #### Scenario: Start a pass
 - **WHEN** the user presses the main part of the pass button
-- **THEN** the view shows the pass's progress line and its cancel button, and the new scores appear in the ranking when the pass ends
+- **THEN** the pass button turns into its cancel button, the pass's progress shows beside it, and the new scores appear in the ranking when the pass ends
 
 #### Scenario: Unscreened postings in a pass
 - **WHEN** a pass pauses because it holds postings the content guard never checked
