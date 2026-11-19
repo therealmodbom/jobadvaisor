@@ -1,5 +1,6 @@
-"""Every caller of the extraction passes the posting company's record, so evals and the benchmark
-measure what production sends."""
+"""The callers of the extraction that evals and the benchmark exercise pass the posting company's
+record, so they measure what production sends. A scoring pass reads no features; the agent's
+extract tool is covered in `test_agent.py`."""
 
 from conftest import AT, POSTING, ScriptedModel, unknown_features, write_json
 from test_eval_decider import FakeDecider
