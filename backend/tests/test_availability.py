@@ -172,6 +172,14 @@ def test_a_stored_link_with_a_tracking_parameter_is_requested_and_decides():
     assert check_posting(posting(tracked), [], http=site.client) == "closed"
 
 
+@pytest.mark.parametrize("stored", ["https://JOBS.Example.org/job/1?utm_source=x",
+                                    "https://jobs.example.org:443/job/1?utm_source=x"])
+def test_a_tracked_link_in_another_spelling_is_still_the_start_link(stored):
+    site = Site({JOB + "?utm_source=x": reply(404)})  # httpx normalises host case and port
+    assert check_posting(posting(stored), [], http=site.client) == "closed"
+    assert site.seen == [JOB + "?utm_source=x"]
+
+
 def test_a_redirect_with_a_personal_parameter_stays_refused_from_a_tracked_link():
     tracked = JOB + "?utm_source=x"
     site = Site({tracked: reply(302, headers={"Location": JOB + "?sid=TOKEN-1"})})

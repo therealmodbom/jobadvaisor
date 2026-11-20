@@ -142,12 +142,21 @@ def download_plain(url: str, http: httpx.Client | None = None, *,
 def _refusal(url: str, start: str | None) -> str | None:
     """Why a hop to `url` must not be sent (`REFUSED_HOST`, `REFUSED_REDIRECT`), or `None`. The
     guarded start link `start` itself is exempt from both rules: the caller chose it (the API
-    checked it, or a check read it from the posting), whatever parameters it carries."""
-    if url == start:
+    checked it, or a check read it from the posting), whatever parameters it carries. It is
+    compared in httpx's normal form, since the request URL has its host lower-cased and a
+    default port dropped while the stored link may not."""
+    if start and _same_link(url, start):
         return None
     if not public_link(url):
         return REFUSED_HOST
     return None if navigation_allowed(url) else REFUSED_REDIRECT
+
+
+def _same_link(a: str, b: str) -> bool:
+    try:
+        return httpx.URL(a) == httpx.URL(b)
+    except httpx.InvalidURL:
+        return a == b
 
 
 def _check_closed_hop(request: httpx.Request) -> None:
