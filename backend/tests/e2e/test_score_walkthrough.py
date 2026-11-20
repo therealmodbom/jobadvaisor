@@ -405,6 +405,56 @@ def test_the_row_of_the_pass_button_keeps_its_layout_in_every_running_state(page
     assert overflowing == [], overflowing  # a fixed box that clips or spills its text is no fix
 
 
+def a_check(status, done):
+    """The body of `GET /availability/checks/<id>` for a check over 104 postings."""
+    return {"check_id": "ck-row", "status": status, "error": None, "total": 104, "done": done,
+            "cancel_requested": False, "counts": {"available": 0, "closed": 0, "unknown": done},
+            "still_closed": 0, "closed": []}
+
+
+def test_both_columns_of_the_pool_head_start_their_status_at_one_height(page, app_url):
+    """Only the pass has a counter line under its button, yet from 640 px both statuses start at
+    one height: the check's progress bar sits level with the pass's, and the check's report starts
+    level with the pass's progress block. Pass and check endpoints are stubbed."""
+    current = {"check": a_check("running", 10)}
+    a_pass = running_pass("scoring", (0, 141))
+    page.route("**/pool/passes/ps-row", lambda route: route.fulfill(json=a_pass))
+    page.route("**/availability/checks/ck-row", lambda route: route.fulfill(json=current["check"]))
+    pass_block = page.get_by_role("region", name="Stand des Scorens")
+    check_block = page.get_by_role("region", name="Stand der Prüfung")
+    heading = page.get_by_role("heading", name=re.compile("^Prüfung abgebrochen"))
+    report = heading.locator("xpath=../..")
+
+    def top(locator):
+        """The y position of `locator`'s box."""
+        return locator.bounding_box()["y"]
+
+    offsets = []
+    try:
+        page.goto(f"{app_url}/#/pool")
+        page.evaluate("sessionStorage.setItem('jobadvaisor.pool-pass', 'ps-row')")
+        page.evaluate("localStorage.setItem('jobadvaisor.pool-check', 'ck-row')")
+        page.reload()
+        expect(check_block.get_by_text("Verfügbarkeit: 10 von 104 geprüft")).to_be_visible(
+            timeout=15_000)
+        for width in ROW_WIDTHS[2:]:
+            page.set_viewport_size({"width": width, "height": 900})
+            offsets.append((width, "bar", top(check_block.locator("progress"))
+                            - top(pass_block.locator("progress"))))
+        current["check"] = a_check("cancelled", 19)
+        expect(report).to_be_visible(timeout=15_000)
+        for width in ROW_WIDTHS[2:]:
+            page.set_viewport_size({"width": width, "height": 900})
+            offsets.append((width, "report", top(report) - top(pass_block)))
+    finally:  # later tests share the page: desktop width, no stored pass or check
+        page.unroute("**/pool/passes/ps-row")
+        page.unroute("**/availability/checks/ck-row")
+        page.evaluate("sessionStorage.removeItem('jobadvaisor.pool-pass')")
+        page.evaluate("localStorage.removeItem('jobadvaisor.pool-check')")
+        page.set_viewport_size({"width": 1280, "height": 720})
+    assert all(abs(offset) < 1 for _, _, offset in offsets), offsets
+
+
 def test_focus_stays_in_the_pass_button_area_through_a_start_and_an_end(
         page, app_url, data_root, harness):
     """Real Chromium blurs a focused element that turns `inert` or `disabled`, which jsdom does not,

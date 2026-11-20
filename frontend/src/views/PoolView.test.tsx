@@ -573,7 +573,7 @@ test('the progress block keeps its structure and its fixed boxes in every phase,
 
 test('the progress block fills the pass column and sets no width of its own', async () => {
   await openRunning(running('scoring', [30, 79]))
-  expect(block().parentElement).toBe(passColumn())
+  expect(block().parentElement!.parentElement).toBe(passColumn())
   expect(block()).toHaveClass('w-full', 'min-w-0')
   expect(block().className).not.toMatch(/sm:flex-/)
 })

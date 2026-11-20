@@ -145,6 +145,10 @@ const HINT_DEFAULT_PHONE = 'Abbrechen hält nach der aktuellen Anzeige an. Gesco
 const HINT_STOPPING = 'Wird nach der aktuellen Anzeige beendet.'
 const HINT_STORING = 'Das Speichern lässt sich nicht mehr abbrechen.'
 
+/** A column of the pool head: its button part and its status part, stacked below `sm`, from `sm`
+ * placed on the head grid's two shared rows (a subgrid), so the statuses of both columns align. */
+const COLUMN = 'flex min-w-0 flex-col gap-3 sm:row-span-2 sm:grid sm:grid-rows-subgrid'
+
 /** The progress of a running pass, below the pass button in the pass column: a head line with the
  * loader, a bar and a hint line, each of fixed height (the head has room for two lines below `lg`,
  * one from it; the hint two lines, three from `sm` to `lg`), so the block keeps one size in every
@@ -699,31 +703,37 @@ export function PoolView({ active = true, reloadKey = 0 }: { active?: boolean; r
 
       {pool && (
         // Two columns, each action with its status below it, so neither button moves when the
-        // other action's status changes height; stacked on a phone.
-        <div className="grid grid-cols-1 items-start gap-x-8 gap-y-4 sm:grid-cols-2">
-          <div data-column="pass" className="flex min-w-0 flex-col gap-3">
+        // other action's status changes height; stacked on a phone. From `sm` each column is a
+        // subgrid of two shared rows (button, status), so both statuses start at one height even
+        // though only the pass has a counter line under its button.
+        <div className="grid grid-cols-1 items-start gap-x-8 gap-y-4 sm:grid-cols-2 sm:grid-rows-[auto_auto]">
+          <div data-column="pass" className={COLUMN}>
             <div className="flex flex-col gap-1.5">
               <PassButton nextPass={pool.next_pass} shown={shownVariant} busy={busy} working={working} stopping={stopping}
                           storing={storing} onPick={setPicked} onStart={start} onCancel={cancel} />
               {counter && <CounterLine counter={counter} />}
             </div>
-            {working && <PassProgressBlock progress={pass?.progress ?? null} stopping={stopping} />}
-            {/* The live region holds only text that does not change per poll, so it is read once; the
-                visible counts sit outside it. */}
-            <div role="status" className="flex flex-col gap-3">
-              {working && <span className="sr-only">Das Scoren läuft.</span>}
-              {working && stopping && <span className="sr-only">Das Scoren wird nach der aktuellen Anzeige beendet.</span>}
-              {pass?.status === 'aborted' && <p className="rounded-xl border bg-card px-4 py-3">Das Scoren wurde abgebrochen.</p>}
-              {cancelledScored !== null && <p className="rounded-xl border bg-card px-4 py-3">{cancelledText(cancelledScored)}</p>}
+            <div className="flex min-w-0 flex-col gap-3">
+              {working && <PassProgressBlock progress={pass?.progress ?? null} stopping={stopping} />}
+              {/* The live region holds only text that does not change per poll, so it is read once; the
+                  visible counts sit outside it. */}
+              <div role="status" className="flex flex-col gap-3">
+                {working && <span className="sr-only">Das Scoren läuft.</span>}
+                {working && stopping && <span className="sr-only">Das Scoren wird nach der aktuellen Anzeige beendet.</span>}
+                {pass?.status === 'aborted' && <p className="rounded-xl border bg-card px-4 py-3">Das Scoren wurde abgebrochen.</p>}
+                {cancelledScored !== null && <p className="rounded-xl border bg-card px-4 py-3">{cancelledText(cancelledScored)}</p>}
+              </div>
             </div>
           </div>
           {/* The pool's key shortcuts stay off inside this column (`data-no-shortcuts`). */}
-          <div data-column="check" data-no-shortcuts className="flex min-w-0 flex-col gap-3">
+          <div data-column="check" data-no-shortcuts className={COLUMN}>
             <CheckButton total={pool.next_check.total} working={check.running && !check.pollFailed}
                          stopping={check.stopping} onStart={check.start} onCancel={check.cancel} />
-            <CheckStatus check={check.check} running={check.running} stopping={check.stopping} lost={check.lost}
-                         notice={check.notice} pollFailed={check.pollFailed} onStart={check.start}
-                         onRetryPoll={check.retryPoll} onDismiss={check.dismiss} />
+            <div className="flex min-w-0 flex-col gap-3">
+              <CheckStatus check={check.check} running={check.running} stopping={check.stopping} lost={check.lost}
+                           notice={check.notice} pollFailed={check.pollFailed} onStart={check.start}
+                           onRetryPoll={check.retryPoll} onDismiss={check.dismiss} />
+            </div>
           </div>
         </div>
       )}
