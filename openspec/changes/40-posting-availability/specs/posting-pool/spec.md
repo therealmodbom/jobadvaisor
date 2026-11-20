@@ -54,11 +54,15 @@ A check SHALL find a posting closed when each of its stored links answers HTTP 4
 - **THEN** the check finds the posting available
 
 ### Requirement: Unknown never closes a posting
-A check SHALL find a posting unknown when none of its links shows an available page and not every link answers closed: a rate limit (HTTP 429), a timeout, a refused or failed connection, or any other HTTP error. An unknown result SHALL NOT close a posting, and the next check SHALL try it again.
+A check SHALL find a posting unknown when none of its links shows an available page and not every link answers closed: a rate limit (HTTP 429), a timeout, a refused or failed connection, any other HTTP error, or a link on a login-walled host, which the check does not fetch. An unknown result SHALL NOT close a posting, and the next check SHALL try it again.
 
 #### Scenario: Rate limited
 - **WHEN** a posting's link answers HTTP 429 during a check
 - **THEN** the posting is stored as unknown, the report counts it as unknown, and the pool still lists it
+
+#### Scenario: Login-walled link
+- **WHEN** a posting's only link is on a login-walled host
+- **THEN** the check does not fetch it and finds the posting unknown
 
 ### Requirement: Closed rules from code and policy pack
 The system SHALL ship default closed rules, each naming a host and either a redirect marker or a page text marker, starting with LinkedIn's redirect marker "trk=expired_jd_redirect". The policy pack MAY hold further closed rules. They SHALL add to the defaults, never replace them. A rule's host SHALL match itself and its subdomains.

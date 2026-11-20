@@ -13,7 +13,10 @@ Intake has the same blind spot. A LinkedIn link whose posting expired is stored 
 - What counts as closed: a link answering HTTP 404 or 410, or a match of a closed rule. A closed rule names a host and either a redirect target marker (a text the address of a redirect contains) or a page text marker (a text the page contains). Default rules live in the code, starting with LinkedIn's `trk=expired_jd_redirect`. The policy pack MAY hold more rules, which add to the defaults. A rate limit (HTTP 429), a timeout or any other failure gives `unknown`, which never closes a posting.
 - Closed postings leave the default pool view, the filters „Offen“, „Noch nicht bewertet“ and „Bewertet“, the scoring pass, the exploration picks and the agent's best-fitting postings. A new filter „Geschlossen“ lists them. Their page stays reachable, and they can still be rated. A rating of a closed posting still counts for the correction counter and as a scoring example.
 - The user sets the availability by hand, in both directions, from the posting page. A check never overwrites a hand setting.
-- Intake treats a closed rule like a gone link. A redirect target marker or HTTP 404/410 on the submitted link means the page was replaced: nothing is stored, and the answer, the import report and the alert run say the posting is closed. A page text marker means the posting text is still there: the posting is stored at once with availability `closed`.
+- Intake treats a closed rule like a gone link.
+  - A redirect marker or HTTP 404/410 on the submitted link means the page was replaced, and nothing from it is stored.
+  - A new link is still looked for at another source, as today. When none yields it, the answer and the alert run say the posting is closed. The import skips it as link gone, as today.
+  - A page text marker means the posting text is still there: the posting is stored at once with availability `closed`.
 - The look and position of „Verfügbarkeit prüfen“, its report, the filter „Geschlossen“ and the hand setting are settled in a Design artifact on the JobAdvAIsor design system and linked from `design.md`.
 
 ## Capabilities

@@ -33,23 +33,24 @@
 - [ ] 2.1 Intake (D4):
   - `CLOSED_REDIRECT` joins `GONE_OUTCOMES`;
   - `fetch_posting` stops after it;
-  - `find_posting` drops `search_if_gone`, so a gone link never runs the loop;
+  - the intake loop runs under the same `closed_rules`;
   - `PostingNotFoundError.closed`;
   - `POST /postings` 422 with `closed: true`, `/postings/batch` `outcome: "closed"`, the alert run `state: "closed"`;
   - a `Page.closed` is stored with availability closed.
   
   Verify with `test_intake_fetch.py`, `test_intake_postings.py`, `test_intake_batch.py`, `test_redirect_guard.py`, `test_import.py`, `test_alert_runs.py` and `test_api.py` (spec: Closed page at intake, Closed page text stored as closed, Closed postings are not imported):
-  - a single 404 link runs no loop (the fake loop model is never called);
+  - a single 404 or redirect-marker link still runs the loop, the page behind the redirect is never fetched, and when the loop finds nothing the answer says closed;
   - the import counts a redirect marker as link gone.
 - [ ] 2.2 `availability.py` (D5):
-  - `check_batch`, `check_posting` over every stored URL, the round-robin host order with `HOST_SPACING_SECONDS`;
+  - `check_batch`, `check_posting` over every stored URL (login-walled ones skipped), the round-robin host order with `HOST_SPACING_SECONDS`, and `download_plain(retry=False)`;
   - `AvailabilityChecks` (one at a time, state in memory, counts and the closed list).
   
   Verify with tests using a mock transport and an injected clock and sleep, so they wait for no real time:
   - open, 404, 410, a redirect marker, a text marker, 429 and a timeout each give the right state;
   - two URLs, one available, give available;
   - applied, closed and hand-set postings are not fetched;
-  - two requests to one host are 3 s apart;
+  - a posting whose only URL is login-walled is unknown and not fetched;
+  - two requests to one host are 3 s apart, and a 429 is not retried at once;
   - a second start raises `CheckBusyError` (spec: What a check covers, Closed by a gone link or a closed rule, Unknown never closes a posting, One check at a time).
 - [ ] 2.3 API (D6): `POST /availability/checks` (202, 409 with `check_id`), `GET /availability/checks/{id}` (404 unknown), `GET /pool` `next_check`, and `availability` on pool rows. Verify with `test_api.py` through `ApiHarness`.
 - [ ] 2.4 Pool (D7): `pass_batch`, `next_pass`, `best_open` and the `_explore` input leave closed postings out, and `rank` keeps them. Verify with `test_pool.py`:

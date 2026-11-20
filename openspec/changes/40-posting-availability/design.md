@@ -49,8 +49,12 @@ Rejected: matching the final address after the redirect was followed. It works o
 
 - `GONE_OUTCOMES` gains `CLOSED_REDIRECT`, so `is_gone` and the import's "link gone" count cover it without further change.
 - `fetch_posting` stops after a `CLOSED_REDIRECT` attempt. A 404 still runs the rendered step as before.
-- `find_posting` drops `search_if_gone`: a gone link never runs the intake loop, for every caller: a gone page holds no posting to store, and the posting rarely lives on elsewhere under the same terms. This is the only behaviour change for a 404 on a single link. Before, the loop looked for another source and spent a model call doing it.
-- `PostingNotFoundError` gains `closed: bool` (`is_gone` of its attempts).
+- `find_posting` keeps `search_if_gone`.
+  - A new link (single link, several links, alert mail entry) still runs the intake loop after a gone or closed attempt, so a posting gone at one address can still be found at another.
+  - The import keeps passing `False`, as before.
+  - The loop's own fetch tools run under the same `closed_rules`, so the loop never stores the page behind a closed redirect either.
+  - The availability check never runs the loop: a stored posting that answers closed is closed (D5).
+- `PostingNotFoundError` gains `closed: bool`, which is `is_gone` of the submitted URL's attempts. It is true only after the loop also found nothing.
   - `POST /postings` answers 422 with `"closed": true`.
   - `POST /postings/batch` answers `outcome: "closed"`.
   - The alert run reports `state: "closed"`.
@@ -60,7 +64,8 @@ Rejected: matching the final address after the redirect was followed. It works o
 
 New module `availability.py`:
 
-- `check_posting(posting) -> state`. Each stored URL is tried in order. The first that answers 200 with no text marker gives `available`. If every URL answers 404, 410 or `CLOSED_REDIRECT`, or 200 with a text marker, the posting is `closed`. Anything else (a 429, a timeout, a refused hop, another HTTP error) gives `unknown`.
+- `check_posting(posting) -> state`. Each stored URL is tried in order. The first that answers 200 with no text marker gives `available`. If every URL answers 404, 410 or `CLOSED_REDIRECT`, or 200 with a text marker, the posting is `closed`. Anything else (a 429, a timeout, a refused hop, another HTTP error) gives `unknown`. A URL on a login-walled host (`login_wall_hosts`) is not fetched and decides nothing, since its login page would answer 200 and read as available. A posting with only such URLs is `unknown`.
+- The check fetches with a single attempt. `download_plain` gains `retry: bool = True`, and the check passes `False`. Today's immediate second request after a 429 would hit the rate limit again at once and break the host spacing below.
 - `AvailabilityChecks` follows the alert runs: one check at a time (`CheckBusyError(check_id)`), a `ThreadPoolExecutor` of one, and state in memory. The state is `{check_id, status: running|done|failed, total, done, counts: {available, closed, unknown}, closed: [{posting_id, title, company}], error}`.
 - **Selection** (`check_batch`): application status `open`, `availability` not closed, `set_by` not `user`. It is computed when the check starts.
 - **Order and spacing:** the batch is interleaved by host, round-robin. A request waits until `HOST_SPACING_SECONDS = 3` have passed since the last request to the same host. The spike showed 429s even at 3 s. That is accepted: those postings end as `unknown`, and the next check tries them again. A slower spacing would mostly lengthen every check.

@@ -3,19 +3,19 @@
 ## ADDED Requirements
 
 ### Requirement: Closed page at intake
-Intake of a link SHALL treat its page as closed when the link answers HTTP 404 or 410 or redirects to an address a closed rule's redirect marker matches. It SHALL then store no posting and SHALL NOT look for the posting at another source. The answer SHALL say the posting is closed and list the attempts. This SHALL hold for a single link, several links, an import entry and an alert mail entry alike.
+Intake of a single link, several links or an alert mail entry SHALL treat a link that answers HTTP 404 or 410, or redirects to an address a closed rule's redirect marker matches, as a closed page. It SHALL store nothing from that page and SHALL send no request to a matching redirect target. It SHALL then look for the posting at another source, as for any failed link. When no other source yields it, the answer SHALL say the posting is closed and list the attempts.
 
-#### Scenario: Expired LinkedIn link
-- **WHEN** the user submits a LinkedIn link that redirects to an address containing "trk=expired_jd_redirect"
-- **THEN** no posting is stored, no other source is searched, and the answer says the posting is closed
+#### Scenario: Expired LinkedIn link, no other source
+- **WHEN** the user submits a LinkedIn link that redirects to an address containing "trk=expired_jd_redirect", and no other source holds the posting
+- **THEN** no posting is stored, the search page behind the redirect is never fetched, and the answer says the posting is closed
+
+#### Scenario: Gone link found elsewhere
+- **WHEN** the user submits a link that answers HTTP 404, and the same posting is available at another URL
+- **THEN** the stored posting uses the other URL's text and records both URLs
 
 #### Scenario: Expired link from an alert mail
-- **WHEN** an alert mail entry the user adds redirects to an address containing "trk=expired_jd_redirect"
-- **THEN** the run reports the entry as closed, not as failed, and no request is sent to the redirect target
-
-#### Scenario: Gone single link
-- **WHEN** the user submits a link that answers HTTP 404
-- **THEN** no posting is stored, no other source is searched, and the answer says the posting is closed
+- **WHEN** an alert mail entry the user adds redirects to an address containing "trk=expired_jd_redirect", and no other source holds the posting
+- **THEN** the run reports the entry as closed, not as failed
 
 ### Requirement: Closed page text stored as closed
 When the page of a submitted link shows the posting and a closed rule's page text marker matches it, intake SHALL store the posting with the availability closed, set by a check at the time of intake.
