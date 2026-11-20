@@ -147,3 +147,61 @@ test.each([['#/pool', 'Deine Anzeigen'], ['#/hinzufuegen', 'Anzeige hinzufügen'
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(await axe(container)).toHaveNoViolations()
   })
+
+test('the header offers "Einstellungen" after the backup control, from every view', async () => {
+  stubApi({ 'GET /pool': { body: POOL }, 'GET /policy-pack/login-wall-hosts': { body: { hosts: [] } } })
+  window.location.hash = '#/hinzufuegen'
+  render(<App />)
+  const header = screen.getByRole('banner')
+  const backup = await within(header).findByRole('button', { name: /Gesichert/ })
+  const settings = within(header).getByRole('button', { name: 'Einstellungen' })
+  expect(backup.compareDocumentPosition(settings) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+})
+
+test('the settings panel opens from the intake view, and saving changes the pool\'s hint', async () => {
+  let saved = false
+  const calls = stubApi({
+    'GET /pool': () => ({ body: saved ? { ...POOL, counter: { ...POOL.counter, hint: 'rescore' } } : POOL }),
+    'GET /policy-pack/login-wall-hosts': { body: { hosts: [] } },
+    'PUT /pool/settings': () => {
+      saved = true
+      return { body: { settings: { correction_threshold: 2, correction_rate: 0.3 } } }
+    } })
+  window.location.hash = '#/hinzufuegen'
+  render(<App />)
+  await userEvent.click(screen.getByRole('button', { name: 'Einstellungen' }))
+  expect(await screen.findByLabelText('Korrekturen bis zum Hinweis')).toHaveValue(10)
+  expect(screen.getByLabelText('Anteil bis zum Hinweis (in %)')).toHaveValue(30)
+  await userEvent.clear(screen.getByLabelText('Korrekturen bis zum Hinweis'))
+  await userEvent.type(screen.getByLabelText('Korrekturen bis zum Hinweis'), '2')
+  await userEvent.click(screen.getByRole('button', { name: 'Speichern' }))
+  await vi.waitFor(() => expect(calls.find((call) => call.method === 'PUT')?.body)
+    .toEqual({ correction_threshold: 2, correction_rate: 0.3 }))
+  await userEvent.keyboard('{Escape}')
+  await userEvent.click(nav().getByRole('link', { name: 'Anzeigen' }))
+  expect(await screen.findByText('neu scoren sinnvoll')).toBeVisible()
+})
+
+test('saving the settings on the pool view reloads the pool at once', async () => {
+  let loads = 0
+  stubApi({ 'GET /pool': () => { loads += 1; return { body: POOL } },
+            'PUT /pool/settings': { body: { settings: POOL.settings } } })
+  render(<App />)
+  await screen.findByRole('list', { name: 'Anzeigen' })
+  await userEvent.click(screen.getByRole('button', { name: 'Einstellungen' }))
+  await screen.findByLabelText('Korrekturen bis zum Hinweis')
+  const before = loads
+  await userEvent.click(screen.getByRole('button', { name: 'Speichern' }))
+  await vi.waitFor(() => expect(loads).toBeGreaterThan(before))
+})
+
+test('the pool\'s shortcut keys do nothing while the settings panel has focus', async () => {
+  const calls = stubApi({ 'GET /pool': { body: POOL } })
+  render(<App />)
+  await screen.findByRole('list', { name: 'Anzeigen' })
+  await userEvent.click(screen.getByRole('button', { name: 'Einstellungen' }))
+  await screen.findByLabelText('Korrekturen bis zum Hinweis')
+  screen.getByRole('button', { name: 'Speichern' }).focus()
+  await userEvent.keyboard('1')
+  expect(calls.some((call) => call.path.includes('/rating'))).toBe(false)
+})

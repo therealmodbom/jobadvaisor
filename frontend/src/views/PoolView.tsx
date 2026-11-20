@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Check, ChevronDown, ChevronUp, Compass, LoaderCircle, ShieldAlert, Square } from 'lucide-react'
 import { DropdownMenu } from 'radix-ui'
-import { api, ApiError, type NextPass, type PassProgress, type PassState, type PassVariant, type Pool, type PoolRow, type PoolSettings, type RatingAnswer, type ScoreAnswer, type Status, type Strength, type Verdict } from '@/api'
+import { api, ApiError, type NextPass, type PassProgress, type PassState, type PassVariant, type Pool, type PoolRow, type RatingAnswer, type ScoreAnswer, type Status, type Strength, type Verdict } from '@/api'
 import { Badge, ChipList, ScoreButton, ScoreProblem, ScoreText, StatusControl } from '@/components/posting'
 import { Legend, ReasonsAndNote, VerdictButtons } from '@/components/rating'
 import { EmptyState, ErrorWithRetry, Loading } from '@/components/states'
@@ -366,69 +366,6 @@ function UnscreenedQuestion({ pass, onAnswer }: { pass: PassState; onAnswer: (pr
   )
 }
 
-/** The hint thresholds as a form: the share is shown in percent and sent as 0 to 1. A failed
- * save keeps the input and offers a retry; `onSaved` reloads the pool so the hint follows. */
-function Settings({ settings, onSaved }: { settings: PoolSettings; onSaved: () => void }) {
-  const [threshold, setThreshold] = useState(String(settings.correction_threshold))
-  const [percent, setPercent] = useState(String(Math.round(settings.correction_rate * 1000) / 10))
-  const [problem, setProblem] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [failed, setFailed] = useState(false)
-  // Follow the stored settings after a reload (render-time sync, no effect).
-  const [shownSettings, setShownSettings] = useState(settings)
-  if (shownSettings.correction_threshold !== settings.correction_threshold
-      || shownSettings.correction_rate !== settings.correction_rate) {
-    setShownSettings(settings)
-    setThreshold(String(settings.correction_threshold))
-    setPercent(String(Math.round(settings.correction_rate * 1000) / 10))
-  }
-
-  async function save(event?: FormEvent) {
-    event?.preventDefault()
-    setFailed(false)
-    const count = Number(threshold)
-    const share = Number(percent)
-    if (!threshold.trim() || !Number.isInteger(count) || count < 1) return setProblem('Gib bei den Korrekturen eine ganze Zahl ab 1 an.')
-    if (!percent.trim() || !(share >= 0 && share <= 100)) return setProblem('Gib beim Anteil eine Zahl von 0 bis 100 an.')
-    setProblem('')
-    setSaving(true)
-    try {
-      await api('/pool/settings', { method: 'PUT', json: { correction_threshold: count, correction_rate: share / 100 } })
-      onSaved()
-    } catch {
-      setFailed(true)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <details className="rounded-xl border bg-card px-4 py-3">
-      <summary className="cursor-pointer font-bold">Einstellungen</summary>
-      <form onSubmit={save} noValidate className="mt-3 flex flex-wrap items-end gap-4">
-        <div className="flex flex-col gap-1">
-          <label htmlFor="threshold" className="text-sm font-bold">Korrekturen bis zum Hinweis</label>
-          <Input id="threshold" type="number" min={1} value={threshold} className="w-28 tabular-nums"
-                 onChange={(event) => setThreshold(event.target.value)} />
-        </div>
-        <div className="flex flex-col gap-1">
-          <label htmlFor="percent" className="text-sm font-bold">Anteil bis zum Hinweis (in %)</label>
-          <Input id="percent" type="number" min={0} max={100} value={percent} className="w-28 tabular-nums"
-                 onChange={(event) => setPercent(event.target.value)} />
-        </div>
-        <Button type="submit" variant="outline" disabled={saving}>{saving ? 'Wird gespeichert…' : 'Speichern'}</Button>
-        {problem && <p role="alert" className="basis-full text-danger">{problem}</p>}
-        {failed && (
-          <p role="alert" className="flex basis-full flex-wrap items-center gap-3 text-danger">
-            Die Einstellungen wurden nicht gespeichert.
-            <Button type="button" variant="outline" onClick={() => save()}>Erneut versuchen</Button>
-          </p>
-        )}
-      </form>
-    </details>
-  )
-}
-
 /** One pool row: the "Hinzugefügt" line (when it entered the app), title link, company and location, score with its button, the "Stichprobe" and
  * import marks, the rating (verdict buttons; the selected row also shows every reason chip and the
  * note field, the others their chosen reasons) and the status control. `onSelect` makes it the row
@@ -515,9 +452,9 @@ const nextUnrated = (rows: PoolRow[], from: string | undefined, unrated: (row: P
 }
 
 /** The pool view (`#/pool`): ranked postings from `GET /pool` with state and text filters, the
- * application status per row, the scoring pass with its progress, the correction counter with
- * its hint, and the hint settings. Reloads whenever it becomes `active`. */
-export function PoolView({ active = true }: { active?: boolean }) {
+ * application status per row, the scoring pass with its progress and the correction counter with
+ * its hint. Reloads whenever it becomes `active` or `reloadKey` changes (the header saved the settings). */
+export function PoolView({ active = true, reloadKey = 0 }: { active?: boolean; reloadKey?: number }) {
   const [pool, setPool] = useState<Pool | null>(null)
   const [loadFailed, setLoadFailed] = useState(false)
   const [filter, setFilter] = useState('open')
@@ -599,8 +536,8 @@ export function PoolView({ active = true }: { active?: boolean }) {
     })
   }, [])
   useEffect(() => {
-    if (active) load()
-  }, [active, load])
+    if (active) load() // `reloadKey` changing (the header saved the settings) reloads the hint
+  }, [active, load, reloadKey])
   /** A score from a row button replaces the row (the answer has no "Stichprobe" mark, so the row
    * keeps its own) and brings the counter and the next-pass figures along. */
   const score = useScore((scored: ScoreAnswer) => {
@@ -692,7 +629,7 @@ export function PoolView({ active = true }: { active?: boolean }) {
   })
 
   useEffect(() => {
-    /** The pool's shortcuts (`design.md` "Rating without a run"): off while a text field, select,
+    /** The pool's shortcuts (`design.md` "Rating without a run"): off while a text field, select, dialog (the header settings),
      * editable element or menu (the pass variant menu) has focus, while a modifier other than Shift
      * is held and while the view is hidden. A held key repeats only j and k, so it never rates or
      * toggles twice. */
@@ -700,7 +637,7 @@ export function PoolView({ active = true }: { active?: boolean }) {
       const row = shown.find((entry) => entry.posting_id === current)
       if (!active || !pool || !row || event.altKey || event.ctrlKey || event.metaKey) return
       if (event.repeat && event.key !== 'j' && event.key !== 'k') return
-      if ((event.target as HTMLElement).closest?.('input, textarea, select, [role="menu"], [contenteditable]:not([contenteditable="false"])')) return
+      if ((event.target as HTMLElement).closest?.('input, textarea, select, [role="menu"], [role="dialog"], [contenteditable]:not([contenteditable="false"])')) return
       const digit = /^Digit([1-9])$/.exec(event.code)?.[1]
       const level = LEVELS.find(({ key }) => key === event.key)
       const step = { j: 1, k: -1 }[event.key]
@@ -774,7 +711,6 @@ export function PoolView({ active = true }: { active?: boolean }) {
               )}
             </div>
           )}
-          <div className="min-w-[280px] flex-[1_1_320px]"><Settings settings={pool.settings} onSaved={load} /></div>
         </div>
       )}
 

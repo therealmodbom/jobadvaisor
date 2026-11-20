@@ -911,50 +911,6 @@ test('the retry of a failed pass starts the variant the main part shows, not the
   expect(posts(calls)[1].body).toEqual({ variant: 'unscored' })
 })
 
-test('settings save the share as 0 to 1 and reload the pool', async () => {
-  const calls = stubApi({ 'GET /pool': { body: POOL }, 'PUT /pool/settings': { body: { settings: POOL.settings } } })
-  render(<PoolView />)
-  await userEvent.click(await screen.findByText('Einstellungen'))
-  expect(screen.getByLabelText('Anteil bis zum Hinweis (in %)')).toHaveValue(30)
-  await userEvent.clear(screen.getByLabelText('Korrekturen bis zum Hinweis'))
-  await userEvent.type(screen.getByLabelText('Korrekturen bis zum Hinweis'), '5')
-  await userEvent.clear(screen.getByLabelText('Anteil bis zum Hinweis (in %)'))
-  await userEvent.type(screen.getByLabelText('Anteil bis zum Hinweis (in %)'), '25')
-  await userEvent.click(screen.getByRole('button', { name: 'Speichern' }))
-  await vi.waitFor(() => expect(calls.filter((call) => call.path === '/pool')).toHaveLength(2))
-  expect(calls.find((call) => call.method === 'PUT')!.body).toEqual({ correction_threshold: 5, correction_rate: 0.25 })
-})
-
-test.each([['0', '30', /ganze Zahl ab 1/], ['2.5', '30', /ganze Zahl ab 1/], ['5', '101', /von 0 bis 100/], ['5', '', /von 0 bis 100/]])(
-  'settings reject %s / %s inline and send nothing', async (threshold, percent, message) => {
-    const calls = stubApi({ 'GET /pool': { body: POOL } })
-    render(<PoolView />)
-    await userEvent.click(await screen.findByText('Einstellungen'))
-    await userEvent.clear(screen.getByLabelText('Korrekturen bis zum Hinweis'))
-    await userEvent.type(screen.getByLabelText('Korrekturen bis zum Hinweis'), threshold)
-    await userEvent.clear(screen.getByLabelText('Anteil bis zum Hinweis (in %)'))
-    if (percent) await userEvent.type(screen.getByLabelText('Anteil bis zum Hinweis (in %)'), percent)
-    await userEvent.click(screen.getByRole('button', { name: 'Speichern' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent(message)
-    expect(calls.some((call) => call.method === 'PUT')).toBe(false)
-  })
-
-test('a failed settings save keeps the input and offers a retry', async () => {
-  let fail = true
-  const calls = stubApi({ 'GET /pool': { body: POOL },
-                          'PUT /pool/settings': () => (fail ? { status: 500 } : { body: { settings: POOL.settings } }) })
-  render(<PoolView />)
-  await userEvent.click(await screen.findByText('Einstellungen'))
-  await userEvent.clear(screen.getByLabelText('Korrekturen bis zum Hinweis'))
-  await userEvent.type(screen.getByLabelText('Korrekturen bis zum Hinweis'), '7')
-  await userEvent.click(screen.getByRole('button', { name: 'Speichern' }))
-  expect(await screen.findByText('Die Einstellungen wurden nicht gespeichert.')).toBeVisible()
-  expect(screen.getByLabelText('Korrekturen bis zum Hinweis')).toHaveValue(7)
-  fail = false
-  await userEvent.click(screen.getByRole('button', { name: 'Erneut versuchen' }))
-  await vi.waitFor(() => expect(calls.filter((call) => call.method === 'PUT')).toHaveLength(2))
-})
-
 test('changing the status sends the PATCH and the row leaves the default view', async () => {
   const calls = stubApi({ 'GET /pool': { body: POOL }, 'PATCH /postings/p2': { body: {} } })
   render(<PoolView />)
@@ -1043,11 +999,10 @@ test('failed polls show a notice with retry after three failures, and retry resu
 
 test('a failed reload keeps the list and shows a retry above it', async () => {
   let reloads = 0
-  stubApi({ 'GET /pool': () => (++reloads === 2 ? { status: 500 } : { body: POOL }),
-            'PUT /pool/settings': { body: { settings: POOL.settings } } })
-  render(<PoolView />)
-  await userEvent.click(await screen.findByText('Einstellungen'))
-  await userEvent.click(screen.getByRole('button', { name: 'Speichern' }))
+  stubApi({ 'GET /pool': () => (++reloads === 2 ? { status: 500 } : { body: POOL }) })
+  const view = render(<PoolView />)
+  await titles()
+  view.rerender(<PoolView reloadKey={1} />)
   expect(await screen.findByText(/konnten nicht neu geladen werden/)).toBeVisible()
   expect(await titles()).toHaveLength(9)
   await userEvent.click(screen.getByRole('button', { name: 'Erneut versuchen' }))
@@ -1573,17 +1528,6 @@ test('a finished status change tells that the row left the view', async () => {
   await titles()
   await userEvent.selectOptions(row(ENGINEER).getByRole('combobox'), 'applied')
   expect(await screen.findByText(`${ENGINEER}: Status beworben. Die Anzeige ist nicht mehr in dieser Ansicht.`)).toBeInTheDocument()
-})
-
-test('the settings form follows the stored settings after a reload', async () => {
-  let reloads = 0
-  stubApi({ 'GET /pool': () => ({ body: ++reloads === 1 ? POOL : poolWith({ settings: { correction_threshold: 7, correction_rate: 0.5 } }) }),
-            'PUT /pool/settings': { body: { settings: POOL.settings } } })
-  render(<PoolView />)
-  await userEvent.click(await screen.findByText('Einstellungen'))
-  await userEvent.click(screen.getByRole('button', { name: 'Speichern' }))
-  await vi.waitFor(() => expect(screen.getByLabelText('Korrekturen bis zum Hinweis')).toHaveValue(7))
-  expect(screen.getByLabelText('Anteil bis zum Hinweis (in %)')).toHaveValue(50)
 })
 
 /** The answer of `POST /postings/{id}/score` for `base`: the posting page, of which the pool reads
