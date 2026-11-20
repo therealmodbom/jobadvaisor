@@ -5,6 +5,7 @@ import pytest
 
 from jobadvaisor.data.loader import DataRepository
 from jobadvaisor.data.models import (
+    Availability,
     Guard,
     Label,
     PolicyPack,
@@ -25,10 +26,14 @@ PACK = PolicyPack.model_validate({
                          "value": ["sales"]}]})
 
 
-def posting(title="Engineer", day=0, status="open", guard=None) -> Posting:
+def posting(title="Engineer", day=0, status="open", guard=None, availability=None) -> Posting:
     return Posting(schema_version="2", title=title, company="Acme", location_raw="Kiel",
                    text="Text", source_type="text", added_at=T0 + timedelta(days=day),
-                   status=status, guard=guard)
+                   status=status, guard=guard, availability=availability)
+
+
+def availability(state="closed", set_by="check") -> Availability:
+    return Availability(state=state, set_at=T0, set_by=set_by)
 
 
 def score(value: int) -> Score:
@@ -286,6 +291,61 @@ def test_pass_batch_takes_every_posting_when_rescoring():
                       {"rated": label()})
     scores = {"scored": score(5), "rated": score(5)}
     assert pass_batch(repository, scores, True) == ["new", "rated", "scored"]
+
+
+def test_neither_pass_variant_takes_a_closed_posting_and_next_pass_does_not_count_it():
+    repository = repo({"open": posting(), "never": posting(availability=availability("unknown")),
+                       "by-hand": posting(availability=availability("available", "user")),
+                       "closed-new": posting(availability=availability()),
+                       "closed-scored": posting(availability=availability("closed", "user"))})
+    scores = {"closed-scored": score(4), "open": score(5)}
+    assert pass_batch(repository, scores, False) == ["by-hand", "never"]
+    assert pass_batch(repository, scores, True) == ["by-hand", "never", "open"]
+    got = next_pass(repository, scores, _pool())
+    assert (got["unscored"], got["all"]) == (2, 3)
+
+
+def test_a_closed_posting_gets_no_exploration_mark_and_appears_once_in_rank_order():
+    values = list(range(10, 0, -1))
+    repository, scores = _exploration_repo(values)
+    # the lowest-scored posting is closed; it must not be an exploration pick
+    repository.postings["p09"] = posting(availability=availability())
+    rows = rank(repository, scores, {})
+    assert ids(rows).count("p09") == 1
+    closed = next(row for row in rows if row["posting_id"] == "p09")
+    assert closed["exploration"] is False and closed["availability"]["state"] == "closed"
+    assert closed["state"] == "scored" and closed["score"] == 1
+    assert sorted(ids(rows)) == sorted(repository.postings)  # nobody vanished or doubled
+    others = [row for row in rows if row["posting_id"] != "p09"]
+    assert sum(row["exploration"] for row in others) == round(9 / 5) and all(
+        row["posting_id"] != "p09" for row in others if row["exploration"])
+    assert rows[-1]["posting_id"] == "p09"  # after the picks, still in score order
+
+
+def test_a_closed_unrated_scored_row_sits_in_score_order_among_the_non_open_rows():
+    postings = {"hi": posting(), "closed-mid": posting(availability=availability()),
+                "applied": posting(status="applied"), "lo": posting()}
+    scores = {"hi": score(9), "closed-mid": score(5), "applied": score(7), "lo": score(1)}
+    rows = rank(repo(postings), scores, {}, statuses=("open", "applied", "done"))
+    assert sorted(ids(rows)) == ["applied", "closed-mid", "hi", "lo"]
+    assert ids(rows).index("applied") < ids(rows).index("closed-mid")  # score order, once each
+
+
+def test_best_open_leaves_a_closed_posting_out_whatever_the_statuses():
+    postings = {"fine": posting(), "closed": posting(availability=availability()),
+                "applied": posting(status="applied")}
+    scores = {k: score(8) for k in postings}
+    assert ids(best_open(repo(postings), scores, {})) == ["fine"]
+    got = best_open(repo(postings), scores, {}, ("open", "applied"))
+    assert sorted(ids(got)) == ["applied", "fine"]
+
+
+def test_the_rating_of_a_closed_posting_still_counts():
+    repository = repo({"p": posting(availability=availability())}, {"p": label("negative")})
+    got = counter(repository, {"p": score(8)}, _pool())
+    assert (got["rated"], got["corrections"]) == (1, 1)
+    row = rank(repository, {"p": score(8)}, {})[0]
+    assert row["label"]["verdict"] == "negative"  # it ranks with the rated, still listed
 
 
 def test_exploration_runs_over_open_rows_only():

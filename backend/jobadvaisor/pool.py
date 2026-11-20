@@ -35,12 +35,18 @@ def resolve_verdict(verdict: str | None, chips: list[str],
     raise ValueError("verdict is missing: set one or give a chip with a polarity")
 
 
+def is_closed(posting: Posting) -> bool:
+    """Whether the posting's availability says closed, set by the check or by hand."""
+    return posting.availability is not None and posting.availability.state == "closed"
+
+
 def pass_batch(repository: DataRepository, scores: dict[str, Score], rescore: bool) -> list[str]:
-    """Posting IDs, in ID order, a pass would take: every posting without a readable score in
-    `scores`, rated or not; with `rescore`, every posting. Exclusion and the content guard are
-    the pass's own later steps, so excluded and held postings are still listed here."""
-    return sorted(posting_id for posting_id in repository.postings
-                  if rescore or posting_id not in scores)
+    """Posting IDs, in ID order, a pass would take: every posting that is not closed and has no
+    readable score in `scores`, rated or not; with `rescore`, every posting that is not closed.
+    Exclusion and the content guard are the pass's own later steps, so excluded and held
+    postings are still listed here."""
+    return sorted(posting_id for posting_id, posting in repository.postings.items()
+                  if not is_closed(posting) and (rescore or posting_id not in scores))
 
 
 def counter(repository: DataRepository, scores: dict[str, Score], pool: Pool) -> dict:
@@ -77,7 +83,8 @@ def counter(repository: DataRepository, scores: dict[str, Score], pool: Pool) ->
 
 def next_pass(repository: DataRepository, scores: dict[str, Score], pool: Pool) -> dict:
     """What either pass variant would take: `{default, unscored, all}`. `unscored` and `all` are
-    the sizes of the two pass batches, without excluded and held postings; `default` is the
+    the sizes of the two pass batches, without excluded and held postings (closed ones are in
+    neither batch); `default` is the
     variant the counter's hint points to: `"all"` for `"rescore"`, else `"unscored"`."""
     def size(rescore: bool) -> int:
         return sum(_blocked(repository, repository.postings[i]) is None
@@ -118,9 +125,9 @@ def rank(repository: DataRepository, scores: dict[str, Score], score_problems: d
             group.sort(key=lambda row: -1 if row["score"] is None else row["score"], reverse=True)
         if number == 0:
             group.sort(key=lambda row: STRENGTH_ORDER[row["label"]["strength"]])
-    still_open = [row for row in groups[1] if row["status"] == "open"]
-    groups[1] = _explore(still_open, len(repository.labels)) + [
-        row for row in groups[1] if row["status"] != "open"]
+    explorable = [row for row in groups[1] if _explorable(row, repository)]
+    groups[1] = _explore(explorable, len(repository.labels)) + [
+        row for row in groups[1] if not _explorable(row, repository)]
     return [row for group in groups for row in group]
 
 
@@ -128,10 +135,11 @@ def best_open(repository: DataRepository, scores: dict[str, Score],
               score_problems: dict[str, str], statuses: tuple[str, ...] = ("open",)
               ) -> list[dict]:
     """The rows of `rank` worth applying to, in rank order: without postings rated negative,
-    excluded or held, and without the exploration picks, which are a learning aid and no
+    excluded, held or closed, and without the exploration picks, which are a learning aid and no
     recommendation. The agent's `best_open_postings` lists these."""
     return [row for row in rank(repository, scores, score_problems, statuses)
             if row["state"] in ("scored", "unscored") and not row["exploration"]
+            and not is_closed(repository.postings[row["posting_id"]])
             and (row["label"] or {}).get("verdict") != "negative"]
 
 
@@ -171,6 +179,11 @@ def _label(label: Label | None) -> dict | None:
         return None
     return {"verdict": label.verdict, "strength": label.strength, "chips": label.chips,
             "note": label.note, "rated_at": label.rated_at.isoformat()}
+
+
+def _explorable(row: dict, repository: DataRepository) -> bool:
+    """Whether a scored unrated row may take an exploration mark: open and not closed."""
+    return row["status"] == "open" and not is_closed(repository.postings[row["posting_id"]])
 
 
 def _group(row: dict) -> int:
