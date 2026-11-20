@@ -163,6 +163,22 @@ def test_a_refused_redirect_is_unknown():
     assert site.seen == [JOB]
 
 
+def test_a_stored_link_with_a_tracking_parameter_is_requested_and_decides():
+    tracked = JOB + "?utm_source=x"
+    site = Site()
+    assert check_posting(posting(tracked), [], http=site.client) == "available"
+    assert site.seen == [tracked]
+    site = Site({tracked: reply(404)})
+    assert check_posting(posting(tracked), [], http=site.client) == "closed"
+
+
+def test_a_redirect_with_a_personal_parameter_stays_refused_from_a_tracked_link():
+    tracked = JOB + "?utm_source=x"
+    site = Site({tracked: reply(302, headers={"Location": JOB + "?sid=TOKEN-1"})})
+    assert check_posting(posting(tracked), [], http=site.client) == "unknown"
+    assert site.seen == [tracked]
+
+
 def test_a_login_walled_link_is_neither_fetched_nor_counted():
     walled = "https://www.xing.com/jobs/1"
     site = Site({JOB: reply(404)})

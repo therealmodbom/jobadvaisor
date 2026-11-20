@@ -124,8 +124,9 @@ def download_plain(url: str, http: httpx.Client | None = None, *,
     transport error or a 429/5xx answer unless `retry` is false (one request, whatever the
     answer). A redirect hop that matches a closed rule's redirect marker is not sent
     (`FetchError(CLOSED_REDIRECT)`), whatever the link. While `guarded_link` is `url`, a hop
-    that fails `navigation_allowed` is not sent either (`FetchError(REFUSED_REDIRECT)`), after
-    the closed question. Raises `FetchError` naming the failure."""
+    other than `url` itself that fails `navigation_allowed` is not sent either
+    (`FetchError(REFUSED_REDIRECT)`), after the closed question; `url` is sent as it is.
+    Raises `FetchError` naming the failure."""
     require_http(url)
     http = http or httpx.Client(timeout=TIMEOUT_SECONDS, follow_redirects=True,
                                 headers={"User-Agent": USER_AGENT})
@@ -138,10 +139,13 @@ def download_plain(url: str, http: httpx.Client | None = None, *,
         http.event_hooks = hooks
 
 
-def _refusal(url: str) -> str | None:
+def _refusal(url: str, start: str | None) -> str | None:
     """Why a hop to `url` must not be sent (`REFUSED_HOST`, `REFUSED_REDIRECT`), or `None`. The
-    guarded start link itself is exempt from the host rule: the API checked it already."""
-    if url != guarded_link.get() and not public_link(url):
+    guarded start link `start` itself is exempt from both rules: the caller chose it (the API
+    checked it, or a check read it from the posting), whatever parameters it carries."""
+    if url == start:
+        return None
+    if not public_link(url):
         return REFUSED_HOST
     return None if navigation_allowed(url) else REFUSED_REDIRECT
 
@@ -153,7 +157,7 @@ def _check_closed_hop(request: httpx.Request) -> None:
 
 def _check_hop(request: httpx.Request) -> None:
     _check_closed_hop(request)
-    if reason := _refusal(str(request.url)):
+    if reason := _refusal(str(request.url), guarded_link.get()):
         raise FetchError(reason)
 
 
@@ -188,14 +192,15 @@ def download_rendered(url: str) -> tuple[str, str]:
     from playwright.sync_api import Error, sync_playwright
 
     refused, hops = [], []
-    guarded, rules = guarded_link.get() == url, closed_rules.get()  # read here: the route
-    # callback does not run in this context, so it would see the defaults
+    start, rules = guarded_link.get(), closed_rules.get()  # read here: the route callback
+    # does not run in this context, so it would see the defaults
+    guarded = start == url
 
     def blocked(address: str) -> str | None:
         """Why a navigation to `address` must not be sent: closed first, then guarded."""
         if closed_redirect(address, rules):
             return CLOSED_REDIRECT
-        return _refusal(address) if guarded else None
+        return _refusal(address, start) if guarded else None
 
     def check(route):
         """Chromium follows a server redirect without routing its target, so a main-frame
