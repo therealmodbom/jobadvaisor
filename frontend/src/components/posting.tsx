@@ -77,7 +77,7 @@ export function AvailabilityControl({ id, value, saving, failed, onChange }: {
   const shown = value?.state ?? 'never'
   const change = (choice: AvailabilityChoice) => { if (!saving) onChange(choice) }
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex flex-col items-start gap-1">
       <label htmlFor={id} className="text-sm font-bold">Verfügbarkeit</label>
       <select id={id} value={shown} aria-busy={saving}
               onChange={(event) => change(event.target.value as AvailabilityChoice)}
