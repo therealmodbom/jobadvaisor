@@ -155,7 +155,7 @@
 
 ## 4. End to end and docs
 
-- [ ] 4.1 Add an e2e walkthrough over a demo copy:
+- [x] 4.1 Add an e2e walkthrough over a demo copy:
   - every demo URL is answered by a stubbed fetch, so no request leaves the machine;
   - `HOST_SPACING_SECONDS` is patched to 0;
   - one posting answers 404 and one redirects to the marker;
@@ -165,6 +165,6 @@
 
   Verify with `env -C backend uv run pytest -m e2e -q` after `npm --prefix frontend run build`.
 - [ ] 4.2 Click test in the browser against the real dev server on a demo copy, whose `example.com`/`example.org` links answer as unknown or not at all. Start a check and read the report, which shows unknowns. Cancel a second check. Close one posting by hand, find it under „Stelle geschlossen“, rate it and reopen it. Open „Einstellungen“ in the header. Verify by screenshots in the PR description.
-- [ ] 4.3 Update the README pool workflow section and the AGENTS.md "Current state" section, and retake `docs/images/pool.png` and `posting.png` with `scripts/readme_images.py`. Verify that the README describes the check and the filter, and that both images show the new controls.
+- [x] 4.3 Update the README pool workflow section and the AGENTS.md "Current state" section, and retake `docs/images/pool.png` and `posting.png` with `scripts/readme_images.py`. Verify that the README describes the check and the filter, and that both images show the new controls.
 - [ ] 4.4 File the follow-up issues for a scheduled check and for a UI editor of the policy pack's closed rules. Verify that both issue numbers are named in the PR description.
 - [ ] 4.5 Run every check: `env -C backend uv run pytest -q`, `env -C backend uv run pytest -m e2e -q`, `env -C backend uv run ruff check .`, `npm --prefix frontend test`, `npm --prefix frontend run lint` and `npm --prefix frontend run build`. Verified when all of them pass and the `push` CI run on the branch head is green (the `pull_request` run skips every job except gitleaks, so it hides a red e2e job).
