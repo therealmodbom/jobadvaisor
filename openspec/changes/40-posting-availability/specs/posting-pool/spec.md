@@ -104,6 +104,20 @@ The user SHALL be able to set a posting's availability to available or closed by
 - **WHEN** a check runs, the user sets a posting it covers to available before the check reaches it, and the posting's link answers HTTP 404
 - **THEN** the posting stays available, set by the user
 
+### Requirement: Hand setting returned to the check
+The user SHALL be able to remove a hand setting. The posting then counts as never checked, and the next check SHALL cover it again.
+
+#### Scenario: Reopened posting checked again
+- **WHEN** the user set a posting to available by hand, later removes the hand setting, and starts a check whose fetch of the posting's link answers HTTP 404
+- **THEN** the check finds the posting closed
+
+### Requirement: Single score of a closed posting
+The user SHALL be able to score a closed posting on request, like any posting that is neither excluded nor held.
+
+#### Scenario: Closed posting scored on request
+- **WHEN** the user scores a closed posting from its page
+- **THEN** it receives a score and reasoning, stored with the posting, and it stays closed
+
 ### Requirement: A pass leaves closed postings out
 A scoring pass of either variant SHALL NOT score a closed posting, and the number a pass announces SHALL NOT count it.
 

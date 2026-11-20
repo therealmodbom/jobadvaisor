@@ -97,7 +97,8 @@ New module `availability.py`:
 - `POST /availability/checks` → 202 `{check_id, total}`, or 409 `{error, check_id}` while one runs.
 - `GET /availability/checks/{id}` → the state, or 404 for an unknown check.
 - `GET /pool` adds `next_check: {total}`.
-- `PATCH /postings/{id}` accepts `availability: "available"|"closed"` and writes `{state, now, user}`. `"unknown"` answers 422.
+- `PATCH /postings/{id}` accepts `availability: "available"|"closed"` and writes `{state, now, user}`. `availability: "check"` removes the key („Wieder automatisch prüfen“), so the posting counts as never checked. Removing it does not keep the last state as set by a check, because no check set it. `"unknown"` answers 422. `update_posting` gains key removal for this.
+- `POST /postings/{id}/score` keeps refusing only held and excluded postings. A closed posting can be scored on request; only the pass leaves it out.
 - Pool rows gain `availability` (the stored dict, or null).
 
 ### D7 The pool and the agent

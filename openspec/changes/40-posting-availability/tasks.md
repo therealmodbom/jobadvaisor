@@ -51,7 +51,13 @@
   - a hand setting made between the check's read and its write survives;
   - other keys and the schema version stay unchanged.
 
-  Then verify with `test_api.py` (`Api(Harness(…))`): close by hand, then reopen by hand, and a 422 for `"unknown"` (spec: Hand setting of availability).
+  Then verify with `test_api.py` (`Api(Harness(…))`):
+  - close by hand, then reopen by hand;
+  - `"check"` removes the key, and the posting is back in `check_batch`;
+  - a 422 for `"unknown"`;
+  - `POST /postings/{id}/score` scores a closed posting and leaves it closed.
+
+  Specs: Hand setting of availability, Hand setting returned to the check, Single score of a closed posting.
 
 ## 2. Backend: intake, check, pool, agent
 
@@ -117,7 +123,7 @@
   - the new controls in the keyboard shortcut exclusion.
 
   Texts and placement follow the Design artifact. Verify with `PoolView.test.tsx`, including axe checks of the running, report and disabled states. Specs: Availability check button, Availability check progress and report, Availability check refused or lost, Filter Geschlossen, Closed mark on a row.
-- [ ] 3.3 `PostingPage.tsx`: the availability block with its time, its setter or „noch nie geprüft“, and the two hand-setting actions. Verify with `PostingPage.test.tsx` (spec: Availability on the posting page).
+- [ ] 3.3 `PostingPage.tsx`: the availability block with its time, its setter or „noch nie geprüft“, the two hand-setting actions, and „Wieder automatisch prüfen“ for a hand setting. The score button stays enabled for a closed posting. Verify with `PostingPage.test.tsx` (spec: Availability on the posting page).
 - [ ] 3.4 `IntakeView.tsx` and `AlertMailView.tsx`: „Stelle geschlossen“ with its attempts and no text or PDF option, for a single link, among several links and for an alert run entry. Verify with `IntakeView.test.tsx` and `AlertMailView.test.tsx` (spec: Intake view, Several links at once, Alert mail run progress and outcome).
 
 ## 4. End to end and docs

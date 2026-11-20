@@ -30,7 +30,8 @@ Intake has the same blind spot. Today a LinkedIn link whose posting expired is s
   - the agent's best-fitting postings.
   
   A new filter „Geschlossen“ lists them. Their page stays reachable, and they can still be rated. A rating of a closed posting still counts for the correction counter and as a scoring example.
-- The user sets the availability by hand, in both directions, from the posting page. A check never overwrites a hand setting.
+- The user sets the availability by hand, in both directions, from the posting page. A check never overwrites a hand setting. „Wieder automatisch prüfen“ removes the hand setting, so the next check covers the posting again.
+- A closed posting can still be scored on request from its page. Only the pass leaves it out.
 - Intake treats a closed rule like a gone link.
   - A redirect marker, HTTP 404/410, or a page text marker on a page without posting text means the page was replaced. Nothing from it is stored, and a redirect target that a marker matches is never requested.
   - A new link is still looked for at another source, as today. When none yields it, the answer and the alert run say the posting is closed. The import skips it as link gone, as today.
@@ -51,7 +52,7 @@ None.
 
 ### Modified Capabilities
 
-- `posting-pool`: adds „Availability of a posting“, „Availability check on request“, „Report of a check“, „One check at a time“, „What a check covers“, „Closed by a gone link or a closed rule“, „Unknown never closes a posting“, „Closed rules from code and policy pack“, „Page text marker reads the visible page“, „Hand setting of availability“, „A pass leaves closed postings out“, „No exploration mark on a closed posting“ and „Ratings of closed postings still count“. Modifies „Ranking by fit“, „Filters“, „Scoring pass on request“, „Postings without a score in the range“ and „Default pass variant“.
+- `posting-pool`: adds „Availability of a posting“, „Availability check on request“, „Report of a check“, „One check at a time“, „What a check covers“, „Closed by a gone link or a closed rule“, „Unknown never closes a posting“, „Closed rules from code and policy pack“, „Page text marker reads the visible page“, „Hand setting of availability“, „Hand setting returned to the check“, „Single score of a closed posting“, „A pass leaves closed postings out“, „No exploration mark on a closed posting“ and „Ratings of closed postings still count“. Modifies „Ranking by fit“, „Filters“, „Scoring pass on request“, „Postings without a score in the range“ and „Default pass variant“.
 - `posting-intake`: adds „Closed page at intake“, „Closed when no other source holds the posting“ and „Closed page text stored as closed“. Modifies „Input forms“, „Links from a mail carry no personal parameters“, „Chosen entries added in the background“ and „Closed postings are not imported“.
 - `job-agent`: adds „Closed postings are no recommendation“ and „Search results mark a closed posting“. Modifies „No silent data changes“.
 - `rating-feedback`: modifies „Cold-start labels“, since an unlabeled closed posting is listed under „geschlossen“.

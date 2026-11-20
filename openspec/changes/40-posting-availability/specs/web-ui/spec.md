@@ -50,7 +50,7 @@ Wherever the pool view lists a closed posting, its row SHALL mark it as closed, 
 - **THEN** its row is listed and marked as closed
 
 ### Requirement: Availability on the posting page
-The posting page SHALL show the posting's availability with the time it was set and whether a check or the user set it, or that it was never checked. It SHALL let the user set it to closed or to available by hand.
+The posting page SHALL show the posting's availability with the time it was set and whether a check or the user set it, or that it was never checked. It SHALL let the user set it to closed or to available by hand, and, for a hand setting, offer „Wieder automatisch prüfen“, which removes the hand setting.
 
 #### Scenario: Close by hand
 - **WHEN** the user sets an open posting to closed on its page
@@ -59,6 +59,10 @@ The posting page SHALL show the posting's availability with the time it was set 
 #### Scenario: Reopen by hand
 - **WHEN** the user sets a closed posting to available on its page
 - **THEN** the page shows it as available, set by hand, and later checks leave it as it is
+
+#### Scenario: Back to automatic
+- **WHEN** the user presses „Wieder automatisch prüfen“ on a posting set by hand
+- **THEN** the page says it was never checked, and the button „Verfügbarkeit prüfen“ in the pool counts it again
 
 ## MODIFIED Requirements
 
