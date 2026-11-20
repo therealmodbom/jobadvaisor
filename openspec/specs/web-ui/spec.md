@@ -637,7 +637,7 @@ Wherever the pool view lists a closed posting, its row SHALL carry the mark „S
 - **THEN** its row is listed and marked as closed
 
 ### Requirement: Posting no check can read, on its page
-A posting no check can read is never checked: one added as pasted text or a PDF, and one whose links are all login-walled or not on a public host. The note below its availability on the posting page SHALL say so and SHALL NOT promise a next check, also after a hand setting.
+A posting no check can read is never checked: one added as pasted text or a PDF, and one whose links are all login-walled or not on a public host. The note below its availability on the posting page SHALL say so and SHALL NOT promise a next check, also after a hand setting. A check covers open postings only, so for a posting whose application status is not open the note of a hand setting SHALL NOT promise a next check either.
 
 #### Scenario: Posting without a link
 - **WHEN** the user opens a posting added as pasted text and sets it to closed
@@ -646,6 +646,10 @@ A posting no check can read is never checked: one added as pasted text or a PDF,
 #### Scenario: Only a login-walled link
 - **WHEN** the user opens a posting whose only link is on a login-walled host
 - **THEN** the note says no link can be checked
+
+#### Scenario: Applied posting set by hand
+- **WHEN** the user sets a posting with application status „beworben“ to closed
+- **THEN** the note says it was set by hand and promises no check
 
 ### Requirement: Availability on the posting page
 The posting page SHALL show the posting's availability under the title, beside „Bearbeiten“ and the application status, as a field the user can set to closed or to available. Below it the page SHALL say when the availability was set and whether a check or the user set it, or that it was never checked. For a hand setting, the note SHALL say that the next check replaces it.

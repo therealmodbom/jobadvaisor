@@ -154,6 +154,7 @@ function LoadedPage({ postingId }: { postingId: string }) {
           <StatusControl id="posting-status" title={posting.title} value={row.status} saving={saving}
                          failed={failed} onStatus={setStatus} />
           <AvailabilityControl id="posting-availability" value={row.availability} checkable={data.checkable}
+                               open={row.status === 'open'}
                                saving={availSaving}
                                failed={availFailed} onChange={setAvailability} />
         </div>

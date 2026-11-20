@@ -67,13 +67,15 @@ export function StatusControl({ id, title, value, saving, failed, onStatus }: {
  * and by whom ("laut Prüfung vom …", "von dir gesetzt am …, die nächste Prüfung prüft neu") or that
  * it was never checked. A posting no check can read (`checkable` false: pasted text, a PDF, or
  * only login-walled or non-public links) is never checked, so its note promises no check
- * ("kein prüfbarer Link, wird nicht geprüft", "von dir gesetzt am …").
+ * ("kein prüfbarer Link, wird nicht geprüft", "von dir gesetzt am …"). A check covers open postings
+ * only, so a hand setting promises the next check only while `open` (application status open).
  * `onChange` sends the choice. `saving` shows the save (the select stays enabled so keyboard focus is not dropped; a
  * change meanwhile is ignored), `failed` (the choice that did not save) an error with a retry. */
-export function AvailabilityControl({ id, value, checkable, saving, failed, onChange }: {
+export function AvailabilityControl({ id, value, checkable, open, saving, failed, onChange }: {
   id: string
   value: Availability | null
   checkable: boolean
+  open: boolean
   saving: boolean
   failed: AvailabilityChoice | undefined
   onChange: (choice: AvailabilityChoice) => void
@@ -94,7 +96,7 @@ export function AvailabilityControl({ id, value, checkable, saving, failed, onCh
       <span className="text-[13px] text-muted-foreground">
         {!value ? (checkable ? 'noch nie geprüft' : 'kein prüfbarer Link, wird nicht geprüft')
           : value.set_by === 'check' ? `laut Prüfung vom ${whenLabel(value.set_at)}`
-            : `von dir gesetzt am ${whenLabel(value.set_at)}${checkable ? ', die nächste Prüfung prüft neu' : ''}`}
+            : `von dir gesetzt am ${whenLabel(value.set_at)}${checkable && open ? ', die nächste Prüfung prüft neu' : ''}`}
       </span>
       {saving && <span role="status" className="text-sm text-muted-foreground">wird gespeichert…</span>}
       {failed && (

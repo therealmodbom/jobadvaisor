@@ -422,6 +422,14 @@ test.each([[null, 'kein prüfbarer Link, wird nicht geprüft'],
     expect(screen.queryByText(/Prüfung/)).toBeNull()
   })
 
+test.each(['applied', 'done'] as const)(
+  'a hand setting on a posting with status %s promises no check, which covers open postings only', async (status) => {
+    stubApi({ 'GET /postings/p1': { body: withAvailability(availability('closed', 'user', '2026-11-20T12:40:00+00:00'), { status }) } })
+    render(<PostingPage postingId="p1" />)
+    expect(await screen.findByText('von dir gesetzt am 20.11.2026, 13:40')).toBeVisible()
+    expect(screen.queryByText(/nächste Prüfung/)).toBeNull()
+  })
+
 test('a closed posting set by a check says when the check found it', async () => {
   stubApi({ 'GET /postings/p1': { body: withAvailability(availability('closed', 'check')) } })
   render(<PostingPage postingId="p1" />)
