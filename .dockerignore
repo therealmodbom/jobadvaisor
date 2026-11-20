@@ -18,7 +18,9 @@ chroma/
 # Not needed to run
 .git/
 .github/
+env.example
 .claude/
+.opencode/
 .vscode/
 .superpowers/
 worktrees/

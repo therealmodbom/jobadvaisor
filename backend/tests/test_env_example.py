@@ -2,11 +2,11 @@ from pathlib import Path
 
 from jobadvaisor.settings import Settings
 
-ENV_EXAMPLE = Path(__file__).parents[2] / ".env.example"
+ENV_EXAMPLE = Path(__file__).parents[2] / "env.example"
 
 
 def env_example_entries() -> dict[str, str]:
-    """Return KEY → value for every non-comment, non-blank line of `.env.example`."""
+    """Return KEY → value for every non-comment, non-blank line of `env.example`."""
     entries = {}
     for line in ENV_EXAMPLE.read_text().splitlines():
         line = line.strip()
