@@ -487,7 +487,8 @@ def test_the_cancel_notice_of_a_pass_has_its_dismiss_icon_in_the_corner(page, ap
     offsets = []
     try:
         page.goto(f"{app_url}/#/pool")
-        page.evaluate("localStorage.setItem('jobadvaisor.pool-pass-end', '4')")
+        page.evaluate("localStorage.setItem('jobadvaisor.pool-pass-end', "
+                      "JSON.stringify({status: 'cancelled', scored: 4}))")
         page.reload()
         expect(notice).to_be_visible()
         for width in ROW_WIDTHS[2:]:

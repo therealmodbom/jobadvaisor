@@ -39,16 +39,16 @@ const storedPass = {
   },
 }
 
-/** How the last pass ended, when it did not finish: the count a cancelled pass stored, or
- * 'aborted'. Kept across a reload until the notice is dismissed or the next pass starts, like the
- * check report; storage may be blocked, so every access is guarded. */
-type PassEnd = number | 'aborted'
+/** How the last pass ended: finished (`done`) or cancelled with the count it stored, or aborted
+ * at the unscreened question. Kept across a reload until the notice is dismissed or the next pass
+ * starts, like the check report; storage may be blocked, so every access is guarded. */
+type PassEnd = { status: 'done' | 'cancelled'; scored: number } | { status: 'aborted' }
 const END_KEY = 'jobadvaisor.pool-pass-end'
 const storedEnd = {
   get: (): PassEnd | null => {
     try {
-      const value = localStorage.getItem(END_KEY)
-      return value === null ? null : value === 'aborted' ? value : Number(value)
+      const value = JSON.parse(localStorage.getItem(END_KEY) ?? 'null')
+      return value?.status ? value as PassEnd : null
     } catch {
       return null
     }
@@ -56,7 +56,7 @@ const storedEnd = {
   set: (end: PassEnd | null) => {
     try {
       if (end === null) localStorage.removeItem(END_KEY)
-      else localStorage.setItem(END_KEY, String(end))
+      else localStorage.setItem(END_KEY, JSON.stringify(end))
     } catch { /* storage blocked: the notice lasts until a reload */ }
   },
 }
@@ -113,11 +113,11 @@ function usePass(onDone: () => void) {
           storedPass.set(null)
           setPassId(null)
           setPass(null)
-          if (next.status === 'cancelled') setEnded(next.scored)
+          setEnded({ status: next.status, scored: next.scored })
           onDone()
         } else {
           if (next.status === 'aborted' || next.status === 'failed') storedPass.set(null)
-          if (next.status === 'aborted') setEnded('aborted')
+          if (next.status === 'aborted') setEnded({ status: 'aborted' })
           setPass(next)
         }
         // Any status but running ends this poll; a second answer already on its way is stale.
@@ -222,9 +222,10 @@ function PassProgressBlock({ progress, stopping }: { progress: PassProgress | nu
   )
 }
 
-/** The status-region sentence for a cancelled pass that stored `scored` scores. */
-const cancelledText = (scored: number) => `Das Scoren wurde abgebrochen. ${
-  scored === 0 ? 'Keine Anzeige hat' : scored === 1 ? '1 Anzeige hat' : `${scored} Anzeigen haben`} einen neuen Score.`
+/** The status-region sentence for how a pass ended (`PassEnd`), with the scores it stored. */
+const endText = (end: PassEnd) => end.status === 'aborted' ? 'Das Scoren wurde abgebrochen.'
+  : `${end.status === 'done' ? 'Das Scoren ist fertig.' : 'Das Scoren wurde abgebrochen.'} ${
+    end.scored === 0 ? 'Keine Anzeige hat' : end.scored === 1 ? '1 Anzeige hat' : `${end.scored} Anzeigen haben`} einen neuen Score.`
 
 const VARIANT_TITLE: Record<PassVariant, string> = { unscored: 'Nur Anzeigen ohne Score', all: 'Alle Anzeigen neu scoren' }
 const VARIANT_VERBS: Record<PassVariant, string> = { unscored: 'Anzeigen ohne Score scoren', all: 'Alle Anzeigen neu scoren' }
@@ -764,7 +765,7 @@ export function PoolView({ active = true, reloadKey = 0 }: { active?: boolean; r
                 {working && stopping && <span className="sr-only">Das Scoren wird nach der aktuellen Anzeige beendet.</span>}
                 {ended !== null && (
                   <div className="flex items-start justify-between gap-2 rounded-xl border bg-card px-4 py-3">
-                    <p>{ended === 'aborted' ? 'Das Scoren wurde abgebrochen.' : cancelledText(ended)}</p>
+                    <p>{endText(ended)}</p>
                     <DismissButton label="Meldung ausblenden" onDismiss={dismissEnd} />
                   </div>
                 )}

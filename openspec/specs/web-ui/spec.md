@@ -668,6 +668,13 @@ The app header SHALL offer a settings button with the accessible name „Einstel
 - **WHEN** the user is on the intake view and opens „Einstellungen“ in the header
 - **THEN** the panel shows the threshold and the rate, and saving them changes the pool's hint
 
+### Requirement: Result of a finished pass
+When a pass has finished, the pool view SHALL say below the pass button, where its progress was, that the pass is done and how many postings it scored, like the report of a finished check. The notice SHALL stay, also over a reload, until the user dismisses it or the next pass starts.
+
+#### Scenario: Pass finished
+- **WHEN** a pass finishes after scoring 12 postings
+- **THEN** the view says the pass is done with 12 postings scored, and the notice goes once the user dismisses it
+
 ### Requirement: Counter line below the pass button
 Directly below the pass button the pool view SHALL show one line with the correction counter, the hint of the pool, and the share of corrections or how many ratings the share still needs. How many postings each pass variant scores and at how many model calls SHALL be said only in the pass button's menu.
 

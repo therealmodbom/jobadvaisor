@@ -869,7 +869,18 @@ test('the cancelled notice goes when the next pass starts', async () => {
   expect(screen.queryByText(/Das Scoren wurde abgebrochen/)).toBeNull()
 })
 
-test.each([['cancelled', `${CANCELLED} 30 Anzeigen haben einen neuen Score.`], ['aborted', CANCELLED]] as const)(
+test.each([[12, 'Das Scoren ist fertig. 12 Anzeigen haben einen neuen Score.'],
+           [1, 'Das Scoren ist fertig. 1 Anzeige hat einen neuen Score.']])(
+  'a finished pass with %i scored says so with a dismiss button, like the check report', async (scored, text) => {
+    const { calls } = await openRunning(pass({ status: 'done', scored }))
+    await vi.waitFor(() => expect(calls.filter((call) => call.path === '/pool')).toHaveLength(2))
+    expect(screen.getByText(text).closest('[role="status"]')).not.toBeNull()
+    await act(async () => screen.getByRole('button', { name: 'Meldung ausblenden' }).click())
+    expect(screen.queryByText(text)).toBeNull()
+  })
+
+test.each([['done', 'Das Scoren ist fertig. 30 Anzeigen haben einen neuen Score.'],
+           ['cancelled', `${CANCELLED} 30 Anzeigen haben einen neuen Score.`], ['aborted', CANCELLED]] as const)(
   'the notice of a %s pass stays over a reload until it is dismissed, like the check report', async (status, text) => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
     sessionStorage.setItem('jobadvaisor.pool-pass', 'ps1')
