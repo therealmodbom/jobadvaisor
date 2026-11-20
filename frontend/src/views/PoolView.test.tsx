@@ -5,6 +5,7 @@ import type { CheckState, PassProgress, PassState, Pool, PoolRow, RatingAnswer, 
 import { axe } from '@/test-axe'
 import { type Call, pending, stubApi } from '@/test-api'
 import { label, POOL, poolWith, ratingAnswer, row as makeRow } from '@/test-fixtures'
+import { SettingsControl } from '@/components/settings'
 import { POLL_MS, PoolView, SWAP_LOCK_MS } from './PoolView'
 
 const pass = (changes: Partial<PassState>): PassState => ({
@@ -2081,6 +2082,19 @@ test('a pass without postings gives its reason in an info icon, which is focusab
   act(() => icon.focus())
   expect(tip).toHaveTextContent(reason)
   expect(tip).toBeVisible()
+})
+
+test('a rating key does not rate while the pass reason icon or the header settings button has focus', async () => {
+  const calls = stubApi({ 'GET /pool': { body: NEXT({ unscored: 0 }) } })
+  render(<><SettingsControl onSaved={() => {}} /><PoolView /></>)
+  await mainPart('Anzeigen ohne Score scoren (0)')
+  for (const control of [screen.getByRole('button', { name: 'Warum ist Scoren nicht möglich?' }),
+                         screen.getByRole('button', { name: 'Einstellungen' })]) {
+    act(() => control.focus())
+    await userEvent.keyboard('1')
+    expect(control).toHaveFocus()
+  }
+  expect(calls.filter((call) => call.method !== 'GET')).toEqual([])
 })
 
 test('starting a pass leaves the check button where it was, and the progress grows in the pass column', async () => {

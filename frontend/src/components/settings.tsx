@@ -116,7 +116,8 @@ export function SettingsControl({ onSaved }: { onSaved: () => void }) {
   }
 
   return (
-    <div ref={root} className={`relative ${SLOT}`}>
+    // data-no-shortcuts: the pool's key shortcuts stay off while the gear has focus.
+    <div ref={root} data-no-shortcuts className={`relative ${SLOT}`}>
       <Button ref={button} type="button" variant="ghost" aria-label="Einstellungen" aria-expanded={open}
               aria-controls={open ? panelId : undefined} onClick={toggle}
               className="size-11 border border-transparent p-0 text-muted-foreground hover:bg-muted hover:text-foreground">

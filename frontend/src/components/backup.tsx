@@ -65,7 +65,7 @@ function FailureToggle({ failure, status }: { failure: BackupFailure; status: Ba
     }
   }, [open])
   return (
-    <div ref={root} className={cn('relative', LINE_SLOT)}>
+    <div ref={root} data-no-shortcuts className={cn('relative', LINE_SLOT)}>
       <button type="button" aria-expanded={open} aria-controls={open ? panelId : undefined}
               onClick={() => setOpen(!open)}
               className="inline-flex items-center gap-1.5 rounded-md bg-danger-soft px-2 py-1.5 text-sm font-bold text-danger">
@@ -153,7 +153,7 @@ export function BackupControl({ state }: { state: BackupState }) {
   const { status, unavailable, refusal, pressFailed, press } = state
   if (unavailable !== null) {
     return (
-      <div className={cn('flex items-center gap-2', BUTTON_SLOT)}>
+      <div data-no-shortcuts className={cn('flex items-center gap-2', BUTTON_SLOT)}>
         <Button variant="outline" disabled><CloudUpload aria-hidden="true" />Sichern</Button>
         <WhyUnavailable reason={unavailable} />
       </div>
@@ -165,7 +165,7 @@ export function BackupControl({ state }: { state: BackupState }) {
   const notice = refusal || pressFailed
   const line = failure && !notice && !status.running ? null : statusLine(status, refusal, pressFailed)
   return (
-    <div className="contents">
+    <div data-no-shortcuts className="contents">
       {line && (
         <span className={cn('inline-flex items-center gap-1.5 text-sm', LINE_SLOT,
           line.tone === 'success' ? 'text-success' : line.tone === 'danger' ? 'text-danger' : 'text-muted-foreground')}>

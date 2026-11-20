@@ -4,11 +4,12 @@ import { Info } from 'lucide-react'
 /** The info icon beside a disabled action: a visible, focusable button that shows `reason` on
  * hover and on focus (Escape hides it again), and gives it to screen readers through `id`, which
  * the disabled control points at with `aria-describedby`. `label` is the icon's accessible name,
- * for example "Warum ist Prüfen nicht möglich?". */
+ * for example "Warum ist Prüfen nicht möglich?". The pool's key shortcuts stay off while it has
+ * focus (`data-no-shortcuts`). */
 export function WhyDisabled({ id, label, reason }: { id: string; label: string; reason: string }) {
   const [open, setOpen] = useState(false)
   return (
-    <span className="relative inline-flex">
+    <span data-no-shortcuts className="relative inline-flex">
       <button type="button" aria-label={label} aria-describedby={id}
               onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}
               onFocus={() => setOpen(true)} onBlur={() => setOpen(false)}
