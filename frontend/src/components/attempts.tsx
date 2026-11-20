@@ -14,9 +14,16 @@ const STEPS: Record<string, string> = {
 /** The outcomes of an attempt that found the posting gone (the fetch ladder's own wording). */
 const GONE = /^(HTTP 404|HTTP 410|closed page \((redirect|page text)\))$/
 
+/** Whether the attempt found the submitted link gone: a `loop:*` step fetches another page of
+ * the search for the posting, so a gone answer there is just a failed step. */
+function isGone(attempt: Attempt) {
+  return !attempt.step.startsWith('loop:') && GONE.test(attempt.outcome)
+}
+
 /** The steps tried for a link, one line each, with their outcome in German. `attempts` are the
- * fetch ladder's, as `POST /postings` and the alert run report them; an attempt that found the
- * posting gone reads „Stelle geschlossen“. */
+ * fetch ladder's, as `POST /postings` and the alert run report them; an attempt on the submitted
+ * link that found the posting gone reads „Stelle geschlossen“, one on an alternative source
+ * (`loop:*`) stays „fehlgeschlagen“. */
 export function AttemptList({ attempts, className }: { attempts: Attempt[]; className?: string }) {
   return (
     <ol className={cn('flex list-decimal flex-col gap-1 pl-5', className)}>
@@ -25,7 +32,7 @@ export function AttemptList({ attempts, className }: { attempts: Attempt[]; clas
           {STEPS[attempt.step] ?? attempt.step}:{' '}
           {attempt.outcome === 'skipped' ? 'übersprungen'
             : attempt.outcome === 'ok' ? 'keine Anzeige gefunden'
-              : <>{GONE.test(attempt.outcome) ? 'Stelle geschlossen' : 'fehlgeschlagen'} <span lang="en" className="text-sm text-muted-foreground">({attempt.outcome})</span></>}
+              : <>{isGone(attempt) ? 'Stelle geschlossen' : 'fehlgeschlagen'} <span lang="en" className="text-sm text-muted-foreground">({attempt.outcome})</span></>}
         </li>
       ))}
     </ol>

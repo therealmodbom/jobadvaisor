@@ -361,6 +361,18 @@ test('a batch with only closed links says so without a failure', async () => {
   expect(screen.queryByText(/hat das Lesen nicht geklappt/)).toBeNull()
 })
 
+test('a batch where nothing was stored does not say the others are stored', async () => {
+  stubApi({ ...HOSTS, 'POST /postings/batch': { body: { results: [
+    { url: URL, outcome: 'closed', detail: 'closed', attempts: [{ step: 'plain', url: URL, outcome: 'HTTP 410' }] },
+    { url: URL_C, outcome: 'failed', detail: 'no attempt yielded the posting',
+      attempts: [{ step: 'plain', url: URL_C, outcome: 'HTTP 503' }] }] } } })
+  render(<IntakeView />)
+  await submitLines(URL, URL_C)
+  expect(await screen.findByRole('heading', { name: '0 von 2 Links gespeichert' })).toBeVisible()
+  expect(screen.getByText('Eine Stelle ist geschlossen, bei einem Link hat das Lesen nicht geklappt.')).toBeVisible()
+  expect(screen.queryByText(/Die anderen sind gespeichert/)).toBeNull()
+})
+
 test('the closed intake outcomes have no axe violations', async () => {
   stubApi({ ...HOSTS, ...BATCH_CLOSED })
   const { container } = render(<IntakeView />)

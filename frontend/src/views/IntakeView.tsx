@@ -185,7 +185,6 @@ export function IntakeView({ list = false }: { list?: boolean }) {
   )
 }
 
-/** A link no step could read: the attempts made, then the text and PDF options and a retry. */
 /** The outcome of a link whose posting is gone (`POST /postings` 422 with `closed: true`): nothing
  * was stored, the attempts show why, and there is no text or PDF option, since the posting no
  * longer exists. Not an alert: a closed posting is a result, not a fault. */
@@ -259,7 +258,11 @@ function BatchResults({ results, onText, onPdf }: {
         <h2 id="batch-title" className="text-lg font-bold">
           {results.length - failed - closed} von {results.length} Links gespeichert
         </h2>
-        {notes && <p className="mt-1 text-muted-foreground">{notes}. Die anderen sind gespeichert.</p>}
+        {notes && (
+          <p className="mt-1 text-muted-foreground">
+            {notes}.{results.length > failed + closed && ' Die anderen sind gespeichert.'}
+          </p>
+        )}
       </div>
       <ul aria-label="Ergebnis je Link" className="flex flex-col gap-3">
         {results.map((result, index) => (
