@@ -2,17 +2,17 @@
 
 ## 0. Look
 
-- [ ] 0.1 Draw a Design artifact on the „JobAdvAIsor Design System“. It covers:
-  - „Verfügbarkeit prüfen“ with its count, its disabled state with the info icon, its progress and its report in the pool view;
-  - the filter „Geschlossen“ and the closed mark on a row;
-  - the availability block with the hand setting on the posting page;
+- [x] 0.1 Draw a Design artifact on the „JobAdvAIsor Design System“. It covers:
+  - „Verfügbarkeit prüfen“ with its count, its disabled state with the info icon, its progress, its cancel and its report in the pool view;
+  - the filter „Stelle geschlossen“ and the closed mark on a row;
+  - the availability with the hand setting on the posting page;
   - „Stelle geschlossen“ in the intake view, among several links and in the alert run.
 
   The chosen variant, its link and its texts are recorded in `design.md` → D8. Verified when `design.md` links the artifact and names the chosen variant.
 
 ## 1. Backend: data, rules and recognition
 
-- [ ] 1.1 Add the data fields:
+- [x] 1.1 Add the data fields:
   - `Availability` and `Posting.availability` (D1);
   - `ClosedRule`, with exactly one marker and a `HOST_PATTERN` host, and `PolicyPack.closed_rules` (D2);
   - in the docstrings of `login_wall_hosts` and `closed_rules`, which one replaces the defaults and which one adds to them.
@@ -20,7 +20,7 @@
   Regenerate `schemas/posting.schema.json` and `schemas/policy-pack.schema.json`. Verify with `test_schemas.py` and `test_data_models.py`:
   - a version 1 and a version 2 posting without the field load;
   - a rule with no marker or both, or a malformed host, fails, and the error names the file and `closed_rules[<index>]` (spec: Closed rules in the policy pack).
-- [ ] 1.2 Add the rule functions:
+- [x] 1.2 Add the rule functions:
   - `DEFAULT_CLOSED_RULES`;
   - `closed_rules(policy_pack)`;
   - host matching with subdomains;
@@ -30,7 +30,7 @@
   - an own rule adds to the LinkedIn default;
   - a subdomain matches;
   - a marker inside `<script>` does not match (spec: Page text marker reads the visible page).
-- [ ] 1.3 Add recognition in the fetch (D3):
+- [x] 1.3 Add recognition in the fetch (D3):
   - the `closed_rules` context variable;
   - the always-installed hop hook in `download_plain`, raising `CLOSED_REDIRECT` before the hop is sent and before the guarded refusal;
   - `download_plain(retry=False)`;
@@ -43,7 +43,7 @@
   - a short page with a marker raises `CLOSED_TEXT`, and a long one gives `Page.closed`.
 
   Also test the rendered fetch: an unguarded link whose plain fetch ends in a 429 and whose rendered fetch redirects to the marker raises `CLOSED_REDIRECT`, and Chromium requests no target (Playwright route test).
-- [ ] 1.4 Add both writes:
+- [x] 1.4 Add both writes:
   - `write_availability`, a gated re-read that writes nothing over `set_by: user` or for a missing posting;
   - `PATCH /postings/{id}` `availability`, written unconditionally (D5, D6).
 
@@ -112,21 +112,30 @@
   Also verify with graph tests in `test_triage_graph.py`:
   - the pass's batch skips a closed posting;
   - a posting closed on disk after the batch was taken, before `score` reaches it, gets no judge call and no new score, and counts as done. Specs: A pass leaves closed postings out, No exploration mark on a closed posting, Ratings of closed postings still count, Ranking by fit.
+- [ ] 2.6 Cancel a check (D5, D6): `AvailabilityChecks.cancel` sets `cancel_requested`, the worker stops before the next posting and ends `cancelled`; `POST /availability/checks/{id}/cancel` (202, 404, 409). Verify with tests: a cancel after some postings fetches no further posting, keeps the written results and reports their counts; a cancel of an ended check answers 409; an unknown ID 404 (spec: Cancel a check).
 - [ ] 2.5 Agent tools (D7): `find_postings` and `find_similar_postings` mark `closed: true`, and no tool writes availability. Verify with `test_agent.py` (spec: Closed postings are no recommendation, Search results mark a closed posting, No silent data changes).
 
 ## 3. Frontend
 
-- [ ] 3.1 `api.ts`: types for `availability`, `next_check`, the check state, the closed intake outcomes and the `PATCH` field. Verify with `npm --prefix frontend run build`.
-- [ ] 3.2 `PoolView.tsx`:
-  - the filters, with „Geschlossen“;
-  - the closed mark on a row;
-  - „Verfügbarkeit prüfen“ with its count, disabled state, info icon, progress, report, and the 409 and lost-check states;
+- [ ] 3.1 `api.ts`: types for `availability`, `next_check`, the check state with `cancelled` and `cancel_requested`, the closed intake outcomes and the `PATCH` field. Verify with `npm --prefix frontend run build`.
+- [ ] 3.2 `PoolView.tsx`, layout and pass (D8):
+  - the pool head in two columns, each action with its status below it;
+  - the counter line under the pass button instead of the cost line, and the pass's disabled reason in an info icon;
+  - the pass's progress, storing hint and cancel notice in its column;
+  - the settings form moved out of the view (3.4).
+
+  Verify with `PoolView.test.tsx`: the existing pass tests pass with the new placement; starting or ending a pass leaves the check button where it was. Specs: Pool view, Pass progress below the pass button, Cancel button of a pass, No cancel while storing, Result of a cancelled pass, Pass button, Counter line below the pass button.
+- [ ] 3.3 `PoolView.tsx`, check and filter:
+  - the filters, with „Stelle geschlossen“ before „Herkunft“;
+  - the mark „Stelle geschlossen“ on a row, and „Bewerbungsstatus“ as the rows' status label;
+  - „Verfügbarkeit prüfen“ with its count, disabled state, info icon, „Prüfen abbrechen“, progress, report with three links and the rest behind a toggle, dismiss, and the 409 and lost-check states;
   - the check ID kept in `localStorage`;
   - the new controls in the keyboard shortcut exclusion.
 
-  Texts and placement follow the Design artifact. Verify with `PoolView.test.tsx`, including axe checks of the running, report and disabled states. Specs: Availability check button, Availability check progress and report, Availability check refused or lost, Filter Geschlossen, Closed mark on a row.
-- [ ] 3.3 `PostingPage.tsx`: the availability block with its time, its setter or „noch nie geprüft“, the two hand-setting actions, and „Wieder automatisch prüfen“ for a hand setting. The score button stays enabled for a closed posting. Verify with `PostingPage.test.tsx` (spec: Availability on the posting page).
-- [ ] 3.4 `IntakeView.tsx` and `AlertMailView.tsx`: „Stelle geschlossen“ with its attempts and no text or PDF option, for a single link, among several links and for an alert run entry. Verify with `IntakeView.test.tsx` and `AlertMailView.test.tsx` (spec: Intake view, Several links at once, Alert mail run progress and outcome).
+  Texts follow D8. Verify with `PoolView.test.tsx`, including axe checks of the running, report and disabled states. Specs: Availability check button, Availability check progress and report, Cancel button of a check, Availability check refused or lost, Filter Stelle geschlossen, Closed mark on a row, Labels for application status and availability.
+- [ ] 3.4 `App.tsx`: the settings icon button „Einstellungen“ at the right end of the header, after the backup control, opening the threshold and rate form in a panel anchored to it, closed by Escape, from every view. Verify with `App.test.tsx`: the panel opens from the intake view, saving changes the pool's hint, Escape closes it and focus returns to the button (spec: Settings in the header).
+- [ ] 3.5 `PostingPage.tsx`: under the title one row with „Bearbeiten“, „Bewerbungsstatus“ and „Verfügbarkeit“; the note with its time and setter or „nicht geprüft“; the hand setting; „Wieder automatisch prüfen“ for a hand setting; the old status row removed. The score button stays enabled for a closed posting. Verify with `PostingPage.test.tsx` (specs: Availability on the posting page, Labels for application status and availability).
+- [ ] 3.6 `IntakeView.tsx` and `AlertMailView.tsx`: „Stelle geschlossen“ with its attempts and no text or PDF option, for a single link, among several links and for an alert run entry. Verify with `IntakeView.test.tsx` and `AlertMailView.test.tsx` (spec: Intake view, Several links at once, Alert mail run progress and outcome).
 
 ## 4. End to end and docs
 
@@ -135,11 +144,11 @@
   - `HOST_SPACING_SECONDS` is patched to 0;
   - one posting answers 404 and one redirects to the marker;
   - start a check and see the report;
-  - find both postings under „Geschlossen“;
+  - find both postings under „Stelle geschlossen“;
   - rate one, and reopen one by hand.
 
   Verify with `env -C backend uv run pytest -m e2e -q` after `npm --prefix frontend run build`.
-- [ ] 4.2 Click test in the browser against the real dev server on a demo copy, whose `example.com`/`example.org` links answer as unknown or not at all. Start a check and read the report, which shows unknowns. Close one posting by hand, find it under „Geschlossen“, rate it and reopen it. Verify by screenshots in the PR description.
+- [ ] 4.2 Click test in the browser against the real dev server on a demo copy, whose `example.com`/`example.org` links answer as unknown or not at all. Start a check and read the report, which shows unknowns. Cancel a second check. Close one posting by hand, find it under „Stelle geschlossen“, rate it and reopen it. Open „Einstellungen“ in the header. Verify by screenshots in the PR description.
 - [ ] 4.3 Update the README pool workflow section and the AGENTS.md "Current state" section, and retake `docs/images/pool.png` and `posting.png` with `scripts/readme_images.py`. Verify that the README describes the check and the filter, and that both images show the new controls.
 - [ ] 4.4 File the follow-up issues for a scheduled check and for a UI editor of the policy pack's closed rules. Verify that both issue numbers are named in the PR description.
 - [ ] 4.5 Run every check: `env -C backend uv run pytest -q`, `env -C backend uv run ruff check .`, `npm --prefix frontend test`, `npm --prefix frontend run lint` and `npm --prefix frontend run build`. Verified when all of them pass.

@@ -88,7 +88,8 @@ New module `availability.py`:
 - **Runs:** `AvailabilityChecks` follows the alert runs:
   - one check at a time (`CheckBusyError(check_id)`);
   - a `ThreadPoolExecutor` of one;
-  - state in memory: `{check_id, status: running|done|failed, total, done, counts: {available, closed, unknown}, closed: [{posting_id, title, company}], error}`.
+  - state in memory: `{check_id, status: running|done|cancelled|failed, total, done, cancel_requested, counts: {available, closed, unknown}, closed: [{posting_id, title, company}], error}`;
+  - a cancel sets `cancel_requested`. The worker reads it before each posting, so the posting it works on finishes and is written, and the check ends `cancelled` with the counts so far. This follows the pass's cancel (`runs.cancel`). Rejected: stopping mid-fetch, which would leave a posting half-checked and gain at most one request's time.
 - **Write by a check:** `write_availability(root, posting_id, availability)` is gated. It re-reads the file under `write_gate` and writes nothing when the file's availability is `set_by: user`, or when the posting no longer exists ([#113 (Delete a posting permanently from the web app)](https://github.com/therealmodbom/jobadvaisor/issues/113)). A hand setting made while the check runs therefore survives.
 - **Write by the user:** `PATCH /postings/{id}` writes unconditionally through `update_posting`, so one hand setting can replace another.
 
@@ -96,6 +97,7 @@ New module `availability.py`:
 
 - `POST /availability/checks` → 202 `{check_id, total}`, or 409 `{error, check_id}` while one runs.
 - `GET /availability/checks/{id}` → the state, or 404 for an unknown check.
+- `POST /availability/checks/{id}/cancel` → 202 `{check_id}` at once, 404 for an unknown check, 409 `check not running` for one that has ended. Same contract as `POST /pool/passes/{id}/cancel`.
 - `GET /pool` adds `next_check: {total}`.
 - `PATCH /postings/{id}` accepts `availability: "available"|"closed"` and writes `{state, now, user}`. `availability: "check"` removes the key („Wieder automatisch prüfen“), so the posting counts as never checked. Removing it does not keep the last state as set by a check, because no check set it. `"unknown"` answers 422. `update_posting` gains key removal for this.
 - `POST /postings/{id}/score` keeps refusing only held and excluded postings. A closed posting can be scored on request; only the pass leaves it out.
@@ -116,8 +118,18 @@ New module `availability.py`:
 
 ### D8 Web UI
 
-- In `FILTERS`, „Offen“, „Noch nicht bewertet“ and „Bewertet“ require `availability?.state !== "closed"`. A new entry „Geschlossen“ keeps open-status rows that are closed.
-- The check button, its disabled state with the info icon, its progress and report, the closed mark on a row, the availability block with its hand setting on the posting page, and „Stelle geschlossen“ in the intake and alert views follow a Design artifact on the „JobAdvAIsor Design System“. It is drawn before the UI tasks start and linked here.
+- In `FILTERS`, „Offen“, „Noch nicht bewertet“ and „Bewertet“ require `availability?.state !== "closed"`. A new entry „Stelle geschlossen“, before „Herkunft“, keeps open-status rows that are closed.
+- The look follows the Design artifact https://claude.ai/artifact/CJ2BCcyxxoB53mRnCkyf3D (version 19, approved 2026-11-20). Its boards are captured from the running app over the demo persona, so they show each view whole. Chosen layout and texts:
+  - **Pool head, side by side.** Two columns: the pass button with the counter line below it, then its progress or result; beside it „Verfügbarkeit prüfen (N)“, then its progress or report. Each status grows down in its own column, so neither button moves when the other action's status changes height. Rejected: the two buttons stacked in one column with the statuses to their right. There the scoring status sets the height of the first row, so the check button moves down when the cancel notice appears.
+  - **Counter line** under the pass button, small: „N Korrekturen · Ranking passt gut“ (or „neu scoren sinnvoll“), then „Anteil N %“ or „Anteil ab 10 Bewertungen (bisher N)“. It replaces the cost line, since the menu already names count and model calls per variant.
+  - **Disabled actions** keep the existing pattern: the button is `aria-disabled`, and a focusable info icon beside it gives the reason („Es gibt keine Anzeigen ohne Score. Über den Pfeil wählst du „Alle Anzeigen neu scoren“.“, „Nichts zu prüfen: Jede offene Anzeige ist schon geschlossen, von Hand gesetzt oder hat keinen Link.“).
+  - **Check running:** the button becomes „Prüfen abbrechen“; the progress block matches the pass's (head line „Verfügbarkeit: N von M geprüft“, bar, hint „K geschlossen bisher. Abbrechen hält nach der aktuellen Anzeige an. Was schon geprüft ist, bleibt gespeichert.“).
+  - **Report:** a card in the check's column, „Prüfung fertig: N Stellen geschlossen“ with a dismiss button, the first three closed postings linked, the rest behind „K weitere anzeigen“, then „N verfügbar. N blieben unbekannt, die nächste Prüfung versucht sie erneut.“ A cancelled check says so in the head line. The pass's cancel notice sits in the pass column the same way.
+  - **Settings** move out of the pool view into an icon button „Einstellungen“ at the right end of the app header, after the backup control. It opens a panel with the threshold and rate form, anchored to the button, closed by Escape.
+  - **Wording:** the filter and the row mark read „Stelle geschlossen“, and the application status is labelled „Bewerbungsstatus“ in rows and on the posting page, so the two states are not confused.
+  - **Posting page:** under the title one row holds „Bearbeiten“, „Bewerbungsstatus“ and „Verfügbarkeit“ (a select: verfügbar, geschlossen; „nicht geprüft“ only shown, not choosable). Below the select a note: „laut Prüfung vom …“ or „von dir gesetzt am …“ with „Wieder automatisch prüfen“. The old status row further down goes.
+  - **Intake:** „Stelle geschlossen“ as a neutral card (not the red failure card) with the attempts and no text or PDF option; among several links a neutral entry with the same icon.
+- Kept as is: the pass button's menu with count and model calls per variant. A cost estimate in money is [#135 (Show an estimated cost before a scoring pass)](https://github.com/therealmodbom/jobadvaisor/issues/135).
 - The view remembers a running check's ID in `localStorage`, like the pass, so a reload resumes the poll.
 
 ## Risks / Trade-offs

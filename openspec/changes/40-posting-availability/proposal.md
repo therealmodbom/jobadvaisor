@@ -18,6 +18,7 @@ Intake has the same blind spot. Today a LinkedIn link whose posting expired is s
   - It fetches every posting with status open that has a link, is not closed and was not set by hand.
   - It runs in the background, one at a time, and makes no model call.
   - It reports how many postings it found closed, available and unknown.
+  - The user can cancel it. It stops after the current posting and keeps what it found.
 - What counts as closed: a link answering HTTP 404 or 410, or a match of a closed rule.
   - A closed rule names a host and either a redirect marker (a text the address of a redirect contains) or a page text marker (a text the visible page contains).
   - Default rules live in the code, starting with LinkedIn's `trk=expired_jd_redirect`. The policy pack MAY hold more rules, which add to the defaults.
@@ -29,7 +30,7 @@ Intake has the same blind spot. Today a LinkedIn link whose posting expired is s
   - the exploration picks;
   - the agent's best-fitting postings.
   
-  A new filter „Geschlossen“ lists them. Their page stays reachable, and they can still be rated. A rating of a closed posting still counts for the correction counter and as a scoring example.
+  A new filter „Stelle geschlossen“ lists them. Their page stays reachable, and they can still be rated. A rating of a closed posting still counts for the correction counter and as a scoring example.
 - The user sets the availability by hand, in both directions, from the posting page. A check never overwrites a hand setting. „Wieder automatisch prüfen“ removes the hand setting, so the next check covers the posting again.
 - A closed posting can still be scored on request from its page. Only the pass leaves it out.
 - Intake treats a closed rule like a gone link.
@@ -37,12 +38,16 @@ Intake has the same blind spot. Today a LinkedIn link whose posting expired is s
   - A new link is still looked for at another source, as today. When none yields it, the answer and the alert run say the posting is closed. The import skips it as link gone, as today.
   - A page text marker on a page that still holds the posting text stores the posting at once with availability `closed`.
 - A Design artifact on the JobAdvAIsor design system settles the look and position of:
-  - „Verfügbarkeit prüfen“ and its report;
-  - the filter „Geschlossen“;
+  - „Verfügbarkeit prüfen“ beside the pass button, each action with its progress and result below it;
+  - the filter „Stelle geschlossen“;
   - the hand setting;
-  - „Stelle geschlossen“.
+  - „Stelle geschlossen“ in the intake views.
   
   It is linked from `design.md`.
+- Pool view and posting page change to make room for the check:
+  - the line below the pass button shows the correction counter and the hint; the cost per variant stays in the pass button's menu;
+  - the two hint settings move to a settings button in the app header;
+  - the application status is labelled „Bewerbungsstatus“, and on the posting page it moves under the title, beside „Bearbeiten“ and the availability.
 
 ## Capabilities
 
@@ -56,7 +61,7 @@ None.
 - `posting-intake`: adds „Closed page at intake“, „Closed when no other source holds the posting“ and „Closed page text stored as closed“. Modifies „Input forms“, „Links from a mail carry no personal parameters“, „Chosen entries added in the background“ and „Closed postings are not imported“.
 - `job-agent`: adds „Closed postings are no recommendation“ and „Search results mark a closed posting“. Modifies „No silent data changes“.
 - `rating-feedback`: modifies „Cold-start labels“, since an unlabeled closed posting is listed under „geschlossen“.
-- `web-ui`: adds „Availability check button“, „Availability check progress and report“, „Availability check refused or lost“, „Filter Geschlossen“, „Closed mark on a row“ and „Availability on the posting page“. Modifies „Intake view“, „Several links at once“ and „Alert mail run progress and outcome“.
+- `web-ui`: adds „Availability check button“, „Availability check progress and report“, „Cancel button of a check“, „Availability check refused or lost“, „Filter Stelle geschlossen“, „Closed mark on a row“, „Availability on the posting page“, „Settings in the header“, „Counter line below the pass button“ and „Labels for application status and availability“. Modifies „Pool view“, „Cancel button of a pass“, „No cancel while storing“, „Result of a cancelled pass“, „Pass button“, „Intake view“, „Several links at once“ and „Alert mail run progress and outcome“. Renames „Pass progress beside the pass button“ to „Pass progress below the pass button“ and modifies it.
 - `data-repository`: adds „Availability stored with the posting“ and „Closed rules in the policy pack“.
 
 ## Impact
@@ -66,10 +71,10 @@ None.
   - `intake/fetch.py`: the `closed_rules` context variable. The plain fetch's hop hook and the rendered fetch's route check recognise a redirect marker before the hop is sent, guarded or not. `page_from_html` recognises a page text marker. `download_plain` gains a single-attempt mode.
   - `intake/ladder.py`, `intake/postings.py`, `intake/alert_runs.py`, `api/app.py`: a closed page counts as gone, a closed outcome reaches the answers, a page text marker stores the posting as closed. `intake/imports.py` and `data/fill_company_facts.py` pick up the closed outcomes through `GONE_OUTCOMES`.
   - `pool.py`: rows carry `availability`. `pass_batch`, `next_pass`, `best_open` and the exploration picks leave closed postings out.
-  - `api/app.py`: starting and reading a check, `next_check` on the pool, the hand setting through `PATCH /postings/{id}`.
+  - `api/app.py`: starting, reading and cancelling a check, `next_check` on the pool, the hand setting through `PATCH /postings/{id}`.
   - `agent/__init__.py`, `tools/research.py`: the closed mark in search results and the policy pack's rules for their fetches.
   - `data/models.py`, `data/writer.py`: `Posting.availability`, `PolicyPack.closed_rules`, a gated write of the availability by a check, and the generated `schemas/posting.schema.json` and `schemas/policy-pack.schema.json`.
-- Frontend: `api.ts`, `views/PoolView.tsx` (check button, report, filter, closed mark), `views/PostingPage.tsx` (availability and hand setting), `views/IntakeView.tsx` and `views/AlertMailView.tsx` (closed outcome), their tests and the e2e walkthrough.
+- Frontend: `api.ts`, `App.tsx` (settings button in the header), `views/PoolView.tsx` (check button and its cancel, progress, report, filter, closed mark, counter line, settings moved out), `views/PostingPage.tsx` (availability, hand setting and status under the title), `views/IntakeView.tsx` and `views/AlertMailView.tsx` (closed outcome), their tests and the e2e walkthrough.
 - Data format: two optional fields, `availability` on a posting and `closed_rules` in the policy pack. Existing files stay valid and keep their schema version. A release from before this change cannot load a posting that a check has written to.
 - Docs: the README pool workflow section and images, the AGENTS.md "Current state" section, ADR 0014 on closed rules adding to the defaults.
 
@@ -78,6 +83,7 @@ None.
 - A scheduled check in the background. It becomes a follow-up issue. This change has only the check the user starts.
 - A UI editor for the policy pack's own closed rules. It becomes a follow-up issue. This change reads them from the policy pack.
 - Deleting closed postings ([#113 (Delete a posting permanently from the web app)](https://github.com/therealmodbom/jobadvaisor/issues/113)).
+- An estimate of what a scoring pass costs ([#135 (Show an estimated cost before a scoring pass)](https://github.com/therealmodbom/jobadvaisor/issues/135)).
 - A second round inside one check for postings that answered 429. The next check the user starts picks them up.
 - Checking postings with status „beworben“ or „erledigt“, postings already closed, and postings without a link.
 - Rendering pages in a browser for the check. It uses the plain fetch only.

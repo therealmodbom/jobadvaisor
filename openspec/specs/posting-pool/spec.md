@@ -583,3 +583,10 @@ A rating of a closed posting SHALL count like any rating: for the correction cou
 #### Scenario: Rating a closed posting
 - **WHEN** the user rates a closed posting positive
 - **THEN** the rating is stored, the counter counts it, and a later pass can give it to the judge as a rated example
+
+### Requirement: Cancel a check
+The user SHALL be able to cancel a running check. The check SHALL stop after the posting it works on, keep the availability it already stored, and end as cancelled with the report of what it found so far.
+
+#### Scenario: Cancelled after some postings
+- **WHEN** a check covering 20 postings has stored 8 results, 2 of them closed, and the user cancels it
+- **THEN** it fetches no further posting, the 2 stay closed, the other 12 keep their earlier availability, and the check ends as cancelled reporting the 8

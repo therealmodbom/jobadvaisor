@@ -34,6 +34,13 @@ The system SHALL run one check at a time. A request to start a check while one r
 - **WHEN** a check runs and the user asks to start another
 - **THEN** no second check starts, and the answer names the running one
 
+### Requirement: Cancel a check
+The user SHALL be able to cancel a running check. The check SHALL stop after the posting it works on, keep the availability it already stored, and end as cancelled with the report of what it found so far.
+
+#### Scenario: Cancelled after some postings
+- **WHEN** a check covering 20 postings has stored 8 results, 2 of them closed, and the user cancels it
+- **THEN** it fetches no further posting, the 2 stay closed, the other 12 keep their earlier availability, and the check ends as cancelled reporting the 8
+
 ### Requirement: What a check covers
 A check SHALL cover every posting whose application status is open, whose availability is not closed and not set by the user, and that has at least one stored link on a host that is not login-walled. It SHALL leave every other posting as it is.
 
