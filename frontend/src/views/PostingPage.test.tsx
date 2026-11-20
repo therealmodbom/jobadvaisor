@@ -453,7 +453,7 @@ test('reopening by hand sends available', async () => {
   render(<PostingPage postingId="p1" />)
   await userEvent.selectOptions(await screen.findByRole('combobox', { name: 'Verfügbarkeit' }), 'verfügbar')
   expect(calls.find((call) => call.method === 'PATCH')?.body).toEqual({ availability: 'available' })
-  expect(await screen.findByText(/^von dir gesetzt am/)).toBeVisible()
+  expect(await screen.findByText(/^von dir gesetzt am.*, die nächste Prüfung prüft neu$/)).toBeVisible()
   expect(availabilitySelect()).toHaveDisplayValue('verfügbar')
 })
 
