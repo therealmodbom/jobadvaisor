@@ -22,7 +22,7 @@ The system SHALL accept a posting as a URL, as pasted text, or as an uploaded PD
 
 #### Scenario: Several links
 - **WHEN** the user submits three URLs in one submission and the second one fails
-- **THEN** the first and third are stored, and the answer gives the outcome of each URL: stored, duplicate of a stored posting, or failed with its attempts
+- **THEN** the first and third are stored, and the answer gives the outcome of each URL: stored, duplicate of a stored posting, closed with its attempts, or failed with its attempts
 
 #### Scenario: Alert mail
 - **WHEN** the user submits a job alert mail that lists three new postings and adds all three
@@ -150,7 +150,7 @@ The system SHALL import postings, on request, from a job list the user keeps els
 - **THEN** the import reads no entries from them
 
 ### Requirement: Closed postings are not imported
-The import SHALL skip an entry that is no longer available: the mapping gives its status as "überspringen", or its listed link answers that the page is gone (HTTP 404 or 410) in the fetch ladder, in which case the intake SHALL NOT look for the posting elsewhere. It SHALL store no posting content for a skipped entry. The report SHALL count the entries per outcome and SHALL list every entry it did not import (skipped by status, link gone or failed) with the text of its row, its link and the reason, so the user can follow it up.
+The import SHALL skip an entry that is no longer available: the mapping gives its status as "überspringen", or its listed link is a closed page („Closed page at intake“), in which case the intake SHALL NOT look for the posting elsewhere. It SHALL store no posting content for a skipped entry. The report SHALL count the entries per outcome and SHALL list every entry it did not import (skipped by status, link gone or failed) with the text of its row, its link and the reason, so the user can follow it up.
 
 #### Scenario: Status says skip
 - **WHEN** an entry's status is mapped to "überspringen"
@@ -159,6 +159,10 @@ The import SHALL skip an entry that is no longer available: the mapping gives it
 #### Scenario: Link answers gone
 - **WHEN** an entry's listed link answers "gone" (HTTP 404 or 410)
 - **THEN** the intake does not look for the posting at another source, no posting is stored, the report counts it as skipped, link gone, and lists it
+
+#### Scenario: Link redirects to a closed marker
+- **WHEN** an entry's listed link redirects to an address containing "trk=expired_jd_redirect"
+- **THEN** no posting is stored, the report counts it as skipped, link gone, and lists it
 
 #### Scenario: Temporary failure
 - **WHEN** an entry's URL fails for a reason other than gone (for example a timeout)
@@ -274,7 +278,7 @@ When the model reads a mail, it SHALL receive the mail's visible text with each 
 - **THEN** the model's input does not contain the token
 
 ### Requirement: Links from a mail carry no personal parameters
-Before a link from a mail is shown, fetched, stored or logged, the system SHALL remove its personal parameters. A link a fixed rule reads SHALL be rebuilt from the posting's ID, without a query. Any other link SHALL keep only the query parameters whose name identifies a posting, and a fragment only when it is a hash route holding no `=`. A redirect SHALL be followed only to an address with no query parameter beyond those, checked before it is requested, also when a fixed rule reads that address.
+Before a link from a mail is shown, fetched, stored or logged, the system SHALL remove its personal parameters. A link a fixed rule reads SHALL be rebuilt from the posting's ID, without a query. Any other link SHALL keep only the query parameters whose name identifies a posting, and a fragment only when it is a hash route holding no `=`. A redirect SHALL be followed only to an address with no query parameter beyond those, checked before it is requested, also when a fixed rule reads that address. A redirect to an address a closed rule's redirect marker matches SHALL end as a closed page before that check.
 
 #### Scenario: Link with a login token
 - **WHEN** a LinkedIn alert links a job through a tracking path with a one-time login token in its query
@@ -287,6 +291,10 @@ Before a link from a mail is shown, fetched, stored or logged, the system SHALL 
 #### Scenario: Redirect target with a token
 - **WHEN** an added entry's link redirects to an address that carries a token in its query
 - **THEN** that address is never requested, and unless another source of the posting is found, the entry is reported as failed with the refused redirect among its attempts
+
+#### Scenario: Redirect to a closed marker
+- **WHEN** an added entry's link redirects to an address containing "trk=expired_jd_redirect"
+- **THEN** that address is never requested, and unless another source of the posting is found, the entry is reported as closed
 
 #### Scenario: Redirect to a known sender's link with a token
 - **WHEN** an added entry's link redirects to a LinkedIn job page address that carries a login token in its query
@@ -304,7 +312,7 @@ When two postings the model found have the same link after the removal of person
 - **THEN** both are returned, marked as not addable by their link
 
 ### Requirement: Chosen entries added in the background
-The system SHALL add the entries the user chooses from a mail in a background run, one after the other, each through the normal intake of a link, so the fetch ladder, the intake loop, duplicate detection, the content guard and field filling apply. While the run goes on, the system SHALL report the state of each entry. When an entry ends, it SHALL report its outcome: stored, duplicate of a stored posting, or failed with its attempts or its reason. A failed entry SHALL NOT stop the others.
+The system SHALL add the entries the user chooses from a mail in a background run, one after the other, each through the normal intake of a link, so the fetch ladder, the intake loop, duplicate detection, the content guard and field filling apply. While the run goes on, the system SHALL report the state of each entry. When an entry ends, it SHALL report its outcome: stored, duplicate of a stored posting, closed with its attempts, or failed with its attempts or its reason, and it SHALL count as done. A failed or closed entry SHALL NOT stop the others.
 
 #### Scenario: One entry fails
 - **WHEN** the user adds three entries and the second one cannot be read
@@ -317,6 +325,10 @@ The system SHALL add the entries the user chooses from a mail in a background ru
 #### Scenario: Entry whose text is stored under another link
 - **WHEN** a chosen entry's link is new, and the posting text its page yields matches a stored posting
 - **THEN** it is reported as a duplicate by text, naming that posting, and nothing new is stored
+
+#### Scenario: Closed entry counts as done
+- **WHEN** the user adds two entries and the first is reported as closed
+- **THEN** the run counts it as done, and the second is added
 
 ### Requirement: A text duplicate stored anyway on request
 The system SHALL, when the user explicitly asks for it for an entry reported as a duplicate by text, store that entry as a new posting despite the matching text. It SHALL NOT do so for an entry whose link a stored posting has: such an entry is never stored again.
@@ -339,3 +351,47 @@ The system SHALL compute one alert-mail run at a time, and SHALL refuse to start
 #### Scenario: Restart
 - **WHEN** the application restarts during a run
 - **THEN** the run's state is gone, and entries already stored count as duplicates when the mail is added again
+
+### Requirement: Closed page at intake
+Intake of a link SHALL treat its page as closed when the link answers HTTP 404 or 410, redirects to an address a closed rule's redirect marker matches, or shows a page that a closed rule's page text marker matches and that holds no posting text. It SHALL store nothing from a closed page and SHALL NOT request an address a redirect marker matches.
+
+#### Scenario: Expired LinkedIn link
+- **WHEN** the user submits a LinkedIn link that redirects to an address containing "trk=expired_jd_redirect"
+- **THEN** the search page behind the redirect is never requested, and nothing from it is stored
+
+#### Scenario: Short closed notice
+- **WHEN** a submitted link shows only a short notice that a closed rule's page text marker matches, and no posting text
+- **THEN** nothing from the page is stored
+
+### Requirement: Closed when no other source holds the posting
+After a closed page, intake of a single link, several links or an alert mail entry SHALL look for the posting at another source, as for any failed link. When no other source yields it, the outcome SHALL be closed, not failed, with its attempts.
+
+#### Scenario: Gone link found elsewhere
+- **WHEN** the user submits a link that answers HTTP 404, and the same posting is available at another URL
+- **THEN** the stored posting uses the other URL's text and records both URLs
+
+#### Scenario: Expired link, no other source
+- **WHEN** the user submits a LinkedIn link that redirects to an address containing "trk=expired_jd_redirect", and no other source holds the posting
+- **THEN** no posting is stored, and the outcome is closed with its attempts
+
+#### Scenario: Expired link from an alert mail
+- **WHEN** an alert mail entry the user adds redirects to an address containing "trk=expired_jd_redirect", and no other source holds the posting
+- **THEN** the run reports the entry as closed, not as failed
+
+### Requirement: Closed page text stored as closed
+When the page of a submitted link holds the posting text and a closed rule's page text marker matches it, intake SHALL store the posting with the availability closed, set by a check at the time of intake.
+
+#### Scenario: Posting already filled
+- **WHEN** the user submits a link whose page holds the posting text and a phrase a closed rule's page text marker names for that host
+- **THEN** the posting is stored, closed, and the pool lists it only under „geschlossen“
+
+### Requirement: Posting read from a link stored as available
+When intake of a link stores the posting text it read from a page, and no closed rule's page text marker matches it, intake SHALL store the posting with the availability available, set by a check at the time of intake. This SHALL hold for a single link, several links, an alert mail entry and a list import, also when the text came from another source than the submitted link. A posting added as pasted text or a PDF SHALL be stored never checked.
+
+#### Scenario: Link stored as available
+- **WHEN** the user adds a link from an alert mail and its page holds the posting
+- **THEN** the posting is stored as available, set by a check at the time it was added
+
+#### Scenario: Pasted text never checked
+- **WHEN** the user adds a posting as pasted text
+- **THEN** it is stored never checked

@@ -1,6 +1,48 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$defs": {
+    "ClosedRule": {
+      "additionalProperties": false,
+      "description": "A rule that tells a closed posting page from an open one. `host` matches itself and its\nsubdomains; exactly one marker is set: `redirect_marker`, a substring of the address a\nredirect points to, or `text_marker`, a phrase in the page's visible text (compared without\ncase).",
+      "properties": {
+        "host": {
+          "pattern": "^[a-z0-9-]+(\\.[a-z0-9-]+)+$",
+          "title": "Host",
+          "type": "string"
+        },
+        "redirect_marker": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Redirect Marker"
+        },
+        "text_marker": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Text Marker"
+        }
+      },
+      "required": [
+        "host"
+      ],
+      "title": "ClosedRule",
+      "type": "object"
+    },
     "ExclusionRule": {
       "additionalProperties": false,
       "description": "A hard-exclusion predicate over a raw posting field.\n\n`contains_any` takes a list of strings; `matches_regex` and `equals` take one string. A\n`matches_regex` value must compile as a Python regular expression.",
@@ -237,7 +279,7 @@
     }
   },
   "additionalProperties": false,
-  "description": "`policy-pack.json`: hard-exclusion rules, reason chips and the feature set. IDs are unique\nwithin each of the three lists. `login_wall_hosts` lists hosts intake never fetches\nanonymously (a host matches itself and its subdomains); absent means the app's defaults.\n`import_mapping` is the list import's last confirmed mapping; absent until the first import.",
+  "description": "`policy-pack.json`: hard-exclusion rules, reason chips and the feature set. IDs are unique\nwithin each of the three lists. `login_wall_hosts` lists hosts intake never fetches\nanonymously (a host matches itself and its subdomains); it REPLACES the app's defaults, and\nabsent means the defaults. `closed_rules` ADD to the app's default closed rules and never\nreplace them; absent means the defaults only. `import_mapping` is the list import's last\nconfirmed mapping; absent until the first import.",
   "properties": {
     "schema_version": {
       "const": "1",
@@ -283,6 +325,21 @@
       ],
       "default": null,
       "title": "Login Wall Hosts"
+    },
+    "closed_rules": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/ClosedRule"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Closed Rules"
     },
     "import_mapping": {
       "anyOf": [

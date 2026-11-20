@@ -47,8 +47,12 @@ The system SHALL accept labels supplied in the label schema by an external expor
 - **THEN** it is never used as a positive example and never counted in evals
 
 #### Scenario: Unlabeled record offered for rating
-- **WHEN** an imported posting has no label
+- **WHEN** an imported posting has no label and is not closed
 - **THEN** it appears under the pool filter "noch nicht bewertet"
+
+#### Scenario: Unlabeled closed record offered for rating
+- **WHEN** an imported posting has no label and is closed
+- **THEN** it appears under the pool filter "geschlossen", where the user can rate it
 
 ### Requirement: Strength of a rating
 A rating that carries a verdict MAY also carry a strength, `weak` or `strong`. Verdict and strength together give four levels: positive strong ("ja, auf jeden Fall"), positive weak ("ja, vielleicht"), negative weak ("nein, eher nicht") and negative strong ("nein, auf keinen Fall"). A rating without a strength SHALL be a plain yes or no, and a stored label without a strength SHALL stay valid and be treated exactly as before. A strength without a verdict SHALL be rejected, including on a rating whose verdict would only be derived from a chip, and a label of kind `imported_not_preference` SHALL carry none. A strength SHALL NOT change the direction: counting, chip rules and evals use the verdict alone.

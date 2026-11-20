@@ -263,3 +263,120 @@ test('the intake view has no accessibility violations', async () => {
   await screen.findByLabelText('Firma')
   expect(await axe(container)).toHaveNoViolations()
 })
+
+// --- closed outcome (3.6) ---------------------------------------------------------------------
+
+const GONE_ATTEMPTS = [{ step: 'plain', url: URL, outcome: 'HTTP 404' },
+                       { step: 'loop:search_alternative_source', url: URL, outcome: 'ok' }]
+
+test('a closed link shows "Stelle geschlossen" with the attempts and offers no text or PDF', async () => {
+  stubApi({ ...HOSTS, 'POST /postings': { status: 422, body: {
+    error: 'posting not found', detail: 'closed', closed: true, attempts: GONE_ATTEMPTS } } })
+  render(<IntakeView />)
+  await submitUrl()
+  const panel = await screen.findByRole('status', { name: 'Stelle geschlossen' })
+  expect(within(panel).getByRole('heading', { name: 'Stelle geschlossen' })).toBeVisible()
+  expect(panel).toHaveTextContent('Es wurde nichts gespeichert.')
+  expect(panel).toHaveTextContent('Einfacher Abruf: Stelle geschlossen (HTTP 404)')
+  expect(panel).toHaveTextContent('Websuche nach einer anderen Quelle: keine Anzeige gefunden')
+  expect(screen.queryByRole('alert')).toBeNull()
+  expect(within(panel).queryByRole('button')).toBeNull()
+})
+
+test('a closed link keeps its link for another try', async () => {
+  const calls = stubApi({ ...HOSTS, 'POST /postings': { status: 422, body: {
+    error: 'posting not found', detail: 'closed', closed: true, attempts: GONE_ATTEMPTS } } })
+  render(<IntakeView />)
+  await submitUrl()
+  await screen.findByRole('status', { name: 'Stelle geschlossen' })
+  expect(screen.getByLabelText('Link zur Anzeige')).toHaveValue(URL)
+  expect(calls.filter((call) => call.method === 'POST')).toHaveLength(1)
+})
+
+test('a closed page is named in German whatever the way it was found', async () => {
+  stubApi({ ...HOSTS, 'POST /postings': { status: 422, body: {
+    error: 'posting not found', detail: 'closed', closed: true, attempts: [
+      { step: 'plain', url: URL, outcome: 'HTTP 410' },
+      { step: 'rendered', url: URL, outcome: 'closed page (redirect)' },
+      { step: 'plain', url: URL, outcome: 'closed page (page text)' }] } } })
+  render(<IntakeView />)
+  await submitUrl()
+  const panel = await screen.findByRole('status', { name: 'Stelle geschlossen' })
+  expect(panel).toHaveTextContent('Einfacher Abruf: Stelle geschlossen (HTTP 410)')
+  expect(panel).toHaveTextContent('Abruf im Browser: Stelle geschlossen (closed page (redirect))')
+  expect(panel).toHaveTextContent('Einfacher Abruf: Stelle geschlossen (closed page (page text))')
+})
+
+test('a failed link with a plain failure still offers text and PDF, beside the closed one', async () => {
+  stubApi({ ...HOSTS, 'POST /postings': { status: 422, body: {
+    error: 'posting not found', detail: 'x', attempts: [{ step: 'plain', url: URL, outcome: 'HTTP 503' }] } } })
+  render(<IntakeView />)
+  await submitUrl()
+  const alert = await screen.findByRole('alert')
+  expect(alert).toHaveTextContent('Einfacher Abruf: fehlgeschlagen (HTTP 503)')
+  expect(within(alert).getByRole('button', { name: 'Text einfügen' })).toBeVisible()
+})
+
+const BATCH_CLOSED = { 'POST /postings/batch': { body: { results: [
+  { url: URL, outcome: 'stored', posting_id: 'p-1' },
+  { url: URL_B, outcome: 'closed', detail: 'closed',
+    attempts: [{ step: 'plain', url: URL_B, outcome: 'HTTP 404' },
+               { step: 'loop:search_alternative_source', url: URL_B, outcome: 'ok' }] },
+  { url: URL_C, outcome: 'failed', detail: 'no attempt yielded the posting',
+    attempts: [{ step: 'plain', url: URL_C, outcome: 'HTTP 503' }] },
+] } } }
+
+test('a closed link among several shows "Stelle geschlossen" with its attempts and no text or PDF option', async () => {
+  stubApi({ ...HOSTS, ...BATCH_CLOSED })
+  render(<IntakeView />)
+  await submitLines(URL, URL_B, URL_C)
+  const list = await screen.findByRole('list', { name: 'Ergebnis je Link' })
+  const items = within(list).getAllByRole('listitem').filter((item) => item.parentElement === list)
+  expect(within(items[1]).getByText('Stelle geschlossen')).toBeVisible()
+  expect(items[1]).toHaveTextContent('Nichts gespeichert.')
+  expect(items[1]).toHaveTextContent('Einfacher Abruf: Stelle geschlossen (HTTP 404)')
+  expect(items[1]).toHaveTextContent('Websuche nach einer anderen Quelle: keine Anzeige gefunden')
+  expect(within(items[1]).queryByRole('button')).toBeNull()
+  expect(within(items[1]).queryByRole('link')).toBeNull()
+  expect(within(items[0]).getByText('Hinzugefügt')).toBeVisible()
+  expect(within(items[2]).getByText('Nicht gelesen')).toBeVisible()
+  expect(within(items[2]).getByRole('button', { name: 'Text einfügen' })).toBeVisible()
+})
+
+test('the batch heading counts a closed link as not stored and says so', async () => {
+  stubApi({ ...HOSTS, ...BATCH_CLOSED })
+  render(<IntakeView />)
+  await submitLines(URL, URL_B, URL_C)
+  expect(await screen.findByRole('heading', { name: '1 von 3 Links gespeichert' })).toBeVisible()
+  expect(screen.getByText('Eine Stelle ist geschlossen, bei einem Link hat das Lesen nicht geklappt. Die anderen sind gespeichert.')).toBeVisible()
+})
+
+test('a batch with only closed links says so without a failure', async () => {
+  stubApi({ ...HOSTS, 'POST /postings/batch': { body: { results: [
+    { url: URL, outcome: 'closed', detail: 'closed', attempts: [{ step: 'plain', url: URL, outcome: 'HTTP 410' }] },
+    { url: URL_B, outcome: 'stored', posting_id: 'p-1' }] } } })
+  render(<IntakeView />)
+  await submitLines(URL, URL_B)
+  expect(await screen.findByText('Eine Stelle ist geschlossen. Die anderen sind gespeichert.')).toBeVisible()
+  expect(screen.queryByText(/hat das Lesen nicht geklappt/)).toBeNull()
+})
+
+test('a batch where nothing was stored does not say the others are stored', async () => {
+  stubApi({ ...HOSTS, 'POST /postings/batch': { body: { results: [
+    { url: URL, outcome: 'closed', detail: 'closed', attempts: [{ step: 'plain', url: URL, outcome: 'HTTP 410' }] },
+    { url: URL_C, outcome: 'failed', detail: 'no attempt yielded the posting',
+      attempts: [{ step: 'plain', url: URL_C, outcome: 'HTTP 503' }] }] } } })
+  render(<IntakeView />)
+  await submitLines(URL, URL_C)
+  expect(await screen.findByRole('heading', { name: '0 von 2 Links gespeichert' })).toBeVisible()
+  expect(screen.getByText('Eine Stelle ist geschlossen, bei einem Link hat das Lesen nicht geklappt.')).toBeVisible()
+  expect(screen.queryByText(/Die anderen sind gespeichert/)).toBeNull()
+})
+
+test('the closed intake outcomes have no axe violations', async () => {
+  stubApi({ ...HOSTS, ...BATCH_CLOSED })
+  const { container } = render(<IntakeView />)
+  await submitLines(URL, URL_B, URL_C)
+  await screen.findByRole('list', { name: 'Ergebnis je Link' })
+  expect(await axe(container)).toHaveNoViolations()
+})

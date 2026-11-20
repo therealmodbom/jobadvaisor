@@ -9,7 +9,7 @@ from langchain_core.embeddings import DeterministicFakeEmbedding
 from langgraph.types import Command
 
 from jobadvaisor.data.loader import load
-from jobadvaisor.data.writer import read_pool, read_score
+from jobadvaisor.data.writer import read_pool, read_score, update_posting
 from jobadvaisor.index import LabelIndex
 from jobadvaisor.pool import counter
 from jobadvaisor.tools.guard import ContentGuard
@@ -578,6 +578,47 @@ def test_the_hooks_default_to_reporting_nothing_and_never_cancelling(tmp_path, r
     context = TriageContext(harness.context().repository, harness.guard, harness.index,
                             harness.judge)
     assert context.progress({"phase": "checking"}) is None and context.cancelled() is False
+
+
+CLOSED = {"state": "closed", "set_at": AT, "set_by": "check"}
+
+
+@pytest.mark.parametrize("rescore", [False, True])
+def test_the_batch_of_a_pass_leaves_a_closed_posting_out(tmp_path, root, rescore):
+    add_posting(root, "open", "Backend Engineer 7")
+    add_posting(root, "gone", "Frontend Engineer 6", availability=CLOSED)
+    harness = Harness(tmp_path, root)
+    results = harness.start("run-1", rescore=rescore)["results"]
+    assert set(results) == {"open"} and len(harness.judge.calls) == 1
+    assert not (root / "scores/gone.json").exists()
+
+
+def test_a_posting_closed_after_the_batch_was_taken_gets_no_judge_call_and_counts_as_done(
+        tmp_path, root):
+    for number in (1, 2, 3):
+        add_posting(root, f"p{number}", f"Backend Engineer {number}")
+    harness = Harness(tmp_path, root)
+    closed = []
+
+    def close_p2_after_the_first_score(report):
+        if report["phase"] == "scoring" and report["score"]["done"] == 1 and not closed:
+            closed.append(update_posting(root, "p2", {"availability": CLOSED}))
+
+    harness.on_report = close_p2_after_the_first_score
+    results = harness.start("run-1")["results"]
+    assert closed and results["p2"] == {"status": "closed"}
+    assert [results[i]["status"] for i in ("p1", "p3")] == ["scored", "scored"]
+    assert len(harness.judge.calls) == 2 and "Engineer 2" not in harness.model_prompts()
+    assert not (root / "scores/p2.json").exists()
+    assert harness.reports[-3:] == [report("scoring", (2, 3)), report("scoring", (3, 3)),
+                                    report("storing", (3, 3))]  # the closed one counts as done
+    assert read_pool(root).passes[-1].scored == 2
+
+
+def test_a_single_score_still_scores_a_closed_posting(tmp_path, root):
+    add_posting(root, "gone", "Backend Engineer 7", availability=CLOSED)
+    harness = Harness(tmp_path, root)
+    assert score_one(harness.context(), "gone").score == 7
 
 
 def test_progress_is_reported_per_posting_and_counts_only_postings_a_model_sees(tmp_path, root):

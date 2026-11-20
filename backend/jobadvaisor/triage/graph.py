@@ -26,9 +26,15 @@ from langgraph.types import interrupt
 from jobadvaisor.data.loader import DataRepository
 from jobadvaisor.data.loader import load as load_repository
 from jobadvaisor.data.models import PoolPass, Score
-from jobadvaisor.data.writer import append_pass, read_pool, read_scores, write_score
+from jobadvaisor.data.writer import (
+    append_pass,
+    read_pool,
+    read_posting,
+    read_scores,
+    write_score,
+)
 from jobadvaisor.index import LabelIndex, state_path
-from jobadvaisor.pool import _blocked, counter, pass_batch
+from jobadvaisor.pool import _blocked, counter, is_closed, pass_batch
 from jobadvaisor.settings import Settings
 from jobadvaisor.tools.exclusions import check_exclusions
 from jobadvaisor.tools.guard import ContentGuard, screened_text
@@ -45,8 +51,9 @@ class TriageState(TypedDict, total=False):
     outcome: `{"status": "excluded", "rules": [...]}`,
     `{"status": "excluded", "reason": "content guard", "categories": [...]}`,
     `{"status": "unscreened"}` while the user is asked, `{"status": "pending"}` until `score`
-    reaches the posting, `{"status": "scored", "score", "reasoning", "example_ids"}` or
-    `{"status": "failed", "error"}`. `unscreened`
+    reaches the posting, `{"status": "scored", "score", "reasoning", "example_ids"}`,
+    `{"status": "failed", "error"}` or `{"status": "closed"}` (closed on disk after the batch
+    was taken: no model call, no score). `unscreened`
     lists the postings the user is asked about; `aborted` is true when the user aborted.
     `cancelled` is set (true) by the node that sees the user's cancel and by
     `confirm_unscreened` on the answer `"cancel"`; absent otherwise. A key not declared here is
@@ -245,7 +252,9 @@ def score(state: TriageState, runtime: Runtime[TriageContext]) -> dict:
     syncing the index with the repository's labels. The guard rules again first on the posting
     as stored now, since a paused run may resume after it was flagged or screening was turned
     on; an unscreened posting passes only when the user continued with it, any other ruling
-    becomes the posting's result without a model call. A failed call fails that posting only.
+    becomes the posting's result without a model call. A posting closed on disk since the batch
+    was taken is `closed` without a model call; it counts as done. A failed call fails that
+    posting only.
 
     Reports `scoring` after every posting (`design.md` → The progress shape): a failed one
     counts as done, a ruling removes the posting from the total. Asks `cancelled()` before
@@ -266,6 +275,12 @@ def score(state: TriageState, runtime: Runtime[TriageContext]) -> dict:
             if ruling and not (ruling["status"] == "unscreened" and posting_id in continued):
                 results[posting_id] = ruling
                 total -= 1
+                _report(context, "scoring", (done, total))
+                continue
+            # the repository was loaded when the pass started; a check may have closed it since
+            if is_closed(read_posting(context.repository.root, posting_id)):
+                results[posting_id] = {"status": "closed"}
+                done += 1
                 _report(context, "scoring", (done, total))
                 continue
             scored = _judge(context, posting_id)
@@ -320,12 +335,12 @@ def _report(context: TriageContext, phase: str, score: tuple[int, int] | None = 
 
 def _report_storing(context: TriageContext, state: TriageState) -> None:
     """Report `storing` with the counts as `score` left them, derived from the results:
-    `scored` and `failed` postings are done, one still `pending` (after a cancel) is in the
-    total but not done."""
+    `scored`, `failed` and `closed` postings are done, one still `pending` (after a cancel) is
+    in the total but not done."""
     results = state["results"].values()
     count = {status: sum(r["status"] == status for r in results)
-             for status in ("scored", "failed", "pending")}
-    done = count["scored"] + count["failed"]
+             for status in ("scored", "failed", "closed", "pending")}
+    done = count["scored"] + count["failed"] + count["closed"]
     _report(context, "storing", (done, done + count["pending"]))
 
 

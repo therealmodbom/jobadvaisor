@@ -2,9 +2,12 @@ import httpx
 import pytest
 from conftest import FakeStructuredModel
 
-from jobadvaisor.data.models import PolicyPack
+from jobadvaisor.data.models import ClosedRule, PolicyPack
 from jobadvaisor.intake.fetch import (
+    CLOSED_TEXT,
+    DEFAULT_CLOSED_RULES,
     FetchError,
+    closed_by_text,
     download_plain,
     download_rendered,
     fetch_plain,
@@ -12,7 +15,13 @@ from jobadvaisor.intake.fetch import (
     page_from_html,
     page_links,
 )
-from jobadvaisor.intake.ladder import DEFAULT_LOGIN_WALL_HOSTS, fetch_posting, login_wall_hosts
+from jobadvaisor.intake.fetch import closed_rules as closed_rules_in_force
+from jobadvaisor.intake.ladder import (
+    DEFAULT_LOGIN_WALL_HOSTS,
+    closed_rules,
+    fetch_posting,
+    login_wall_hosts,
+)
 from jobadvaisor.intake.postings import Intake, Submission, store_posting
 from jobadvaisor.tools.guard import ContentGuard
 
@@ -295,3 +304,110 @@ def test_a_company_link_on_a_page_outside_linkedin_is_ignored(linkedin_guest_htm
 def test_the_linkedin_cut_applies_to_linkedin_hosts_only(linkedin_guest_html):
     text = page_from_html("https://notlinkedin.com/job", linkedin_guest_html).text
     assert "Similar jobs" in text
+
+
+JOBS_RULE = ClosedRule(host="jobs.example.com", text_marker="position has been filled")
+
+
+@pytest.fixture
+def jobs_rule():
+    """The closed rules of a fetch: the defaults and `JOBS_RULE`."""
+    token = closed_rules_in_force.set([*DEFAULT_CLOSED_RULES, JOBS_RULE])
+    yield
+    closed_rules_in_force.reset(token)
+
+
+def test_the_default_rules_hold_linkedins_redirect_marker():
+    assert DEFAULT_CLOSED_RULES == [
+        ClosedRule(host="linkedin.com", redirect_marker="trk=expired_jd_redirect")]
+    assert closed_rules_in_force.get() == DEFAULT_CLOSED_RULES
+
+
+def test_the_policy_packs_closed_rules_add_to_the_defaults():
+    pack = PolicyPack(schema_version="1")
+    assert closed_rules(pack) == DEFAULT_CLOSED_RULES
+    own = pack.model_copy(update={"closed_rules": [JOBS_RULE]})
+    assert closed_rules(own) == [*DEFAULT_CLOSED_RULES, JOBS_RULE]
+    assert closed_rules(pack.model_copy(update={"closed_rules": []})) == DEFAULT_CLOSED_RULES
+
+
+@pytest.mark.parametrize(("url", "closed"), [
+    ("https://jobs.example.com/job/1", True),
+    ("https://careers.jobs.example.com/job/1", True),
+    ("https://notjobs.example.com/job/1", False),
+    ("https://example.com/job/1", False),
+])
+def test_a_rule_matches_its_host_and_subdomains(jobs_rule, url, closed):
+    assert closed_by_text(url, "<main>The position has been filled.</main>") is closed
+
+
+def test_a_text_marker_is_compared_without_case(jobs_rule):
+    assert closed_by_text("https://jobs.example.com/1", "<p>THE POSITION HAS BEEN FILLED</p>")
+
+
+def test_a_text_marker_does_not_match_script_style_or_navigation_text(jobs_rule):
+    phrase = "position has been filled"
+    html = (f"<head><style>.x::after{{content:'{phrase}'}}</style></head>"
+            f"<nav>{phrase}</nav><script>var notice = '{phrase}';</script><main>Open role</main>")
+    assert closed_by_text("https://jobs.example.com/1", html) is False
+
+
+def test_a_redirect_rule_never_matches_page_text():
+    html = "<p>trk=expired_jd_redirect</p>"
+    assert closed_by_text("https://www.linkedin.com/jobs/view/1", html) is False
+
+
+def page_with(notice: str, body: str = "") -> str:
+    return f"<html><body><p>{notice}</p>{body}</body></html>"
+
+
+def test_a_short_page_with_a_marker_is_closed(jobs_rule):
+    with pytest.raises(FetchError) as error:
+        page_from_html("https://jobs.example.com/1",
+                       page_with("Sorry, the position has been filled."))
+    assert str(error.value) == CLOSED_TEXT
+
+
+def test_a_long_page_with_a_marker_is_a_page_marked_closed(jobs_rule):
+    page = page_from_html("https://jobs.example.com/1",
+                          page_with("The position has been filled.", BODY))
+    assert page.closed and "sensor fleet" in page.text
+
+
+def test_a_long_page_without_a_marker_is_not_closed(jobs_rule):
+    page = page_from_html("https://jobs.example.com/1", page_with("Apply now.", BODY))
+    assert page.closed is False
+
+
+def test_a_short_page_without_a_marker_is_still_no_posting_text(jobs_rule):
+    with pytest.raises(FetchError, match="no posting text"):
+        page_from_html("https://jobs.example.com/1", page_with("Apply now."))
+
+
+def test_a_marker_outside_its_host_is_ignored(jobs_rule):
+    with pytest.raises(FetchError, match="no posting text"):
+        page_from_html("https://other.example.com/1", page_with("The position has been filled."))
+
+
+def test_plain_download_without_retry_sends_one_request_after_a_429():
+    seen = []
+
+    def handle(request):
+        seen.append(str(request.url))
+        return httpx.Response(429)
+    http = httpx.Client(transport=httpx.MockTransport(handle))
+    with pytest.raises(FetchError, match="HTTP 429"):
+        download_plain("https://example.test/job", http, retry=False)
+    assert len(seen) == 1
+
+
+def test_plain_download_without_retry_sends_one_request_after_a_transport_error():
+    seen = []
+
+    def handle(request):
+        seen.append(str(request.url))
+        raise httpx.ConnectError("down")
+    http = httpx.Client(transport=httpx.MockTransport(handle))
+    with pytest.raises(FetchError, match="connection failed"):
+        download_plain("https://example.test/job", http, retry=False)
+    assert len(seen) == 1

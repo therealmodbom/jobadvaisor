@@ -16,11 +16,17 @@ from pypdf import PdfReader
 from pypdf.errors import PyPdfError
 
 from jobadvaisor.data.loader import load
-from jobadvaisor.data.models import PolicyPack, Posting, slug
+from jobadvaisor.data.models import Availability, PolicyPack, Posting, slug
 from jobadvaisor.data.writer import create_posting, read_posting, update_posting
 from jobadvaisor.intake.company_facts import look_up
 from jobadvaisor.intake.duplicates import Reason, duplicate_of, normalize_url
-from jobadvaisor.intake.ladder import LadderResult, fetch_posting, is_gone, login_wall_hosts
+from jobadvaisor.intake.ladder import (
+    LadderResult,
+    closed_rules_of,
+    fetch_posting,
+    is_gone,
+    login_wall_hosts,
+)
 from jobadvaisor.intake.loop import run_intake_loop
 from jobadvaisor.tools.extraction import UNKNOWN
 from jobadvaisor.tools.guard import ContentGuard
@@ -67,27 +73,34 @@ def find_posting(intake: Intake, url: str, hints: dict[str, str] | None = None, 
                  search_if_gone: bool = True) -> LadderResult:
     """The posting behind `url`: the fetch ladder first, then the intake loop when no step
     yielded posting text, with the fields the user supplied as `hints`. Without
-    `search_if_gone`, a `url` answering gone (`is_gone`) ends there, with no loop. Login-walled
-    hosts come from the data repository's policy pack."""
-    walled = login_wall_hosts(read_policy_pack(intake.root))
-    result = fetch_posting(url, walled)
-    if result.page is not None:
-        return result
-    if not search_if_gone and is_gone([vars(a) for a in result.attempts], url):
-        return result
-    return run_intake_loop(url, result.attempts, walled, intake.loop_model or intake.model,
-                           intake.guard, search=intake.search, hints=hints)
+    `search_if_gone`, a `url` answering gone (`is_gone`: 404, 410 or a closed page) ends there,
+    with no loop. Login-walled hosts and closed rules come from the data repository's policy
+    pack; the closed rules hold for the ladder and the loop's own fetches."""
+    pack = read_policy_pack(intake.root)
+    walled = login_wall_hosts(pack)
+    with closed_rules_of(pack):
+        result = fetch_posting(url, walled)
+        if result.page is not None:
+            return result
+        if not search_if_gone and is_gone([vars(a) for a in result.attempts], url):
+            return result
+        return run_intake_loop(url, result.attempts, walled, intake.loop_model or intake.model,
+                               intake.guard, search=intake.search, hints=hints)
 
 
 @dataclass(frozen=True)
 class Submission:
     """Posting text from one source, with any field values the source itself supplied.
-    `urls` holds the submitted URL first, then any alternative source used."""
+    `urls` holds the submitted URL first, then any alternative source used. A `url`
+    submission is stored with an availability set by a check at intake: closed when `closed`
+    (the page showed a closed rule's text marker beside the posting text), else available.
+    Text and PDF submissions are stored never checked."""
 
     text: str
     source_type: Literal["url", "text", "pdf"]
     urls: list[str] = field(default_factory=list)
     supplied: dict[str, str] = field(default_factory=dict)
+    closed: bool = False
 
 
 def store_posting(intake: Intake, submission: Submission,
@@ -104,11 +117,13 @@ def store_posting(intake: Intake, submission: Submission,
 
 
 class PostingNotFoundError(Exception):
-    """No fetch attempt yielded the posting behind a URL; `attempts` lists them as dicts."""
+    """No fetch attempt yielded the posting behind a URL; `attempts` lists them as dicts.
+    `closed` is true when the submitted URL itself is gone (`is_gone`: 404, 410, a closed
+    redirect or a closed notice) and the intake loop found the posting nowhere else."""
 
-    def __init__(self, attempts: list[dict]):
+    def __init__(self, attempts: list[dict], closed: bool = False):
         super().__init__("no attempt yielded the posting")
-        self.attempts = attempts
+        self.attempts, self.closed = attempts, closed
 
 
 def add_from_url(
@@ -123,8 +138,10 @@ def add_from_url(
     whose company has no record gets its facts looked up (`look_up`, best effort). Without
     `search_if_gone`, a gone `url` is not looked for elsewhere (`find_posting`). With
     `allow_text_duplicate`, a stored posting with the same or a similar text is no duplicate
-    (`add_submission`). Raises `PostingNotFoundError` when no attempt yielded the posting,
-    `NoPostingTextError` for empty posting text.
+    (`add_submission`). A page that shows a closed rule's text marker beside its posting text
+    is stored closed (`Submission.closed`). Raises `PostingNotFoundError` when no attempt
+    yielded the posting (with `closed` when `url` is gone), `NoPostingTextError` for empty
+    posting text.
     """
     supplied = supplied or {}
     if found := duplicate_of(intake.postings(), urls=[url]):
@@ -132,9 +149,9 @@ def add_from_url(
     result = find_posting(intake, url, supplied, search_if_gone=search_if_gone)
     attempts = [vars(attempt) for attempt in result.attempts]
     if result.page is None:
-        raise PostingNotFoundError(attempts)
+        raise PostingNotFoundError(attempts, closed=is_gone(attempts, url))
     submission = Submission(result.page.text, "url", posting_urls(url, result.page.url),
-                            result.page.supplied | supplied)
+                            result.page.supplied | supplied, result.page.closed)
     posting_id, posting, duplicate = add_submission(
         intake, submission, allow_text_duplicate=allow_text_duplicate)
     if duplicate is None:  # after the write: a lookup never sits between a posting and its file
@@ -183,8 +200,13 @@ def _prepare(intake: Intake, submission: Submission,
                                                             intake.model)
     added_at = now or datetime.now(UTC)
     fields = {name: supplied.get(name) or filled.get(name) or UNKNOWN for name in FIELDS}
+    # Intake from a link read the posting from a page, which is what a check calls available;
+    # pasted text and a PDF were fetched from nowhere, so they stay never checked.
+    availability = None if submission.source_type != "url" else Availability(
+        state="closed" if submission.closed else "available", set_at=added_at, set_by="check")
     posting = Posting(schema_version="2", text=text, source_type=submission.source_type,
-                      urls=submission.urls, added_at=added_at, guard=guard, **fields)
+                      urls=submission.urls, added_at=added_at, guard=guard,
+                      availability=availability, **fields)
     return posting, posting_id_base(added_at, fields["company"], fields["title"])
 
 
@@ -227,12 +249,19 @@ class NotFlaggedError(ValueError):
 
 
 def amend_posting(root: Path, posting_id: str, corrections: dict[str, str], release: bool,
-                  now: datetime | None = None) -> Posting:
+                  now: datetime | None = None, *,
+                  availability: Literal["available", "closed"] | None = None) -> Posting:
     """Store the user's corrections of title, company or location and, with `release`, release
     a flagged posting by setting `guard.released_at`, in one write; returns the posting.
-    Raises `NotFlaggedError` for a release of an unflagged posting, `ValueError` for an
-    unknown posting."""
+    `availability` is the user's hand setting: `"available"` or `"closed"` replaces whatever
+    is stored (set by the user at `now`); the next check replaces it in turn. Raises
+    `NotFlaggedError` for a release of an unflagged posting, `ValueError` for an unknown
+    posting."""
     updates: dict[str, object] = dict(corrections)
+    if availability:
+        updates["availability"] = Availability(
+            state=availability, set_at=now or datetime.now(UTC), set_by="user"
+        ).model_dump(mode="json")
     if release:
         guard = read_posting(root, posting_id).guard
         if guard is None or not guard.flagged:

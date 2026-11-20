@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { BackupControl, BackupStrip } from '@/components/backup'
+import { SettingsControl } from '@/components/settings'
 import { StaleBanner, VersionFooter } from '@/components/version'
 import { useBackupStatus } from '@/lib/backup'
 import { cn } from '@/lib/utils'
@@ -37,7 +38,7 @@ function postingIdOf(hash: string): string | null {
 }
 
 /** The app shell: the stale-page banner (only when the server runs another version), the header
- * with the main navigation, the open view and the version footer; the three main
+ * with the main navigation, the backup control and the settings button, the open view and the version footer; the three main
  * views stay mounted but hidden (so an import keeps polling), a posting page mounts only while
  * its route is open and keeps "Anzeigen" current in the navigation. The page sets its own
  * document title. */
@@ -55,11 +56,13 @@ function App() {
     document.title = `${postingId ? 'Anzeige' : view.title} – JobAdvAIsor`
   }, [view, postingId])
 
+  /** Counts the saved settings; the pool view reloads its hint when it changes. */
+  const [settingsSaved, setSettingsSaved] = useState(0)
   const backendVersion = useBackendVersion()
   const backup = useBackupStatus()
 
   const content = {
-    '#/pool': <PoolView active={view === VIEWS[0] && postingId === null} />,
+    '#/pool': <PoolView active={view === VIEWS[0] && postingId === null} reloadKey={settingsSaved} />,
     '#/hinzufuegen': <IntakeView list={importing} />,
     '#/fragen': <ChatView />,
   }
@@ -85,6 +88,7 @@ function App() {
             ))}
           </nav>
           <BackupControl state={backup} />
+          <SettingsControl onSaved={() => setSettingsSaved((count) => count + 1)} />
         </div>
       </header>
       <BackupStrip status={backup.status} />

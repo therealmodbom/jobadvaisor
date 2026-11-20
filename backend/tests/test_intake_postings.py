@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 
 import pytest
-from conftest import FakeStructuredModel, write_json
+from conftest import FakeStructuredModel, ToolScriptModel, write_json
 from fastapi.testclient import TestClient
 from test_triage_graph import CLEAN, FLAGGED, POLICY_PACK, Harness, StubClassifier, add_posting
 
@@ -163,3 +163,98 @@ def test_invalid_patch_is_rejected(tmp_path, root, body):
 def test_patch_of_an_unknown_posting_is_not_found(tmp_path, root):
     response = Client(tmp_path, root).http.patch("/postings/nope", json={"company": "A"})
     assert response.status_code == 404
+
+
+@pytest.fixture
+def closed_api(tmp_path, closed_site):
+    """The API over a repository whose policy pack adds `closed_site`'s rules; the intake loop's
+    model does nothing unless its `plan` is set, so a closed link ends with no other source.
+    Returns the client, the repository root and that loop model."""
+    root = tmp_path / "data"
+    write_json(root / "profile.json", {"schema_version": "1", "summary": "Developer"})
+    write_json(root / "policy-pack.json", {**POLICY_PACK, "closed_rules": closed_site.rules})
+    loop = ToolScriptModel(plan=[])
+    harness = Harness(tmp_path, root)
+    http = TestClient(create_app(Runs(harness.graph, harness.context),
+                                 Intake(root, FakeStructuredModel(FIELDS), harness.guard,
+                                        loop_model=loop)),
+                      raise_server_exceptions=False)
+    return http, root, loop
+
+
+def test_a_redirect_marker_link_is_closed_and_its_target_is_never_requested(
+        closed_api, closed_site):
+    http, root, loop = closed_api
+    response = http.post("/postings", data={"url": f"{closed_site.url}/expired/1"})
+    assert response.status_code == 422, response.text
+    body = response.json()
+    assert body["error"] == "posting not found" and body["closed"] is True
+    assert [(a["step"], a["outcome"]) for a in body["attempts"]] == [
+        ("plain", "closed page (redirect)")]  # the rendered step is skipped
+    assert closed_site.hits == ["/expired/1"]  # the search page behind it is never requested
+    assert loop.seen, "the loop still looks for another source"
+    assert not list((root / "postings").glob("*.json"))
+
+
+def test_a_gone_link_with_no_other_source_is_closed(closed_api, closed_site):
+    http, _, loop = closed_api
+    response = http.post("/postings", data={"url": f"{closed_site.url}/missing"})
+    assert response.status_code == 422 and response.json()["closed"] is True
+    assert loop.seen
+
+
+def test_a_short_closed_notice_stores_nothing(closed_api, closed_site):
+    http, root, _ = closed_api
+    response = http.post("/postings", data={"url": f"{closed_site.url}/notice"})
+    assert response.status_code == 422 and response.json()["closed"] is True
+    assert response.json()["attempts"][0]["outcome"] == "closed page (page text)"
+    assert not list((root / "postings").glob("*.json"))
+
+
+def test_a_failed_link_that_is_not_gone_is_not_closed(closed_api, closed_site):
+    http, _, _ = closed_api
+    response = http.post("/postings", data={"url": f"{closed_site.url}/error"})
+    assert response.status_code == 422 and response.json()["closed"] is False
+
+
+def test_a_gone_link_found_elsewhere_keeps_both_urls_and_is_available(closed_api, closed_site):
+    """The other source shows the posting, so a check would find it available too."""
+    http, root, loop = closed_api
+    other = f"{closed_site.url}/alt"
+    loop.plan[:] = [("fetch_plain", {"url": other}), ("report_posting", {"url": other})]
+    gone = f"{closed_site.url}/missing"
+    response = http.post("/postings", data={"url": gone})
+    assert response.status_code == 201, response.text
+    stored = load(root).postings[response.json()["posting_id"]]
+    assert stored.urls == [gone, other] and stored.availability.state == "available"
+
+
+def test_a_long_page_with_a_text_marker_is_stored_closed_by_the_check(closed_api, closed_site):
+    http, root, _ = closed_api
+    before = datetime.now(UTC)
+    response = http.post("/postings", data={"url": f"{closed_site.url}/filled"})
+    assert response.status_code == 201, response.text
+    availability = load(root).postings[response.json()["posting_id"]].availability
+    assert (availability.state, availability.set_by) == ("closed", "check")
+    assert before <= availability.set_at <= datetime.now(UTC)
+    assert response.json()["posting"]["availability"]["state"] == "closed"
+
+
+def test_an_open_page_is_stored_available_as_of_intake_by_the_check(closed_api, closed_site):
+    """Intake read the posting from its page, which is what a check calls available."""
+    http, root, _ = closed_api
+    before = datetime.now(UTC)
+    response = http.post("/postings", data={"url": f"{closed_site.url}/open"})
+    assert response.status_code == 201
+    availability = load(root).postings[response.json()["posting_id"]].availability
+    assert (availability.state, availability.set_by) == ("available", "check")
+    assert before <= availability.set_at <= datetime.now(UTC)
+
+
+@pytest.mark.parametrize("form", [{"text": TEXT}, {"pdf": minimal_pdf(TEXT)}])
+def test_pasted_text_and_a_pdf_are_stored_never_checked(tmp_path, root, form):
+    """Without a link nothing was fetched, so nothing says the posting is still open."""
+    client = Client(tmp_path, root, FIELDS)
+    response = client.post(**form)
+    assert response.status_code == 201, response.text
+    assert client.stored(response.json()["posting_id"]).availability is None

@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from jobadvaisor.data.loader import DataRepositoryError, _load_file, load
 from jobadvaisor.data.models import (
     POSTING_ID_PATTERN,
+    Availability,
     Company,
     Entity,
     ExtractionLabels,
@@ -228,19 +229,45 @@ def write_guard(root: Path, posting_id: str, guard: Guard) -> Posting:
 
 def read_posting(root: Path, posting_id: str) -> Posting:
     """`postings/<posting_id>.json` under `root` as the file on disk holds it now. Raises
-    `ValueError` for an unsafe ID or a posting that does not exist."""
+    `ValueError` for an unsafe ID, a posting that does not exist or a file that does not
+    validate; `FileNotFoundError` when the file is removed between that check and the read."""
     return Posting.model_validate_json(_posting_path(root, posting_id).read_text(), strict=True)
 
 
 @_gated
 def update_posting(root: Path, posting_id: str, updates: dict[str, object]) -> Posting:
     """Replace the top-level keys in `updates` (JSON values) of `postings/<posting_id>.json`
-    under `root` in one write, keeping every other key as the file on disk holds it, and return
-    the updated posting. Writing a version 2 field (`status`, `origin`) sets `schema_version` to
-    `"2"`. Raises like `write_guard`."""
+    under `root` in one write, keeping every other key as the file on disk holds it, and
+    return the updated posting. Writing a version 2 field (`status`, `origin`) sets
+    `schema_version` to `"2"`; `availability` keeps the version. Raises like `write_guard`."""
     if updates.keys() & {"status", "origin"}:
         updates = updates | {"schema_version": "2"}
     return _update_json(_posting_path(root, posting_id), updates, Posting)
+
+
+@_gated
+def write_availability(root: Path, posting_id: str, availability: Availability,
+                       expected: Availability | None) -> bool:
+    """Set the `availability` of `postings/<posting_id>.json` under `root`, as a check does;
+    returns whether it wrote.
+
+    `expected` is the availability the check saw when it started (`None`: never checked). The
+    file is re-read under the write gate and nothing is written, with `False` returned, when
+    its availability no longer equals `expected` as a whole record (state, time and setter),
+    so a value the user set meanwhile survives, also one changed and changed back; when the
+    posting was deleted meanwhile; or when `availability` is `unknown` and the posting is
+    closed, so a failed fetch never reopens it. Every other key and the schema version stay as
+    the file holds them. Raises `ValueError` for an unsafe posting ID or an invalid result,
+    like `write_guard`."""
+    path = root / "postings" / f"{_safe_id(posting_id)}.json"
+    if not path.is_file():
+        return False
+    current = read_posting(root, posting_id).availability
+    if current != expected or (
+            availability.state == "unknown" and current is not None and current.state == "closed"):
+        return False
+    update_posting(root, posting_id, {"availability": availability.model_dump(mode="json")})
+    return True
 
 
 @_gated

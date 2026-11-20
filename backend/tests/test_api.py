@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 import pytest
 from conftest import LABEL, FakeStructuredModel, ScriptedModel, write_json
 from fastapi.testclient import TestClient
+from test_availability import Clock, Site, reply
 from test_triage_graph import (
     FLAGGED,
     POLICY_PACK,
@@ -16,8 +17,11 @@ from test_triage_graph import (
 )
 
 from jobadvaisor.api.app import configured_intake, configured_runs, create_app
+from jobadvaisor.availability import AvailabilityChecks, check_batch
 from jobadvaisor.data.loader import DataRepositoryError
+from jobadvaisor.data.loader import load as load_repository
 from jobadvaisor.data.writer import read_pool, read_posting, read_score
+from jobadvaisor.intake.ladder import LadderResult
 from jobadvaisor.intake.postings import Intake
 from jobadvaisor.settings import Settings
 from jobadvaisor.triage.graph import checkpoint_path
@@ -27,7 +31,7 @@ from jobadvaisor.triage.runs import Runs
 class Api:
     """A test client over a triage graph with fake models; the judge waits for `gate`."""
 
-    def __init__(self, harness: Harness):
+    def __init__(self, harness: Harness, checks: AvailabilityChecks | None = None):
         self.harness, self.gate = harness, threading.Event()
         self.entered = threading.Event()  # set when the judge is first called
         self.gate.set()
@@ -40,6 +44,7 @@ class Api:
         self.client = TestClient(create_app(self.runs,
                                             Intake(harness.root, FakeStructuredModel(),
                                                    harness.guard),
+                                            checks=checks,
                                             frontend=harness.root / "no-frontend-build"),
                                  raise_server_exceptions=False)
 
@@ -362,6 +367,14 @@ def test_posting_page_without_a_score_has_none_and_an_unscored_row(api, root):
     assert page["score"] is None and page["row"]["state"] == "unscored"
 
 
+def test_posting_page_says_whether_a_check_can_read_the_posting(api, root):
+    """`checkable` follows the check's link rule: a pasted posting (no link) is not checkable."""
+    add_posting(root, "linked", "Linked Engineer", source_type="url",
+                urls=["https://jobs.example.org/stelle/1"])
+    assert api.client.get("/postings/linked").json()["checkable"] is True
+    assert api.client.get("/postings/p5").json()["checkable"] is False
+
+
 def test_pool_and_posting_page_say_whether_screening_is_on(tmp_path, root):
     off = Api(Harness(tmp_path / "off", root))
     assert off.client.get("/pool").json()["screening"] is False
@@ -597,6 +610,162 @@ def test_patch_rejects_explicit_nulls_with_a_problem_body(api):
         response = api.client.patch("/postings/p1", json={field: None})
         assert response.status_code == 422, field
         assert {"error", "detail"} <= response.json().keys()
+
+
+def patch_availability(api: Api, value: str, posting_id: str = "p1"):
+    return api.client.patch(f"/postings/{posting_id}", json={"availability": value})
+
+
+def pool_row(api: Api, posting_id: str) -> dict:
+    rows = api.client.get("/pool").json()["rows"]
+    return next(row for row in rows if row["posting_id"] == posting_id)
+
+
+def test_a_posting_is_closed_by_hand_and_reopened_by_hand(api, root):
+    closed = patch_availability(api, "closed")
+    assert closed.status_code == 200, closed.text
+    stored = read_posting(root, "p1")
+    assert (stored.availability.state, stored.availability.set_by) == ("closed", "user")
+    assert closed.json()["posting"]["availability"]["state"] == "closed"
+    assert (stored.status, stored.schema_version) == ("open", "1")  # status apart, no new version
+    assert pool_row(api, "p1")["availability"]["state"] == "closed"
+    reopened = patch_availability(api, "available")
+    assert reopened.status_code == 200
+    stored = read_posting(root, "p1")
+    assert (stored.availability.state, stored.availability.set_by) == ("available", "user")
+    assert pool_row(api, "p1")["availability"]["set_by"] == "user"
+
+
+def test_a_hand_setting_leaves_the_application_status_alone(api, root):
+    api.client.patch("/postings/p1", json={"status": "applied"})
+    patch_availability(api, "closed")
+    stored = read_posting(root, "p1")
+    assert (stored.status, stored.availability.state) == ("applied", "closed")
+
+
+def test_a_hand_setting_of_unknown_or_anything_else_is_a_422(api, root):
+    for value in ("unknown", "open", "", "check"):  # "check" no longer removes a setting
+        response = patch_availability(api, value)
+        assert response.status_code == 422, value
+    assert api.client.patch("/postings/p1", json={"availability": None}).status_code == 422
+    assert read_posting(root, "p1").availability is None
+
+
+def test_a_hand_setting_of_an_unknown_posting_is_a_404(api):
+    assert patch_availability(api, "closed", "nope").status_code == 404
+
+
+def test_a_closed_posting_is_scored_on_request_and_stays_closed(api, root):
+    patch_availability(api, "closed", "p2")
+    response = post_score(api, "p2")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["score"]["score"] == 2 and read_score(root, "p2").score == 2
+    assert body["row"]["availability"]["state"] == "closed"
+    assert read_posting(root, "p2").availability.state == "closed"
+
+
+def checked_api(tmp_path, root, site: Site) -> Api:
+    """An `Api` whose availability checks fetch through `site`, with no spacing."""
+    checks = AvailabilityChecks(root, http=site.client, throttle=Clock().throttle())
+    return Api(Harness(tmp_path, root), checks)
+
+
+def settled_check(api: Api, check_id: str) -> dict:
+    deadline = time.monotonic() + 10
+    while (state := api.client.get(f"/availability/checks/{check_id}").json())[
+            "status"] == "running":
+        assert time.monotonic() < deadline, "check never settled"
+        time.sleep(0.02)
+    return state
+
+
+def test_the_pool_announces_what_a_check_would_cover(api, root):
+    assert api.client.get("/pool").json()["next_check"] == {"total": 0}  # no posting has a link
+    add_posting(root, "linked", "Engineer 9", urls=["https://jobs.example.org/9"])
+    assert api.client.get("/pool").json()["next_check"] == {"total": 1}
+
+
+def test_a_check_started_through_the_api_reports_and_stores_its_findings(tmp_path, root):
+    add_posting(root, "open", "Engineer 8", urls=["https://a.example.org/1"])
+    add_posting(root, "gone", "Engineer 9", urls=["https://b.example.org/2"])
+    api = checked_api(tmp_path, root, Site({"https://b.example.org/2": reply(404)}))
+    started = api.client.post("/availability/checks")
+    assert started.status_code == 202, started.text
+    assert set(started.json()) == {"check_id", "total"} and started.json()["total"] == 2
+    state = settled_check(api, started.json()["check_id"])
+    assert state["status"] == "done" and (state["total"], state["done"]) == (2, 2)
+    assert state["counts"] == {"available": 1, "closed": 1, "unknown": 0}
+    assert [c["posting_id"] for c in state["closed"]] == ["gone"]
+    assert pool_row(api, "gone")["availability"]["state"] == "closed"
+    assert pool_row(api, "open")["availability"]["set_by"] == "check"
+    assert api.client.get("/pool").json()["next_check"] == {"total": 2}  # closed: again
+
+
+def test_a_second_check_is_refused_naming_the_running_one(tmp_path, root):
+    add_posting(root, "linked", "Engineer 9", urls=["https://a.example.org/1"])
+    release, entered = threading.Event(), threading.Event()
+    site = Site()
+    site.on_request = lambda url: (entered.set(), release.wait(30))
+    api = checked_api(tmp_path, root, site)
+    first = api.client.post("/availability/checks").json()["check_id"]
+    assert entered.wait(10)
+    refused = api.client.post("/availability/checks")
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["error"] == "check in progress" and refused.json()["check_id"] == first
+    assert api.client.get(f"/availability/checks/{first}").json()["status"] == "running"
+    release.set()
+    assert settled_check(api, first)["status"] == "done"
+
+
+def test_a_check_is_cancelled_through_the_api_and_an_ended_or_unknown_one_is_refused(tmp_path,
+                                                                                      root):
+    add_posting(root, "a", "Engineer 8", urls=["https://a.example.org/1"])
+    add_posting(root, "b", "Engineer 9", urls=["https://b.example.org/2"])
+    release, entered = threading.Event(), threading.Event()
+    site = Site()
+    site.on_request = lambda url: (entered.set(), release.wait(30))
+    api = checked_api(tmp_path, root, site)
+    check_id = api.client.post("/availability/checks").json()["check_id"]
+    assert entered.wait(10)
+    cancelled = api.client.post(f"/availability/checks/{check_id}/cancel")
+    assert cancelled.status_code == 202 and cancelled.json() == {"check_id": check_id}
+    assert api.client.get(f"/availability/checks/{check_id}").json()["cancel_requested"] is True
+    release.set()
+    state = settled_check(api, check_id)
+    assert (state["status"], state["done"], state["total"]) == ("cancelled", 1, 2)
+    ended = api.client.post(f"/availability/checks/{check_id}/cancel")
+    assert ended.status_code == 409 and ended.json()["error"] == "check not running"
+    unknown = api.client.post("/availability/checks/nope/cancel")
+    assert unknown.status_code == 404
+    assert unknown.json() == {"error": "not found", "detail": "no availability check nope"}
+
+
+def test_an_unknown_check_is_not_found(api):
+    response = api.client.get("/availability/checks/nope")
+    assert response.status_code == 404
+    assert response.json() == {"error": "not found", "detail": "no availability check nope"}
+
+
+def test_a_hand_setting_does_not_take_a_posting_out_of_the_next_check(api, root):
+    add_posting(root, "linked", "Engineer 9", urls=["https://a.example.org/1"])
+    patch_availability(api, "closed", "linked")
+    assert "linked" in check_batch(load_repository(root))
+    patch_availability(api, "available", "linked")
+    assert "linked" in check_batch(load_repository(root))
+    assert api.client.get("/pool").json()["next_check"] == {"total": 1}
+
+
+def test_a_closed_link_is_closed_in_both_intake_answers(api, root, closed_site, monkeypatch):
+    write_json(root / "policy-pack.json", POLICY_PACK | {"closed_rules": closed_site.rules})
+    monkeypatch.setattr("jobadvaisor.intake.postings.run_intake_loop",
+                        lambda url, attempts, *args, **kwargs: LadderResult(None, attempts))
+    link = f"{closed_site.url}/expired/1"
+    single = api.client.post("/postings", data={"url": link})
+    assert single.status_code == 422 and single.json()["closed"] is True
+    batch = api.client.post("/postings/batch", json={"urls": [link]}).json()["results"][0]
+    assert batch["outcome"] == "closed" and batch["attempts"] == single.json()["attempts"]
+    assert closed_site.hits == ["/expired/1", "/expired/1"]
 
 
 @pytest.fixture

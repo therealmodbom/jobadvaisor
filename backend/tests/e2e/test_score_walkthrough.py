@@ -405,6 +405,112 @@ def test_the_row_of_the_pass_button_keeps_its_layout_in_every_running_state(page
     assert overflowing == [], overflowing  # a fixed box that clips or spills its text is no fix
 
 
+def a_check(status, done):
+    """The body of `GET /availability/checks/<id>` for a check over 104 postings."""
+    return {"check_id": "ck-row", "status": status, "error": None, "total": 104, "done": done,
+            "cancel_requested": False, "counts": {"available": 0, "closed": 0, "unknown": done},
+            "still_closed": 0, "closed": []}
+
+
+def test_both_columns_of_the_pool_head_start_their_status_at_one_height(page, app_url):
+    """Only the pass has a counter line under its button, yet from 640 px both buttons sit at the
+    top and both statuses start at one height: the check's start and cancel buttons sit level with
+    the pass's button (idle and running), the check's progress bar level with the pass's, and its
+    report starts level with the pass's progress block. Pass and check endpoints are stubbed."""
+    current = {"check": a_check("running", 10)}
+    a_pass = running_pass("scoring", (0, 141))
+    page.route("**/pool/passes/ps-row", lambda route: route.fulfill(json=a_pass))
+    page.route("**/availability/checks/ck-row", lambda route: route.fulfill(json=current["check"]))
+    pass_block = page.get_by_role("region", name="Stand des Scorens")
+    check_block = page.get_by_role("region", name="Stand der Prüfung")
+    heading = page.get_by_role("heading", name=re.compile("^Prüfung abgebrochen"))
+    report = heading.locator("xpath=../..")
+    pass_cancel = page.locator("button[aria-describedby=cancel-why]")
+    check_cancel = page.locator("button[aria-describedby=check-why]")
+    check_start = page.get_by_role("button", name=re.compile(r"^Verfügbarkeit prüfen \(\d+\)$"))
+
+    def top(locator):
+        """The y position of `locator`'s box."""
+        return locator.bounding_box()["y"]
+
+    offsets = []
+    try:
+        page.goto(f"{app_url}/#/pool")
+        page.reload()
+        split = page.locator("[role=group][aria-label=Scoren]")
+        expect(split).to_be_visible()
+        for width in ROW_WIDTHS[2:]:
+            page.set_viewport_size({"width": width, "height": 900})
+            offsets.append((width, "idle", top(check_start) - top(split)))
+        page.evaluate("sessionStorage.setItem('jobadvaisor.pool-pass', 'ps-row')")
+        page.evaluate("localStorage.setItem('jobadvaisor.pool-check', 'ck-row')")
+        page.reload()
+        expect(check_block.get_by_text("Verfügbarkeit: 10 von 104 geprüft")).to_be_visible(
+            timeout=15_000)
+        for width in ROW_WIDTHS[2:]:
+            page.set_viewport_size({"width": width, "height": 900})
+            offsets.append((width, "bar", top(check_block.locator("progress"))
+                            - top(pass_block.locator("progress"))))
+            offsets.append((width, "cancel", top(check_cancel) - top(pass_cancel)))
+        current["check"] = a_check("cancelled", 19)
+        expect(report).to_be_visible(timeout=15_000)
+        for width in ROW_WIDTHS[2:]:
+            page.set_viewport_size({"width": width, "height": 900})
+            offsets.append((width, "report", top(report) - top(pass_block)))
+            offsets.append((width, "start", top(check_start) - top(pass_cancel)))
+            # The dismiss icon sits in the corner: as far from the right border as the heading
+            # from the left one, and level with the heading's first line.
+            box, title = report.bounding_box(), heading.bounding_box()
+            icon = report.get_by_role("button", name="Bericht ausblenden").locator("svg")
+            mark = icon.bounding_box()
+            offsets.append((width, "x right", (box["x"] + box["width"] - mark["x"] - mark["width"])
+                            - (title["x"] - box["x"])))
+            line = float(heading.evaluate("el => parseFloat(getComputedStyle(el).lineHeight)"))
+            offsets.append((width, "x level", (mark["y"] + mark["height"] / 2)
+                            - (title["y"] + line / 2)))
+    finally:  # later tests share the page: desktop width, no stored pass or check
+        page.unroute("**/pool/passes/ps-row")
+        page.unroute("**/availability/checks/ck-row")
+        page.evaluate("sessionStorage.removeItem('jobadvaisor.pool-pass')")
+        page.evaluate("localStorage.removeItem('jobadvaisor.pool-check')")
+        page.set_viewport_size({"width": 1280, "height": 720})
+    assert [entry for entry in offsets if abs(entry[2]) >= 1] == []
+
+
+def test_the_cancel_notice_of_a_pass_has_its_dismiss_icon_in_the_corner(page, app_url):
+    """The notice of a cancelled pass, restored from storage, puts its dismiss icon as the check
+    report does: as far from the right border as the text from the left one, level with the text's
+    first line. A press hides it, also for the next reload."""
+    notice = page.get_by_text("Das Scoren wurde abgebrochen. 4 Anzeigen haben einen neuen Score.")
+    card = notice.locator("xpath=..")
+    dismiss = card.get_by_role("button", name="Meldung ausblenden")
+    offsets = []
+    try:
+        page.goto(f"{app_url}/#/pool")
+        page.evaluate("localStorage.setItem('jobadvaisor.pool-pass-end', "
+                      "JSON.stringify({status: 'cancelled', scored: 4}))")
+        page.reload()
+        expect(notice).to_be_visible()
+        for width in ROW_WIDTHS[2:]:
+            page.set_viewport_size({"width": width, "height": 900})
+            box, text, mark = (card.bounding_box(), notice.bounding_box(),
+                               dismiss.locator("svg").bounding_box())
+            line = float(notice.evaluate("el => parseFloat(getComputedStyle(el).lineHeight)"))
+            offsets.append((width, "x right", (box["x"] + box["width"] - mark["x"] - mark["width"])
+                            - (text["x"] - box["x"])))
+            offsets.append((width, "x level", (mark["y"] + mark["height"] / 2)
+                            - (text["y"] + line / 2)))
+        dismiss.click()
+        expect(notice).to_have_count(0)
+        page.reload()
+        expect(page.get_by_role("group", name="Scoren")).to_be_visible()
+        expect(notice).to_have_count(0)
+    finally:  # later tests share the page: desktop width, no stored notice
+        page.evaluate("localStorage.removeItem('jobadvaisor.pool-pass-end')")
+        page.set_viewport_size({"width": 1280, "height": 720})
+    assert [entry for entry in offsets if abs(entry[2]) >= 1] == []
+
+
 def test_focus_stays_in_the_pass_button_area_through_a_start_and_an_end(
         page, app_url, data_root, harness):
     """Real Chromium blurs a focused element that turns `inert` or `disabled`, which jsdom does not,

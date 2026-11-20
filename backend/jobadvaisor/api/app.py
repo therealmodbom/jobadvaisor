@@ -25,6 +25,13 @@ from pydantic import (
 from starlette.exceptions import HTTPException
 
 from jobadvaisor.agent import AgentContext, Reply, answer
+from jobadvaisor.availability import (
+    AvailabilityChecks,
+    CheckBusyError,
+    CheckStateError,
+    check_batch,
+    checkable,
+)
 from jobadvaisor.data.backup import (
     Backup,
     BackupRefused,
@@ -166,8 +173,10 @@ class PoolSettingsBody(BaseModel):
 
 
 class PostingPatch(BaseModel):
-    """`PATCH /postings/{id}` body: corrected fields, the application `status` and/or
-    `"release": true` for a posting the content guard flagged. At least one is required."""
+    """`PATCH /postings/{id}` body: corrected fields, the application `status`, the hand setting
+    `availability` (`"available"` or `"closed"`; any other value, `"unknown"` and `"check"`
+    included, is a 422) and/or `"release": true` for a posting the content guard flagged. At
+    least one is required."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -175,6 +184,7 @@ class PostingPatch(BaseModel):
     company: str | None = Field(None, min_length=1)
     location_raw: str | None = Field(None, min_length=1)
     status: Literal["open", "applied", "done"] | None = None
+    availability: Literal["available", "closed"] | None = None
     release: Literal[True] | None = None
 
     @model_validator(mode="after")
@@ -248,10 +258,12 @@ VERSION_FILE = REPOSITORY_ROOT / "VERSION"
 def create_app(runs: Runs | None = None, intake: Intake | None = None,
                agent: Agent | None = None, frontend: Path = FRONTEND_BUILD,
                imports: Imports | None = None, backup: Backup | None = None,
-               alert_runs: AlertRuns | None = None) -> FastAPI:
-    """The app over `runs`, `intake`, `agent` (conversation → reply), `imports`, `backup` and
-    `alert_runs`, by default those of the configured data repository (imports and alert runs
-    over `intake`, the backup of `intake.root` with that repository's state directory); the default
+               alert_runs: AlertRuns | None = None,
+               checks: AvailabilityChecks | None = None) -> FastAPI:
+    """The app over `runs`, `intake`, `agent` (conversation → reply), `imports`, `backup`,
+    `alert_runs` and `checks`, by default those of the configured data repository (imports and
+    alert runs over `intake`, the backup of `intake.root` with that repository's state directory,
+    the availability checks of `intake.root`); the default
     agent is built on its first message. The built frontend in `frontend` is served at `/`
     after the API routes, so they take precedence; without a build (no `index.html`) the API
     runs alone."""
@@ -260,6 +272,7 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
         runs, intake = runs or configured_runs(settings), intake or configured_intake(settings)
     imports = imports or Imports(intake)
     alert_runs = alert_runs or AlertRuns(intake)
+    checks = checks or AvailabilityChecks(intake.root)
     mail_record = state_path(settings, intake.root) / "alert-mails.jsonl"
     backup = backup or Backup(intake.root, state_path(settings, intake.root))
     if agent is None:
@@ -345,7 +358,8 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
     @app.get("/pool")
     def read_pool_view() -> dict:
         """The posting pool: `rows` of every status in rank order, the correction `counter`,
-        `settings`, `next_pass`, the policy pack's `reason_chips` and `screening` (a content-guard
+        `settings`, `next_pass`, `next_check` (`{total}`: the postings a check would cover), the
+        policy pack's `reason_chips` and `screening` (a content-guard
         classifier is configured). A corrupt score file shows
         as `score_problem` on its row; a data repository that does not load answers 500."""
         repository, scores, problems, pool = pool_state(intake.root)
@@ -353,6 +367,7 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
                 "counter": counter(repository, scores, pool),
                 "settings": pool.settings.model_dump(),
                 "next_pass": next_pass(repository, scores, pool),
+                "next_check": {"total": len(check_batch(repository))},
                 "reason_chips": reason_chips(repository),
                 "screening": intake.guard.classifier is not None}
 
@@ -368,8 +383,9 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
     def read_posting_page(posting_id: str) -> dict:
         """Everything the posting page shows: its pool `row` (exploration off), the `posting`,
         its stored `score` (null without one), the `examples` the judge compared it with that
-        still exist and `screening` (a content-guard classifier is configured). 404 for an
-        unknown or unsafe ID."""
+        still exist, `checkable` (a check can read one of its links: not pasted text or a PDF,
+        not only login-walled or non-public links) and `screening` (a content-guard classifier
+        is configured). 404 for an unknown or unsafe ID."""
         repository, scores, problems, _ = pool_state(intake.root)
         if posting_id not in repository.postings:
             return problem(404, "not found", f"no posting {posting_id}")
@@ -412,9 +428,11 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
         examples = [{"posting_id": example, "title": found.title, "company": found.company}
                     for example in (score.example_ids if score else [])
                     if (found := repository.postings.get(example))]
-        return {"row": row, "posting": repository.postings[posting_id].model_dump(mode="json"),
+        posting = repository.postings[posting_id]
+        return {"row": row, "posting": posting.model_dump(mode="json"),
                 "score": score.model_dump(mode="json", exclude={"schema_version"})
                 if score else None, "examples": examples,
+                "checkable": checkable(posting, login_wall_hosts(repository.policy_pack)),
                 "reason_chips": reason_chips(repository),
                 "screening": intake.guard.classifier is not None}
 
@@ -522,7 +540,10 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
         """Store a posting from pasted `text`, a `url` or an uploaded PDF `file` (form-encoded,
         exactly one), with optional fields the user supplies. Answers the ID, the stored
         posting, whether screening is on and, for a URL, the ladder's attempts. 422 when no
-        posting text results; for a URL, with the attempts, so the user can paste or upload."""
+        posting text results; for a URL, with the attempts, so the user can paste or upload, and
+        `closed` true when the link is gone (404, 410, a closed redirect or notice) and no other
+        source holds the posting. A page that shows a closed notice beside its posting text is
+        stored with the availability closed."""
         given = [value for value in (text and text.strip(), url and url.strip(), file) if value]
         if len(given) != 1:
             return problem(422, "invalid request", "submit exactly one of text, url or file")
@@ -542,8 +563,8 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
                 posting_id, posting, duplicate = add_submission(intake, submission)
         except PostingNotFoundError as error:
             return JSONResponse({
-                "error": "posting not found",
-                "detail": NOT_FOUND_DETAIL, "attempts": error.attempts}, status_code=422)
+                "error": "posting not found", "detail": NOT_FOUND_DETAIL,
+                "attempts": error.attempts, "closed": error.closed}, status_code=422)
         except NoPostingTextError as error:
             return problem(422, "no posting text", str(error))
         return stored_answer(posting_id, posting, duplicate, attempts)
@@ -551,9 +572,10 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
     @app.post("/postings/batch")
     def add_postings(body: BatchBody) -> dict:
         """Store the posting behind each of several URLs, one after the other. Answers 200 with
-        `results`, one per URL in order: `{"url", "outcome": "stored" | "duplicate" | "failed",
-        "posting_id"}` for the first two, `{"url", "outcome": "failed", "detail", "attempts"?}`
-        for a failure, which never stops the rest. 422 for an empty list or a non-string."""
+        `results`, one per URL in order: `{"url", "outcome": "stored" | "duplicate",
+        "posting_id"}` for the first two, `{"url", "outcome": "closed" | "failed", "detail",
+        "attempts"?}` for the others (`closed`: the link is gone and no other source holds the
+        posting), which never stop the rest. 422 for an empty list or a non-string."""
         results = []
         for url in (entry.strip() for entry in body.urls):
             try:
@@ -563,8 +585,8 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
                 results.append({"url": url, "posting_id": posting_id,
                                 "outcome": "stored" if duplicate is None else "duplicate"})
             except PostingNotFoundError as error:
-                results.append({"url": url, "outcome": "failed", "detail": NOT_FOUND_DETAIL,
-                                "attempts": error.attempts})
+                results.append({"url": url, "outcome": "closed" if error.closed else "failed",
+                                "detail": NOT_FOUND_DETAIL, "attempts": error.attempts})
             except ValueError as error:  # includes NoPostingTextError
                 results.append({"url": url, "outcome": "failed", "detail": str(error)})
         return {"results": results}
@@ -662,6 +684,40 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
         unknown run (state is in memory, a restart forgets it)."""
         return alert_runs.read(run_id) or problem(404, "not found", f"no alert run {run_id}")
 
+    @app.post("/availability/checks", status_code=202)
+    def start_availability_check() -> dict:
+        """Check the open postings' links in the background (`check_batch`); answers
+        `{check_id, total}` at once. 409 `{error: "check in progress", detail, check_id}` while a
+        check computes, so the client can follow it."""
+        try:
+            check_id = checks.start()
+        except CheckBusyError as error:
+            return JSONResponse({"error": "check in progress", "detail": str(error),
+                                 "check_id": error.check_id}, status_code=409)
+        return {"check_id": check_id, "total": checks.read(check_id)["total"]}
+
+    @app.get("/availability/checks/{check_id}")
+    def read_availability_check(check_id: str) -> dict:
+        """A check's state (`AvailabilityChecks.read`): `{check_id, status, error, total, done,
+        cancel_requested, counts: {available, closed, unknown}, closed: [{posting_id, title,
+        company}]}`; `status` is running, done, cancelled or failed. 404 for an
+        unknown check (state is in memory, a restart forgets it)."""
+        return checks.read(check_id) or problem(404, "not found",
+                                                f"no availability check {check_id}")
+
+    @app.post("/availability/checks/{check_id}/cancel", status_code=202)
+    def cancel_availability_check(check_id: str) -> dict:
+        """Ask the running check to stop after the posting it works on; answers `{check_id}` at
+        once and the check reports `cancel_requested` until it has ended `cancelled`. 404
+        `not found` for an unknown check, 409 `check not running` for one that has ended."""
+        try:
+            checks.cancel(check_id)
+        except KeyError:
+            return problem(404, "not found", f"no availability check {check_id}")
+        except CheckStateError as error:
+            return problem(409, "check not running", str(error))
+        return {"check_id": check_id}
+
     def stored_answer(posting_id: str, posting: Posting, duplicate_by: str | None,
                       attempts: list | None) -> JSONResponse:
         """201 with a new posting; 200 with the stored posting a submission duplicates, and
@@ -674,16 +730,19 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
 
     @app.patch("/postings/{posting_id}")
     def amend(posting_id: str, body: PostingPatch) -> dict:
-        """Correct title, company or location, set the application `status` and/or release a
-        flagged posting; answers the stored posting (a `status` makes it schema version 2). 404
-        for an unknown posting, 409 for releasing one the content guard did not flag."""
+        """Correct title, company or location, set the application `status`, set the hand
+        setting `availability` and/or release a flagged posting; answers the stored posting
+        (a `status` makes it schema version 2). A hand setting replaces any availability, one a
+        check set included, and keeps the version; the next check replaces it in turn. 404 for
+        an unknown posting, 409 for releasing one the content guard did not flag."""
         try:
             read_posting(intake.root, posting_id)
         except ValueError:
             return problem(404, "not found", f"no posting {posting_id}")
-        corrections = body.model_dump(exclude_unset=True, exclude={"release"})
+        corrections = body.model_dump(exclude_unset=True, exclude={"release", "availability"})
         try:
-            posting = amend_posting(intake.root, posting_id, corrections, bool(body.release))
+            posting = amend_posting(intake.root, posting_id, corrections, bool(body.release),
+                                    availability=body.availability)
         except NotFlaggedError as error:
             return problem(409, "not flagged", str(error))
         return {"posting_id": posting_id, "posting": posting.model_dump(mode="json")}

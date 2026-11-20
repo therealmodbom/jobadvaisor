@@ -8,6 +8,7 @@ from conftest import POSTING
 
 from jobadvaisor.data import writer
 from jobadvaisor.data.models import (
+    Availability,
     Company,
     Guard,
     ImportMapping,
@@ -25,6 +26,7 @@ SCORE = Score(schema_version="1", score=7, reasoning="Fits.", scored_at=NOW)
 COMPANY = Company(schema_version="1", name="Acme GmbH", size_class="51-200", source="linkedin",
                   source_url="https://www.linkedin.com/company/acme", fetched_at=NOW)
 GUARD = Guard(flagged=False, checked_by="t", checked_at=NOW)
+AVAILABILITY = Availability(state="closed", set_at=NOW, set_by="check")
 
 
 def _writes(root):
@@ -35,6 +37,7 @@ def _writes(root):
         "write_company": lambda: writer.write_company(root, "acme", COMPANY),
         "write_pool": lambda: writer.write_pool(root, Pool(schema_version="1")),
         "write_guard": lambda: writer.write_guard(root, "p1", GUARD),
+        "write_availability": lambda: writer.write_availability(root, "p1", AVAILABILITY, None),
         "create_posting": lambda: writer.create_posting(
             root, "new", Posting.model_validate(POSTING)),
         "update_posting": lambda: writer.update_posting(root, "p1", {"title": "Changed"}),

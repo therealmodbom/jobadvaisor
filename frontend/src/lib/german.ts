@@ -18,8 +18,13 @@ export function categoryNames(categories: string[]): string {
 
 const ADDED_FORMAT = new Intl.DateTimeFormat('de-DE', { dateStyle: 'medium', timeStyle: 'short' })
 
-/** „Hinzugefügt 12.11.2026, 14:05“ for the ISO timestamp `iso` (offset, optional microseconds),
- * to the minute and in the runtime's time zone, which in the app is the browser's. */
+/** „12.11.2026, 14:05“ for the ISO timestamp `iso` (offset, optional microseconds), to the minute
+ * and in the runtime's time zone, which in the app is the browser's. */
+export function whenLabel(iso: string): string {
+  return ADDED_FORMAT.format(new Date(iso))
+}
+
+/** „Hinzugefügt 12.11.2026, 14:05“ for the ISO timestamp `iso` (see `whenLabel`). */
 export function addedLabel(iso: string): string {
-  return `Hinzugefügt ${ADDED_FORMAT.format(new Date(iso))}`
+  return `Hinzugefügt ${whenLabel(iso)}`
 }

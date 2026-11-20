@@ -24,7 +24,7 @@ const preview = (entries: AlertEntry[], over: Partial<AlertPreview> = {}): Alert
 const found = (entries: AlertEntry[], over: Partial<AlertPreview> = {}) =>
   ({ 'POST /alert-mails/preview': { body: preview(entries, over) } })
 
-const done = (state: AlertRunState['entries'][number]['state']) => ['stored', 'duplicate', 'failed'].includes(state)
+const done = (state: AlertRunState['entries'][number]['state']) => ['stored', 'duplicate', 'closed', 'failed'].includes(state)
 
 const run = (entries: AlertRunState['entries'], over: Partial<AlertRunState> = {}): AlertRunState => ({
   run_id: 'r1', status: 'running', error: null, total: entries.length,
@@ -671,5 +671,66 @@ test('the run view has no accessibility violations', async () => {
   const { container } = view()
   await screen.findByRole('list', { name: 'Stand je Anzeige' })
   await screen.findByRole('link', { name: /Lead Engineer Video/ })
+  expect(await axe(container)).toHaveNoViolations()
+})
+
+// --- closed entries (3.6) ---------------------------------------------------------------------
+
+const closedRun = () => run([
+  row(1, 'stored', { posting_id: 'p-1' }),
+  row(2, 'closed', { attempts: [{ step: 'plain', url: entry(2).url, outcome: 'HTTP 404' },
+                                { step: 'loop:search_alternative_source', url: entry(2).url, outcome: 'ok' }] }),
+  row(3, 'failed', { attempts: [{ step: 'plain', url: entry(3).url, outcome: 'HTTP 503' }] }),
+], { status: 'done', done: 3 })
+
+test('a closed row shows "Stelle geschlossen" with its attempts and offers no text or PDF', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /alert-mails/runs/r1': { body: closedRun() } })
+  view()
+  const rows = rowsOf(await screen.findByRole('list', { name: 'Stand je Anzeige' }))
+  expect(within(rows[1]).getByText('Stelle geschlossen')).toBeVisible()
+  expect(rows[1]).toHaveTextContent('Nichts gespeichert.')
+  expect(rows[1]).toHaveTextContent('Einfacher Abruf: Stelle geschlossen (HTTP 404)')
+  expect(rows[1]).toHaveTextContent('Websuche nach einer anderen Quelle: keine Anzeige gefunden')
+  expect(within(rows[1]).queryByRole('button')).toBeNull()
+  expect(within(rows[1]).queryByRole('link')).toBeNull()
+  expect(rows[1]).not.toHaveClass('border-danger')
+  expect(within(rows[2]).getByRole('button', { name: 'Text einfügen' })).toBeVisible()
+})
+
+test('a closed entry counts as done in the heading and the summary', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /alert-mails/runs/r1': { body: closedRun() } })
+  view()
+  expect(await screen.findByRole('heading', { name: '3 von 3 erledigt' })).toBeVisible()
+  expect(screen.getByText(/1 hinzugefügt, 1 geschlossen, 1 nicht gelesen/)).toBeVisible()
+})
+
+test('a running run counts a closed entry as finished and does not call the rest "nicht gestartet"', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /alert-mails/runs/r1': { body: run([
+    row(1, 'closed', { attempts: [{ step: 'plain', url: entry(1).url, outcome: 'HTTP 410' }] }),
+    row(2, 'running')], { done: 1 }) } })
+  view()
+  const rows = rowsOf(await screen.findByRole('list', { name: 'Stand je Anzeige' }))
+  expect(within(rows[0]).getByText('Stelle geschlossen')).toBeVisible()
+  expect(within(rows[1]).getByText('wird abgerufen…')).toBeVisible()
+  expect(screen.getByRole('heading', { name: '1 von 2 erledigt' })).toBeVisible()
+})
+
+test('a crashed run counts a closed entry among the finished ones', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /alert-mails/runs/r1': { body: run([
+    row(1, 'closed', { attempts: [{ step: 'plain', url: entry(1).url, outcome: 'HTTP 404' }] }),
+    row(2, 'waiting')], { status: 'failed', error: 'x', done: 1 }) } })
+  view()
+  expect(await screen.findByText(/nach 1 von 2 Anzeigen beendet/)).toBeVisible()
+})
+
+test('a closed run has no axe violations', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /alert-mails/runs/r1': { body: closedRun() } })
+  const { container } = view()
+  await screen.findByRole('list', { name: 'Stand je Anzeige' })
   expect(await axe(container)).toHaveNoViolations()
 })

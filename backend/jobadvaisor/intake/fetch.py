@@ -10,6 +10,7 @@ from urllib.parse import urldefrag, urljoin, urlsplit
 
 import httpx
 
+from jobadvaisor.data.models import ClosedRule
 from jobadvaisor.intake.links import navigation_allowed, public_link
 
 # The cleaned link of the alert-mail entry being added (`design.md` → Cleaning): a fetch that
@@ -18,6 +19,16 @@ guarded_link: ContextVar[str | None] = ContextVar("guarded_link", default=None)
 REFUSED_REDIRECT = "redirect with personal parameters"
 REFUSED_HOST = "redirect to a non-public address"
 MAX_REDIRECTS = 10
+
+# The rules that tell a closed posting page from an open one. The policy pack's rules add to
+# these (`ladder.closed_rules`). The default is not touched by a caller, who sets a copy.
+DEFAULT_CLOSED_RULES = [
+    ClosedRule(host="linkedin.com", redirect_marker="trk=expired_jd_redirect")]
+# The rules in force for the fetches of the current thread, set like `guarded_link`.
+closed_rules: ContextVar[list[ClosedRule]] = ContextVar(
+    "closed_rules", default=DEFAULT_CLOSED_RULES)
+CLOSED_REDIRECT = "closed page (redirect)"
+CLOSED_TEXT = "closed page (page text)"
 
 MIN_PAGE_TEXT = 600  # characters; less is a teaser, a portal entry, a cookie wall or a challenge
 USER_AGENT = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 "
@@ -48,12 +59,14 @@ class Page:
     """Posting text from one page. `url` is the address after redirects; `supplied` holds the
     title, company and location_raw the page's JSON-LD names (only those it names).
     `company_url` is the employer's LinkedIn company page (`https://www.linkedin.com/company/
-    <slug>`) when the page is a LinkedIn guest page that links to one, else `None`."""
+    <slug>`) when the page is a LinkedIn guest page that links to one, else `None`. `closed` is
+    true when a closed rule's text marker matches the page although it holds posting text."""
 
     url: str
     text: str
     supplied: dict[str, str] = field(default_factory=dict)
     company_url: str | None = None
+    closed: bool = False
 
 
 def fetch_plain(url: str, http: httpx.Client | None = None) -> Page:
@@ -68,49 +81,108 @@ def fetch_rendered(url: str) -> Page:
     return page_from_html(*download_rendered(url))
 
 
-def download_plain(url: str, http: httpx.Client | None = None) -> tuple[str, str]:
+def url_host(url: str) -> str:
+    """`url`'s host in lower case, or `""` when it has none or does not parse (a stored link
+    is not validated, so `http://[bad` must not raise)."""
+    try:
+        return (urlsplit(url).hostname or "").lower()
+    except ValueError:
+        return ""
+
+
+def host_matches(url: str, host: str) -> bool:
+    """Whether `url`'s host is `host` or a subdomain of it; never for a link that does not
+    parse."""
+    actual = url_host(url)
+    return bool(actual) and (actual == host or actual.endswith("." + host))
+
+
+def closed_redirect(address: str, rules: list[ClosedRule] | None = None) -> bool:
+    """Whether a redirect hop to `address` matches a redirect marker, among `rules` (default:
+    the `closed_rules` in force) of its host: the hop is a closed page's redirect and must not
+    be requested."""
+    return any(rule.redirect_marker and host_matches(address, rule.host)
+               and rule.redirect_marker in address
+               for rule in (closed_rules.get() if rules is None else rules))
+
+
+def closed_by_text(url: str, html: str) -> bool:
+    """Whether a text marker of the `closed_rules` in force for `url`'s host occurs, ignoring
+    case, in the visible text of `html` (`html_text`: no scripts, styles or navigation)."""
+    return _closed_text(url, html_text(html))
+
+
+def _closed_text(url: str, text: str) -> bool:
+    text = text.casefold()
+    return any(rule.text_marker and host_matches(url, rule.host)
+               and rule.text_marker.casefold() in text for rule in closed_rules.get())
+
+
+def download_plain(url: str, http: httpx.Client | None = None, *,
+                   retry: bool = True) -> tuple[str, str]:
     """The address after redirects and the HTML of `url` over HTTP, retrying once after a
-    transport error or a 429/5xx answer. While `guarded_link` is `url`, a redirect hop that
-    fails `navigation_allowed` is not sent (`FetchError(REFUSED_REDIRECT)`). Raises `FetchError`
-    naming the failure."""
+    transport error or a 429/5xx answer unless `retry` is false (one request, whatever the
+    answer). A redirect hop that matches a closed rule's redirect marker is not sent
+    (`FetchError(CLOSED_REDIRECT)`), whatever the link. While `guarded_link` is `url`, a hop
+    other than `url` itself that fails `navigation_allowed` is not sent either
+    (`FetchError(REFUSED_REDIRECT)`), after the closed question; `url` is sent as it is.
+    Raises `FetchError` naming the failure."""
     require_http(url)
     http = http or httpx.Client(timeout=TIMEOUT_SECONDS, follow_redirects=True,
                                 headers={"User-Agent": USER_AGENT})
-    if guarded_link.get() != url:
-        return _download_plain(url, http)
     hooks = http.event_hooks
-    http.event_hooks = {**hooks, "request": [*hooks.get("request", []), _check_hop]}
+    hook = _check_hop if guarded_link.get() == url else _check_closed_hop
+    http.event_hooks = {**hooks, "request": [*hooks.get("request", []), hook]}
     try:
-        return _download_plain(url, http)
+        return _download_plain(url, http, retry)
     finally:
         http.event_hooks = hooks
 
 
-def _refusal(url: str) -> str | None:
+def _refusal(url: str, start: str | None) -> str | None:
     """Why a hop to `url` must not be sent (`REFUSED_HOST`, `REFUSED_REDIRECT`), or `None`. The
-    guarded start link itself is exempt from the host rule: the API checked it already."""
-    if url != guarded_link.get() and not public_link(url):
+    guarded start link `start` itself is exempt from both rules: the caller chose it (the API
+    checked it, or a check read it from the posting), whatever parameters it carries. It is
+    compared in httpx's normal form, since the request URL has its host lower-cased and a
+    default port dropped while the stored link may not."""
+    if start and _same_link(url, start):
+        return None
+    if not public_link(url):
         return REFUSED_HOST
     return None if navigation_allowed(url) else REFUSED_REDIRECT
 
 
+def _same_link(a: str, b: str) -> bool:
+    try:
+        return httpx.URL(a) == httpx.URL(b)
+    except httpx.InvalidURL:
+        return a == b
+
+
+def _check_closed_hop(request: httpx.Request) -> None:
+    if closed_redirect(str(request.url)):
+        raise FetchError(CLOSED_REDIRECT)
+
+
 def _check_hop(request: httpx.Request) -> None:
-    if reason := _refusal(str(request.url)):
+    _check_closed_hop(request)
+    if reason := _refusal(str(request.url), guarded_link.get()):
         raise FetchError(reason)
 
 
-def _download_plain(url: str, http: httpx.Client) -> tuple[str, str]:
-    for attempt in (1, 2):
+def _download_plain(url: str, http: httpx.Client, retry: bool) -> tuple[str, str]:
+    attempts = 2 if retry else 1
+    for attempt in range(1, attempts + 1):
         try:
             response = http.get(url)
         except httpx.InvalidURL:
             raise FetchError("invalid URL") from None
         except httpx.HTTPError as error:
-            if attempt == 2:
+            if attempt == attempts:
                 raise FetchError(f"connection failed: {type(error).__name__}") from None
             continue
         if response.status_code == 429 or response.status_code >= 500:
-            if attempt == 2:
+            if attempt == attempts:
                 raise FetchError(f"HTTP {response.status_code}")
             continue
         if response.status_code != 200:
@@ -121,13 +193,23 @@ def _download_plain(url: str, http: httpx.Client) -> tuple[str, str]:
 
 def download_rendered(url: str) -> tuple[str, str]:
     """The address after redirects and the HTML of `url` rendered in headless Chromium until
-    the network is idle. While `guarded_link` is `url`, a main-frame navigation that fails
-    `_refusal` is aborted before it is sent (`FetchError(REFUSED_REDIRECT)` or `REFUSED_HOST`).
-    Raises `FetchError` naming the failure."""
+    the network is idle. A main-frame navigation that matches a closed rule's redirect marker
+    is aborted before it is sent (`FetchError(CLOSED_REDIRECT)`), whatever the link. While
+    `guarded_link` is `url`, one that fails `_refusal` is aborted too (`FetchError(
+    REFUSED_REDIRECT)` or `REFUSED_HOST`). Raises `FetchError` naming the failure."""
     require_http(url)
     from playwright.sync_api import Error, sync_playwright
 
     refused, hops = [], []
+    start, rules = guarded_link.get(), closed_rules.get()  # read here: the route callback
+    # does not run in this context, so it would see the defaults
+    guarded = start == url
+
+    def blocked(address: str) -> str | None:
+        """Why a navigation to `address` must not be sent: closed first, then guarded."""
+        if closed_redirect(address, rules):
+            return CLOSED_REDIRECT
+        return _refusal(address, start) if guarded else None
 
     def check(route):
         """Chromium follows a server redirect without routing its target, so a main-frame
@@ -137,7 +219,7 @@ def download_rendered(url: str) -> tuple[str, str]:
         if not request.is_navigation_request() or request.frame.parent_frame is not None:
             route.continue_()
             return
-        if reason := _refusal(request.url):
+        if reason := blocked(request.url):
             refused.append(reason)
             route.abort()
             return
@@ -147,7 +229,7 @@ def download_rendered(url: str) -> tuple[str, str]:
             route.fulfill(response=response)
             return
         target = urljoin(request.url, location)
-        if reason := _refusal(target):
+        if reason := blocked(target):
             refused.append(reason)
             route.abort()
             return
@@ -159,8 +241,7 @@ def download_rendered(url: str) -> tuple[str, str]:
             browser = playwright.chromium.launch()
             try:
                 tab = browser.new_page(user_agent=USER_AGENT)
-                if guarded_link.get() == url:
-                    tab.route("**/*", check)
+                tab.route("**/*", check)
                 target = url
                 for _ in range(MAX_REDIRECTS + 1):
                     hops.clear()
@@ -217,10 +298,13 @@ def page_from_html(url: str, html: str) -> Page:
     description is shorter than `MIN_PAGE_TEXT` (a teaser). A LinkedIn page without such a
     description but with its own description element gives the employer's pay range, that
     description and the criteria block, of any length, with the header's title, company and
-    location as supplied values; the rest of the page is chrome. Raises `FetchError` ("no
-    posting text") when no text qualifies."""
+    location as supplied values; the rest of the page is chrome. A closed rule's text marker
+    (`closed_by_text`) is checked first: with posting text the `Page` has `closed` set, without
+    it `FetchError(CLOSED_TEXT)` is raised. Raises `FetchError` ("no posting text") when no
+    text qualifies."""
     parser = _PageParser()
     parser.feed(html)
+    closed = _closed_text(url, parser.text())
     postings = parser.job_postings()
     supplied = _json_ld_fields(postings[0]) if postings else {}
     description = html_text(str(postings[0].get("description") or "")) if postings else ""
@@ -229,11 +313,11 @@ def page_from_html(url: str, html: str) -> Page:
         header = {name: " ".join(parser.captured(name).split())
                   for name in ("title", "company", "location_raw") if parser.captured(name)}
         body = "\n".join(filter(None, map(parser.captured, LINKEDIN_TEXT_PARTS)))
-        return Page(url, body, header | supplied, company_url)
+        return Page(url, body, header | supplied, company_url, closed)
     for text in (description, parser.text()):
         if len(text) >= MIN_PAGE_TEXT:
-            return Page(url, text, supplied, company_url)
-    raise FetchError("no posting text")
+            return Page(url, text, supplied, company_url, closed)
+    raise FetchError(CLOSED_TEXT if closed else "no posting text")
 
 
 def json_ld_documents(html: str) -> list[object]:

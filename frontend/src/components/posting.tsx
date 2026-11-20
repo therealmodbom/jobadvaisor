@@ -1,9 +1,9 @@
 import { useId, useState, type FormEvent, type ReactNode } from 'react'
 import { Check, ExternalLink, Info, LoaderCircle } from 'lucide-react'
-import { api, type PoolRow, type Posting, type ReasonChip, type Status } from '@/api'
+import { api, type Availability, type AvailabilityChoice, type PoolRow, type Posting, type ReasonChip, type Status } from '@/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { categoryNames, STATUSES } from '@/lib/german'
+import { categoryNames, STATUSES, whenLabel } from '@/lib/german'
 import type { ScoreCall } from '@/lib/score'
 import { cn } from '@/lib/utils'
 
@@ -44,8 +44,8 @@ export function StatusControl({ id, title, value, saving, failed, onStatus }: {
 }) {
   return (
     <div className="flex flex-col gap-1">
-      <label htmlFor={id} className="text-sm font-bold">Status</label>
-      <select id={id} value={value} aria-busy={saving} aria-label={`Status: ${title}`}
+      <label htmlFor={id} className="text-sm font-bold">Bewerbungsstatus</label>
+      <select id={id} value={value} aria-busy={saving} aria-label={`Bewerbungsstatus: ${title}`}
               onChange={(event) => !saving && onStatus(event.target.value as Status)}
               className="min-h-11 rounded-lg border border-input bg-background px-2.5 text-[15px]">
         {STATUSES.map(([option, label]) => <option key={option} value={option}>{label}</option>)}
@@ -53,8 +53,56 @@ export function StatusControl({ id, title, value, saving, failed, onStatus }: {
       {saving && <span role="status" className="text-sm text-muted-foreground">wird gespeichert…</span>}
       {failed && (
         <span role="alert" className="flex flex-col items-start gap-1 text-sm text-danger">
-          Der Status wurde nicht gespeichert.
+          Der Bewerbungsstatus wurde nicht gespeichert.
           <Button type="button" variant="outline" size="sm" onClick={() => onStatus(failed)}>Erneut versuchen</Button>
+        </span>
+      )}
+    </div>
+  )
+}
+
+/** The availability on the posting page as a select with its note, next to `StatusControl`. The
+ * user can set "verfügbar" or "geschlossen"; "nicht geprüft" (`value` null) and "unbekannt" (a
+ * check could not tell) are shown but not choosable. The note says when the availability was set
+ * and by whom ("laut Prüfung vom …", "von dir gesetzt am …, die nächste Prüfung prüft neu") or that
+ * it was never checked. A posting no check can read (`checkable` false: pasted text, a PDF, or
+ * only login-walled or non-public links) is never checked, so its note promises no check
+ * ("kein prüfbarer Link, wird nicht geprüft", "von dir gesetzt am …"). A check covers open postings
+ * only, so a hand setting promises the next check only while `open` (application status open).
+ * `onChange` sends the choice. `saving` shows the save (the select stays enabled so keyboard focus is not dropped; a
+ * change meanwhile is ignored), `failed` (the choice that did not save) an error with a retry. */
+export function AvailabilityControl({ id, value, checkable, open, saving, failed, onChange }: {
+  id: string
+  value: Availability | null
+  checkable: boolean
+  open: boolean
+  saving: boolean
+  failed: AvailabilityChoice | undefined
+  onChange: (choice: AvailabilityChoice) => void
+}) {
+  const shown = value?.state ?? 'never'
+  const change = (choice: AvailabilityChoice) => { if (!saving) onChange(choice) }
+  return (
+    <div className="flex flex-col items-start gap-1">
+      <label htmlFor={id} className="text-sm font-bold">Verfügbarkeit</label>
+      <select id={id} value={shown} aria-busy={saving}
+              onChange={(event) => change(event.target.value as AvailabilityChoice)}
+              className="min-h-11 rounded-lg border border-input bg-background px-2.5 text-[15px]">
+        <option value="available">verfügbar</option>
+        <option value="closed">geschlossen</option>
+        {shown === 'unknown' && <option value="unknown" disabled>unbekannt</option>}
+        {shown === 'never' && <option value="never" disabled>nicht geprüft</option>}
+      </select>
+      <span className="text-[13px] text-muted-foreground">
+        {!value ? (checkable ? 'noch nie geprüft' : 'kein prüfbarer Link, wird nicht geprüft')
+          : value.set_by === 'check' ? `laut Prüfung vom ${whenLabel(value.set_at)}`
+            : `von dir gesetzt am ${whenLabel(value.set_at)}${checkable && open ? ', die nächste Prüfung prüft neu' : ''}`}
+      </span>
+      {saving && <span role="status" className="text-sm text-muted-foreground">wird gespeichert…</span>}
+      {failed && (
+        <span role="alert" className="flex flex-col items-start gap-1 text-sm text-danger">
+          Die Verfügbarkeit wurde nicht gespeichert.
+          <Button type="button" variant="outline" size="sm" onClick={() => onChange(failed)}>Erneut versuchen</Button>
         </span>
       )}
     </div>

@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { Check, CircleAlert, LoaderCircle, ShieldAlert, ShieldCheck, ShieldOff, Upload, X } from 'lucide-react'
+import { Check, CircleAlert, CircleSlash, LoaderCircle, ShieldAlert, ShieldCheck, ShieldOff, Upload, X } from 'lucide-react'
 import { api, ApiError, type Attempt, type BatchResult, type IntakeAnswer, type Posting } from '@/api'
 import { AttemptList } from '@/components/attempts'
 import { PostingFields } from '@/components/posting'
@@ -16,6 +16,7 @@ type Status =
   | { kind: 'idle' }
   | { kind: 'running' }
   | { kind: 'failed'; attempts: Attempt[] }
+  | { kind: 'closed'; attempts: Attempt[] }
   | { kind: 'error'; message: string }
   | { kind: 'done'; answer: IntakeAnswer }
   | { kind: 'batch'; results: BatchResult[] }
@@ -71,7 +72,7 @@ export function IntakeView({ list = false }: { list?: boolean }) {
       setStatus({ kind: 'done', answer: await api<IntakeAnswer>('/postings', { method: 'POST', form }) })
     } catch (error) {
       setStatus(error instanceof ApiError && error.error === 'posting not found'
-        ? { kind: 'failed', attempts: (error.body.attempts as Attempt[]) ?? [] }
+        ? { kind: error.body.closed === true ? 'closed' : 'failed', attempts: (error.body.attempts as Attempt[]) ?? [] }
         : { kind: 'error', message: intakeError(error) })
     }
   }
@@ -165,6 +166,7 @@ export function IntakeView({ list = false }: { list?: boolean }) {
           <FailedLink attempts={status.attempts} onText={() => switchTo('text')}
                       onPdf={() => switchTo('pdf')} onRetry={() => submit()} />
         )}
+        {status.kind === 'closed' && <ClosedLink attempts={status.attempts} />}
         {status.kind === 'error' && (
           <ErrorWithRetry title="Anzeige konnte nicht hinzugefügt werden" detail={status.message}
                           onRetry={() => submit()} />
@@ -183,7 +185,28 @@ export function IntakeView({ list = false }: { list?: boolean }) {
   )
 }
 
-/** A link no step could read: the attempts made, then the text and PDF options and a retry. */
+/** The outcome of a link whose posting is gone (`POST /postings` 422 with `closed: true`): nothing
+ * was stored, the attempts show why, and there is no text or PDF option, since the posting no
+ * longer exists. Not an alert: a closed posting is a result, not a fault. */
+function ClosedLink({ attempts }: { attempts: Attempt[] }) {
+  return (
+    <section role="status" aria-labelledby="closed-title" className="flex flex-col gap-3.5 rounded-xl border bg-card p-5">
+      <div className="flex items-start gap-2.5">
+        <CircleSlash className="mt-0.5 size-[22px] flex-none text-muted-foreground" aria-hidden="true" />
+        <div>
+          <h2 id="closed-title" className="text-lg font-bold">Stelle geschlossen</h2>
+          <p className="mt-1">
+            Die Anzeige ist nicht mehr ausgeschrieben, und eine andere Quelle hat sie auch nicht. Es wurde nichts
+            gespeichert. Diese Versuche wurden gemacht:
+          </p>
+        </div>
+      </div>
+      <AttemptList attempts={attempts} className="ml-8" />
+    </section>
+  )
+}
+
+/** The failure of a link no attempt could read: the attempts, and the text and PDF options. */
 function FailedLink({ attempts, onText, onPdf, onRetry }: {
   attempts: Attempt[]
   onText: () => void
@@ -213,26 +236,31 @@ function FailedLink({ attempts, onText, onPdf, onRetry }: {
   )
 }
 
-const OUTCOMES = { stored: 'Hinzugefügt', duplicate: 'Schon gespeichert', failed: 'Nicht gelesen' }
+const OUTCOMES = { stored: 'Hinzugefügt', duplicate: 'Schon gespeichert', closed: 'Stelle geschlossen', failed: 'Nicht gelesen' }
 
 /** The outcome of each link of a batch: stored or duplicate with a link to the posting's page,
- * failed with the attempts made and the text and PDF options. A failed link never hides the rest. */
+ * closed with the attempts made (no text or PDF option: the posting is gone), failed with the
+ * attempts and the text and PDF options. A closed or failed link never hides the rest. */
 function BatchResults({ results, onText, onPdf }: {
   results: BatchResult[]
   onText: () => void
   onPdf: () => void
 }) {
   const failed = results.filter((result) => result.outcome === 'failed').length
+  const closed = results.filter((result) => result.outcome === 'closed').length
+  const notes = [
+    closed > 0 && (closed === 1 ? 'Eine Stelle ist geschlossen' : `${closed} Stellen sind geschlossen`),
+    failed > 0 && `${closed > 0 ? 'bei' : 'Bei'} ${failed === 1 ? 'einem Link' : `${failed} Links`} hat das Lesen nicht geklappt`,
+  ].filter(Boolean).join(', ')
   return (
     <section aria-labelledby="batch-title" className="flex flex-col gap-3.5 rounded-xl border bg-card p-5">
       <div>
         <h2 id="batch-title" className="text-lg font-bold">
-          {results.length - failed} von {results.length} Links gespeichert
+          {results.length - failed - closed} von {results.length} Links gespeichert
         </h2>
-        {failed > 0 && (
+        {notes && (
           <p className="mt-1 text-muted-foreground">
-            Bei {failed === 1 ? 'einem Link' : `${failed} Links`} hat das nicht geklappt. Die anderen sind
-            gespeichert.
+            {notes}.{results.length > failed + closed && ' Die anderen sind gespeichert.'}
           </p>
         )}
       </div>
@@ -244,15 +272,23 @@ function BatchResults({ results, onText, onPdf }: {
               <strong className="inline-flex items-center gap-1.5">
                 {result.outcome === 'failed'
                   ? <CircleAlert className="size-4 text-danger" aria-hidden="true" />
-                  : <Check className="size-4 text-success" strokeWidth={3} aria-hidden="true" />}
+                  : result.outcome === 'closed'
+                    ? <CircleSlash className="size-4 text-muted-foreground" aria-hidden="true" />
+                    : <Check className="size-4 text-success" strokeWidth={3} aria-hidden="true" />}
                 {OUTCOMES[result.outcome]}
               </strong>
               <span className="min-w-0 break-all font-mono text-sm">{result.url}</span>
-              {result.outcome !== 'failed' && (
+              {'posting_id' in result && (
                 <a href={`#/anzeigen/${encodeURIComponent(result.posting_id)}`}
                    className="text-primary underline">Anzeige ansehen</a>
               )}
             </div>
+            {result.outcome === 'closed' && (
+              <>
+                <p>Nichts gespeichert. Diese Versuche wurden gemacht:</p>
+                <AttemptList attempts={result.attempts ?? []} />
+              </>
+            )}
             {result.outcome === 'failed' && (
               <>
                 {result.attempts && result.attempts.length > 0 ? (

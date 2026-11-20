@@ -4,11 +4,11 @@ import threading
 import time
 
 import pytest
-from conftest import FakeStructuredModel, write_json
+from conftest import FakeStructuredModel, ToolScriptModel, write_json
 from test_triage_graph import POLICY_PACK
 
 import jobadvaisor.intake.alert_runs as runs_module
-from jobadvaisor.intake.alert_runs import AlertRunBusyError, AlertRuns, RunEntry
+from jobadvaisor.intake.alert_runs import AlertRunBusyError, AlertRuns, RunEntry, add_entry
 from jobadvaisor.intake.fetch import guarded_link
 from jobadvaisor.intake.postings import Intake, PostingNotFoundError
 from jobadvaisor.tools.guard import ContentGuard
@@ -79,6 +79,61 @@ def test_a_failing_entry_does_not_stop_the_others(runs, monkeypatch):
     assert state["entries"][1]["attempts"] == attempts
     assert state["entries"][0] == {"url": LINKS[0], "title": "T0", "state": "stored",
                                    "posting_id": "a"}
+
+
+def test_a_closed_entry_is_reported_as_closed_and_counts_as_done(runs, monkeypatch):
+    attempts = [{"step": "plain", "url": LINKS[0], "outcome": "closed page (redirect)"}]
+    monkeypatch.setattr(runs_module, "add_from_url", fake_add({
+        LINKS[0]: PostingNotFoundError(attempts, closed=True), LINKS[1]: ("b", None)}))
+    state = finished(runs, runs.start([RunEntry(LINKS[0], "A"), RunEntry(LINKS[1], "B")]))
+    assert state["status"] == "done" and state["total"] == state["done"] == 2
+    assert [e["state"] for e in state["entries"]] == ["closed", "stored"]
+    assert state["entries"][0]["attempts"] == attempts
+
+
+def test_an_expired_link_from_a_mail_is_closed_not_refused(tmp_path, closed_site):
+    write_json(tmp_path / "profile.json", {"schema_version": "1", "summary": "Developer"})
+    write_json(tmp_path / "policy-pack.json", {**POLICY_PACK, "closed_rules": closed_site.rules})
+    intake = Intake(tmp_path, FakeStructuredModel(), ContentGuard(None, {}),
+                    loop_model=ToolScriptModel(plan=[]))
+    url = f"{closed_site.url}/expired/1"
+    outcome = add_entry(intake, RunEntry(url, "A"))
+    assert outcome["state"] == "closed"
+    assert [a["outcome"] for a in outcome["attempts"]] == ["closed page (redirect)"]
+    assert closed_site.hits == ["/expired/1"]
+
+
+def test_an_entry_read_from_its_page_is_stored_available(tmp_path, closed_site):
+    """The run read the posting from its page, which is what a check calls available."""
+    write_json(tmp_path / "profile.json", {"schema_version": "1", "summary": "Developer"})
+    write_json(tmp_path / "policy-pack.json", {**POLICY_PACK, "closed_rules": closed_site.rules})
+    fields = {"title": "Platform Engineer", "company": "Acme", "location_raw": "Remote"}
+    intake = Intake(tmp_path, FakeStructuredModel(fields), ContentGuard(None, {}),
+                    loop_model=ToolScriptModel(plan=[]))
+    outcome = add_entry(intake, RunEntry(f"{closed_site.url}/open", "A"))
+    assert outcome["state"] == "stored", outcome
+    availability = intake.postings()[outcome["posting_id"]].availability
+    assert (availability.state, availability.set_by) == ("available", "check")
+
+
+def test_a_closed_entry_counts_as_done_while_the_run_goes_on(runs, monkeypatch):
+    release = threading.Event()
+
+    def add(intake, url, *, allow_text_duplicate=False):
+        if url == LINKS[1]:
+            release.wait(30)
+            return "b", None, None, []
+        raise PostingNotFoundError([], closed=True)
+    monkeypatch.setattr(runs_module, "add_from_url", add)
+    run_id = runs.start([RunEntry(LINKS[0], "A"), RunEntry(LINKS[1], "B")])
+    for _ in range(300):
+        if runs.read(run_id)["done"] == 1:
+            break
+        time.sleep(0.01)
+    state = runs.read(run_id)
+    assert [e["state"] for e in state["entries"]] == ["closed", "running"] and state["done"] == 1
+    release.set()
+    assert finished(runs, run_id)["done"] == 2
 
 
 @pytest.mark.parametrize(("error", "reason"), [

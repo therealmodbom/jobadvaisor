@@ -21,3 +21,4 @@ Each ADR has the sections Status, Context, Decision, Alternatives considered, Co
 | 0011 | [Alert mails read by link rules, and a model that picks link numbers](0011-alert-mails-read-by-link-rules-and-a-model-that-picks-link-numbers.md) | Accepted |
 | 0012 | [Links from a mail cleaned by an allow-list, not a deny-list](0012-links-from-a-mail-cleaned-by-an-allow-list.md) | Accepted |
 | 0013 | [Pass progress and cancel kept in memory, beside the checkpoint](0013-pass-progress-and-cancel-in-memory-beside-the-checkpoint.md) | Accepted |
+| 0014 | [Closed rules add to the code defaults](0014-closed-rules-add-to-the-code-defaults.md) | Accepted |

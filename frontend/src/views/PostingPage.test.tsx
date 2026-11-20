@@ -20,7 +20,7 @@ const page = (changes: Partial<PostingPageData> = {}): PostingPageData => ({
   posting,
   score: { score: 8, reasoning: 'Viel SQL, passt zu deinen Beispielen.', example_ids: ['ex1'], scored_at: '2026-10-13T08:00:00+00:00' },
   examples: [{ posting_id: 'ex1', title: 'Analyst Energie', company: 'Nordblatt' }],
-  reason_chips: POOL.reason_chips, screening: true, ...changes,
+  checkable: true, reason_chips: POOL.reason_chips, screening: true, ...changes,
 })
 
 test('shows heading, text, original link, score with reasoning, examples, rating, status and no origin', async () => {
@@ -37,7 +37,7 @@ test('shows heading, text, original link, score with reasoning, examples, rating
   expect(screen.getByText('Bewertet: Ja')).toBeVisible()
   expect(screen.getByText('great stack')).toBeVisible()
   expect(screen.getByDisplayValue('Passt zu meinem Profil.')).toBeVisible()
-  expect(screen.getByRole('combobox', { name: /Status/ })).toHaveValue('open')
+  expect(screen.getByRole('combobox', { name: /Bewerbungsstatus/ })).toHaveValue('open')
   expect(screen.getByText(/Du wertest Daten aus\./)).toBeVisible()
   expect(screen.queryByText(/Importiert aus/)).toBeNull()
   await waitFor(() => expect(document.title).toBe('Data Analyst (m/w/d) – JobAdvAIsor'))
@@ -161,7 +161,7 @@ test('held and excluded postings say why, an unreadable score says so', async ()
 test('changing the status sends a PATCH and shows the new status', async () => {
   const calls = stubApi({ 'GET /postings/p1': { body: page() }, 'PATCH /postings/p1': { body: { posting_id: 'p1', posting } } })
   render(<PostingPage postingId="p1" />)
-  await userEvent.selectOptions(await screen.findByRole('combobox', { name: /Status/ }), 'applied')
+  await userEvent.selectOptions(await screen.findByRole('combobox', { name: /Bewerbungsstatus/ }), 'applied')
   expect(calls.find((call) => call.method === 'PATCH')?.body).toEqual({ status: 'applied' })
   expect(await screen.findByDisplayValue('beworben')).toBeVisible()
 })
@@ -171,13 +171,13 @@ test('a failed status change shows an error, keeps the old status and retries', 
   stubApi({ 'GET /postings/p1': { body: page() },
     'PATCH /postings/p1': () => (fail ? { status: 500, body: { error: 'x', detail: '' } } : { body: {} }) })
   render(<PostingPage postingId="p1" />)
-  await userEvent.selectOptions(await screen.findByRole('combobox', { name: /Status/ }), 'done')
-  expect(await screen.findByText('Der Status wurde nicht gespeichert.')).toBeVisible()
-  expect(screen.getByRole('combobox', { name: /Status/ })).toHaveValue('open')
+  await userEvent.selectOptions(await screen.findByRole('combobox', { name: /Bewerbungsstatus/ }), 'done')
+  expect(await screen.findByText('Der Bewerbungsstatus wurde nicht gespeichert.')).toBeVisible()
+  expect(screen.getByRole('combobox', { name: /Bewerbungsstatus/ })).toHaveValue('open')
   fail = false
   await userEvent.click(screen.getByRole('button', { name: 'Erneut versuchen' }))
   expect(await screen.findByDisplayValue('erledigt')).toBeVisible()
-  expect(screen.queryByText('Der Status wurde nicht gespeichert.')).toBeNull()
+  expect(screen.queryByText('Der Bewerbungsstatus wurde nicht gespeichert.')).toBeNull()
 })
 
 /** Stubs the page and a PATCH that stores the sent fields; `fail` makes the PATCH answer 500. */
@@ -215,7 +215,7 @@ test('a corrected title reaches the heading, the tab title and the status contro
   await userEvent.click(screen.getByRole('button', { name: 'Korrekturen speichern' }))
   expect(await screen.findByRole('heading', { level: 1, name: 'Data Engineer' })).toBeVisible()
   await waitFor(() => expect(document.title).toBe('Data Engineer – JobAdvAIsor'))
-  expect(screen.getByRole('combobox', { name: 'Status: Data Engineer' })).toBeVisible()
+  expect(screen.getByRole('combobox', { name: 'Bewerbungsstatus: Data Engineer' })).toBeVisible()
 })
 
 test('an emptied field is not sent and says so', async () => {
@@ -371,6 +371,140 @@ test('switching the ID loads the other posting', async () => {
 
 test('has no axe violations', async () => {
   stubApi({ 'GET /postings/p1': { body: page() } })
+  const { container } = render(<PostingPage postingId="p1" />)
+  await screen.findByRole('heading', { level: 1 })
+  expect(await axe(container)).toHaveNoViolations()
+})
+
+// --- availability (3.5) -----------------------------------------------------------------------
+
+const availability = (state: 'available' | 'closed' | 'unknown', set_by: 'check' | 'user', set_at = '2026-11-20T13:05:00+00:00') =>
+  ({ state, set_at, set_by })
+const withAvailability = (value: ReturnType<typeof availability> | null, extra: Partial<PostingPageData['row']> = {}) =>
+  page({ row: row('p1', 'Data Analyst (m/w/d)', { availability: value, ...extra }) })
+const availabilitySelect = () => screen.getByRole('combobox', { name: 'Verfügbarkeit' })
+
+test('one row under the title holds "Bearbeiten", "Bewerbungsstatus" and "Verfügbarkeit", and the old status row is gone', async () => {
+  stubApi({ 'GET /postings/p1': { body: page() } })
+  render(<PostingPage postingId="p1" />)
+  const edit = await screen.findByRole('button', { name: 'Bearbeiten' })
+  const status = screen.getByRole('combobox', { name: /Bewerbungsstatus/ })
+  const available = availabilitySelect()
+  const head = edit.parentElement!
+  expect(head).toContainElement(status)
+  expect(head).toContainElement(available)
+  expect(head.compareDocumentPosition(screen.getByRole('heading', { level: 1 })) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
+  const order = [edit, status, available]
+  expect(order.every((element, index) => index === 0 || (order[index - 1].compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true)
+  expect(screen.getAllByRole('combobox', { name: /Bewerbungsstatus/ })).toHaveLength(1)
+  expect(screen.getByText('Bewerbungsstatus')).toBeVisible()
+})
+
+test('a posting never checked shows "nicht geprüft", only shown, and says it was never checked', async () => {
+  stubApi({ 'GET /postings/p1': { body: withAvailability(null) } })
+  render(<PostingPage postingId="p1" />)
+  const select = await screen.findByRole('combobox', { name: 'Verfügbarkeit' })
+  expect(select).toHaveDisplayValue('nicht geprüft')
+  expect(within(select).getByRole('option', { name: 'nicht geprüft' })).toBeDisabled()
+  expect(within(select).getByRole('option', { name: 'verfügbar' })).toBeEnabled()
+  expect(within(select).getByRole('option', { name: 'geschlossen' })).toBeEnabled()
+  expect(screen.getByText('noch nie geprüft')).toBeVisible()
+  expect(screen.queryByRole('button', { name: 'Wieder automatisch prüfen' })).toBeNull()
+})
+
+test.each([[null, 'kein prüfbarer Link, wird nicht geprüft'],
+           [availability('closed', 'user', '2026-11-20T12:40:00+00:00'), 'von dir gesetzt am 20.11.2026, 13:40']])(
+  'a posting no check can read (text, PDF, only login-walled links) never promises a check: %o', async (value, note) => {
+    stubApi({ 'GET /postings/p1': { body: { ...withAvailability(value), checkable: false } } })
+    render(<PostingPage postingId="p1" />)
+    await screen.findByRole('combobox', { name: 'Verfügbarkeit' })
+    expect(screen.getByText(note)).toBeVisible()
+    expect(screen.queryByText(/Prüfung/)).toBeNull()
+  })
+
+test.each(['applied', 'done'] as const)(
+  'a hand setting on a posting with status %s promises no check, which covers open postings only', async (status) => {
+    stubApi({ 'GET /postings/p1': { body: withAvailability(availability('closed', 'user', '2026-11-20T12:40:00+00:00'), { status }) } })
+    render(<PostingPage postingId="p1" />)
+    expect(await screen.findByText('von dir gesetzt am 20.11.2026, 13:40')).toBeVisible()
+    expect(screen.queryByText(/nächste Prüfung/)).toBeNull()
+  })
+
+test('a closed posting set by a check says when the check found it', async () => {
+  stubApi({ 'GET /postings/p1': { body: withAvailability(availability('closed', 'check')) } })
+  render(<PostingPage postingId="p1" />)
+  expect(await screen.findByRole('combobox', { name: 'Verfügbarkeit' })).toHaveDisplayValue('geschlossen')
+  expect(screen.getByText('laut Prüfung vom 20.11.2026, 14:05')).toBeVisible()
+})
+
+test('an unknown result of a check is shown, not choosable', async () => {
+  stubApi({ 'GET /postings/p1': { body: withAvailability(availability('unknown', 'check')) } })
+  render(<PostingPage postingId="p1" />)
+  const select = await screen.findByRole('combobox', { name: 'Verfügbarkeit' })
+  expect(select).toHaveDisplayValue('unbekannt')
+  expect(within(select).getByRole('option', { name: 'unbekannt' })).toBeDisabled()
+  expect(screen.getByText('laut Prüfung vom 20.11.2026, 14:05')).toBeVisible()
+})
+
+test('a hand setting says so and that the next check checks again, with no button to hand it back', async () => {
+  stubApi({ 'GET /postings/p1': { body: withAvailability(availability('available', 'user', '2026-11-20T12:40:00+00:00')) } })
+  render(<PostingPage postingId="p1" />)
+  expect(await screen.findByRole('combobox', { name: 'Verfügbarkeit' })).toHaveDisplayValue('verfügbar')
+  expect(screen.getByText('von dir gesetzt am 20.11.2026, 13:40, die nächste Prüfung prüft neu')).toBeVisible()
+  expect(screen.queryByRole('button', { name: 'Wieder automatisch prüfen' })).toBeNull()
+  expect(screen.queryByText(/Wieder automatisch prüfen/)).toBeNull()
+})
+
+test('closing by hand sends the PATCH and shows the posting closed, set by hand', async () => {
+  const calls = stubApi({ 'GET /postings/p1': { body: withAvailability(null) },
+    'PATCH /postings/p1': { body: { posting_id: 'p1', posting: { ...posting, availability: availability('closed', 'user', '2026-11-20T13:40:00+00:00') } } } })
+  render(<PostingPage postingId="p1" />)
+  await userEvent.selectOptions(await screen.findByRole('combobox', { name: 'Verfügbarkeit' }), 'geschlossen')
+  expect(calls.find((call) => call.method === 'PATCH')?.body).toEqual({ availability: 'closed' })
+  expect(await screen.findByText('von dir gesetzt am 20.11.2026, 14:40, die nächste Prüfung prüft neu')).toBeVisible()
+  expect(availabilitySelect()).toHaveDisplayValue('geschlossen')
+})
+
+test('reopening by hand sends available', async () => {
+  const calls = stubApi({ 'GET /postings/p1': { body: withAvailability(availability('closed', 'check')) },
+    'PATCH /postings/p1': { body: { posting_id: 'p1', posting: { ...posting, availability: availability('available', 'user') } } } })
+  render(<PostingPage postingId="p1" />)
+  await userEvent.selectOptions(await screen.findByRole('combobox', { name: 'Verfügbarkeit' }), 'verfügbar')
+  expect(calls.find((call) => call.method === 'PATCH')?.body).toEqual({ availability: 'available' })
+  expect(await screen.findByText(/^von dir gesetzt am.*, die nächste Prüfung prüft neu$/)).toBeVisible()
+  expect(availabilitySelect()).toHaveDisplayValue('verfügbar')
+})
+
+test('a failed availability change shows an error, keeps the old value and retries', async () => {
+  let fail = true
+  stubApi({ 'GET /postings/p1': { body: withAvailability(availability('available', 'check')) },
+    'PATCH /postings/p1': () => (fail ? { status: 500, body: { error: 'x', detail: '' } }
+      : { body: { posting_id: 'p1', posting: { ...posting, availability: availability('closed', 'user') } } }) })
+  render(<PostingPage postingId="p1" />)
+  await userEvent.selectOptions(await screen.findByRole('combobox', { name: 'Verfügbarkeit' }), 'geschlossen')
+  expect(await screen.findByText('Die Verfügbarkeit wurde nicht gespeichert.')).toBeVisible()
+  expect(availabilitySelect()).toHaveDisplayValue('verfügbar')
+  fail = false
+  await userEvent.click(screen.getByRole('button', { name: 'Erneut versuchen' }))
+  await waitFor(() => expect(availabilitySelect()).toHaveDisplayValue('geschlossen'))
+  expect(screen.queryByText('Die Verfügbarkeit wurde nicht gespeichert.')).toBeNull()
+})
+
+test('the score button stays enabled for a closed posting, and a score keeps it closed', async () => {
+  const closed = withAvailability(availability('closed', 'check'))
+  const calls = stubApi({ 'GET /postings/p1': { body: closed },
+    'POST /postings/p1/score': { body: { ...closed, counter: POOL.counter, next_pass: POOL.next_pass } } })
+  render(<PostingPage postingId="p1" />)
+  const button = await screen.findByRole('button', { name: 'Neu berechnen' })
+  expect(button).toBeEnabled()
+  expect(button).not.toHaveAttribute('aria-disabled')
+  await userEvent.click(button)
+  await waitFor(() => expect(calls.some((call) => call.path === '/postings/p1/score')).toBe(true))
+  expect(await screen.findByRole('combobox', { name: 'Verfügbarkeit' })).toHaveDisplayValue('geschlossen')
+})
+
+test('the page with a hand-set availability has no axe violations', async () => {
+  stubApi({ 'GET /postings/p1': { body: withAvailability(availability('closed', 'user')) } })
   const { container } = render(<PostingPage postingId="p1" />)
   await screen.findByRole('heading', { level: 1 })
   expect(await axe(container)).toHaveNoViolations()

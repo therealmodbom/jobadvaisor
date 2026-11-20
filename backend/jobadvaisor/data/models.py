@@ -145,17 +145,38 @@ class ImportMapping(Entity):
     values: dict[str, Literal["open", "applied", "done", "skip"]] = {}
 
 
+class ClosedRule(Entity):
+    """A rule that tells a closed posting page from an open one. `host` matches itself and its
+    subdomains; exactly one marker is set: `redirect_marker`, a substring of the address a
+    redirect points to, or `text_marker`, a phrase in the page's visible text (compared without
+    case)."""
+
+    host: Annotated[str, StringConstraints(pattern=HOST_PATTERN)]
+    redirect_marker: str | None = Field(default=None, min_length=1)
+    text_marker: str | None = Field(default=None, min_length=1)
+
+    @model_validator(mode="after")
+    def one_marker(self) -> Self:
+        """Reject a rule that names no marker or both."""
+        if (self.redirect_marker is None) == (self.text_marker is None):
+            raise ValueError("name exactly one of redirect_marker and text_marker")
+        return self
+
+
 class PolicyPack(Entity):
     """`policy-pack.json`: hard-exclusion rules, reason chips and the feature set. IDs are unique
     within each of the three lists. `login_wall_hosts` lists hosts intake never fetches
-    anonymously (a host matches itself and its subdomains); absent means the app's defaults.
-    `import_mapping` is the list import's last confirmed mapping; absent until the first import."""
+    anonymously (a host matches itself and its subdomains); it REPLACES the app's defaults, and
+    absent means the defaults. `closed_rules` ADD to the app's default closed rules and never
+    replace them; absent means the defaults only. `import_mapping` is the list import's last
+    confirmed mapping; absent until the first import."""
 
     schema_version: SchemaVersion
     exclusion_rules: list[ExclusionRule] = []
     reason_chips: list[ReasonChip] = []
     feature_set: list[Feature] = []
     login_wall_hosts: list[Annotated[str, StringConstraints(pattern=HOST_PATTERN)]] | None = None
+    closed_rules: list[ClosedRule] | None = None
     import_mapping: ImportMapping | None = None
 
     @model_validator(mode="after")
@@ -189,12 +210,24 @@ class Origin(Entity):
     status: str | None = None
 
 
+class Availability(Entity):
+    """Whether a posting is still open for applications: `state` is `available`, `closed` or
+    `unknown` (the last check could not tell), `set_at` when it was set and `set_by` whether a
+    `check` or the `user` set it. The next check replaces a hand setting, except one the user set
+    while that check runs; an `unknown` result never reopens a closed posting."""
+
+    state: Literal["available", "closed", "unknown"]
+    set_at: AwareDatetime
+    set_by: Literal["check", "user"]
+
+
 class Posting(Entity):
     """`postings/<id>.json`; the ID is the file name and matches ^[a-z0-9][a-z0-9-]{0,63}$.
     Versions 1 and 2 load; version 1 has no `status` or `origin` and reads as status open without
     an origin. New postings are written as version 2. `status` is the user's application status.
     `urls` holds the submitted URL first when `source_type` is url. `guard` absent means never
-    screened; `legacy_decision` is written only by an exporter. Unresolved `title`, `company` or
+    screened; `availability` absent means never checked (it does not change the schema version);
+    `legacy_decision` is written only by an exporter. Unresolved `title`, `company` or
     `location_raw` hold "unknown"."""
 
     model_config = ConfigDict(json_schema_extra={
@@ -215,6 +248,7 @@ class Posting(Entity):
     status: Literal["open", "applied", "done"] = "open"
     origin: Origin | None = None
     guard: Guard | None = None
+    availability: Availability | None = None
     legacy_decision: Literal["kept", "discarded"] | None = None
 
     @model_validator(mode="after")

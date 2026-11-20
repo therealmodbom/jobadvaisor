@@ -3,6 +3,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import threading
 import time
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -37,6 +38,25 @@ def no_company_lookup_over_the_network(monkeypatch):
     """Intake looks company facts up on linkedin.com or the employer's site; no test may reach
     them. `test_company_intake.py` puts a fake-served lookup in its place."""
     monkeypatch.setattr("jobadvaisor.intake.postings.look_up", lambda *args, **kwargs: None)
+
+
+@pytest.fixture(autouse=True)
+def no_chroma_system_outlives_its_test():
+    """Chroma keeps one Rust system (a runtime with its own threads) per directory for the life
+    of the process; a test that opens a `LabelIndex` on its `tmp_path` leaves it behind. Across
+    the whole suite they pile up until creating the next client hangs, so stop the ones the test
+    created after it. Systems that exist before it (a module-scoped fixture's `LabelIndex`,
+    created eagerly) stay, for the tests that share them. Relies on a private chromadb
+    attribute (`SharedSystemClient._identifier_to_system`), read defensively: a chromadb
+    upgrade that renames it turns this into a no-op, and the suite's hang returns."""
+    def systems() -> dict:
+        shared = sys.modules.get("chromadb.api.shared_system_client")
+        return getattr(getattr(shared, "SharedSystemClient", None), "_identifier_to_system", {})
+
+    before = set(systems())
+    yield
+    for key in set(systems()) - before:
+        systems().pop(key).stop()
 
 
 @pytest.fixture(autouse=True)
@@ -178,6 +198,54 @@ def site():
                                  functools.partial(QuietHandler, directory=str(pages)))
     threading.Thread(target=server.serve_forever, daemon=True).start()
     yield f"http://127.0.0.1:{server.server_port}"
+    server.shutdown()
+
+
+CLOSED_PAGE = ("<html><body><main>" + "We look for a developer to join our team. " * 30
+               + "</main></body></html>")
+CLOSED_RULES = [{"host": "127.0.0.1", "redirect_marker": "trk=expired_jd_redirect"},
+                {"host": "127.0.0.1", "text_marker": "has been filled"}]
+
+
+class ClosedSiteHandler(SimpleHTTPRequestHandler):
+    """Serves the pages of `closed_site`; records every requested path in `server.hits`."""
+
+    def log_message(self, *args):
+        pass
+
+    def do_GET(self):
+        self.server.hits.append(self.path)
+        path = self.path.split("?")[0]
+        if path.startswith("/expired"):
+            self.send_response(302)
+            self.send_header("Location", "/search?trk=expired_jd_redirect")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        pages = {"/open": CLOSED_PAGE, "/search": CLOSED_PAGE, "/alt": CLOSED_PAGE,
+                 "/filled": CLOSED_PAGE.replace("<main>",
+                                                "<main><p>This role has been filled.</p>"),
+                 "/notice": "<html><body><p>This role has been filled.</p></body></html>"}
+        body = pages.get(path)
+        self.send_response(200 if body else 500 if path == "/error" else 404)
+        data = (body or "").encode()
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+
+@pytest.fixture
+def closed_site():
+    """A local server of closed and open posting pages: `/expired*` redirects to
+    `/search?trk=expired_jd_redirect`, `/filled` is a long page and `/notice` a short one that
+    say "has been filled", `/open`, `/search` and `/alt` are plain long pages, `/error`
+    answers 500, anything else 404. Has `url` (base), `hits` (every requested path, in order)
+    and `rules`, the `closed_rules` of a policy pack that match its two markers."""
+    server = ThreadingHTTPServer(("127.0.0.1", 0), ClosedSiteHandler)
+    server.hits = []
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield SimpleNamespace(url=f"http://127.0.0.1:{server.server_port}", hits=server.hits,
+                          rules=CLOSED_RULES)
     server.shutdown()
 
 

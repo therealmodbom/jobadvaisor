@@ -92,6 +92,9 @@ def test_a_fresh_import_counts_each_entry_and_marks_the_stored_postings(api, sit
         ("Offen", "C", "offen", "open"), ("Offen", "A", "Bewerbung raus", "applied"),
         ("Archiv", "B", "Absage", "done")])
     assert not list((root / "labels").glob("*"))  # the list rates nothing
+    # each page was read, which is what a check calls available
+    assert {(p.availability.state, p.availability.set_by) for p in postings} == {
+        ("available", "check")}
 
 
 def test_the_report_lists_the_entries_that_were_not_imported_in_list_order(api, site):
@@ -296,6 +299,21 @@ def test_another_address_or_failure_is_not_gone():
     assert not is_gone([attempt("http://a/redirect", "HTTP 404")], "http://a/x")
     assert not is_gone([attempt("http://a/x", "connection failed: ReadTimeout")], "http://a/x")
     assert not is_gone([attempt("http://a/x", "HTTP 500")], "http://a/x")
+
+
+@pytest.mark.parametrize(("path", "reason"), [("expired/1", "closed page (redirect)"),
+                                              ("notice", "closed page (page text)")])
+def test_a_closed_page_is_a_gone_link_that_is_not_looked_for_elsewhere(
+        tmp_path, closed_site, path, reason):
+    write_json(tmp_path / "profile.json", {"schema_version": "1", "summary": "Developer"})
+    write_json(tmp_path / "policy-pack.json", {**POLICY_PACK, "closed_rules": closed_site.rules})
+    loop = ToolScriptModel(plan=[])
+    intake = Intake(tmp_path, FakeStructuredModel(), ContentGuard(None, {}), loop_model=loop)
+    url = f"{closed_site.url}/{path}"
+    assert import_entry(intake, Entry("t", "r", url, None, None), ImportMapping()) == (
+        "skipped_gone", None, reason)
+    assert not loop.seen and closed_site.hits == [f"/{path}"]
+    assert not (tmp_path / "postings").exists() or not list((tmp_path / "postings").glob("*"))
 
 
 def test_an_entry_without_a_link_fails_with_the_reason_kein_link(tmp_path):
