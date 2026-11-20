@@ -57,7 +57,7 @@
   - a 422 for `"unknown"`;
   - `POST /postings/{id}/score` scores a closed posting and leaves it closed.
 
-  Specs: Hand setting of availability, Hand setting returned to the check, Single score of a closed posting.
+  Specs: Hand setting of availability, Single score of a closed posting (the reset value and the hand-setting gate are replaced by 2.7).
 
 ## 2. Backend: intake, check, pool, agent
 
@@ -114,6 +114,21 @@
   - a posting closed on disk after the batch was taken, before `score` reaches it, gets no judge call and no new score, and counts as done. Specs: A pass leaves closed postings out, No exploration mark on a closed posting, Ratings of closed postings still count, Ranking by fit.
 - [x] 2.6 Cancel a check (D5, D6): `AvailabilityChecks.cancel` sets `cancel_requested`, the worker stops before the next posting and ends `cancelled`; `POST /availability/checks/{id}/cancel` (202, 404, 409). Verify with tests: a cancel after some postings fetches no further posting, keeps the written results and reports their counts; a cancel of an ended check answers 409; an unknown ID 404 (spec: Cancel a check).
 - [x] 2.5 Agent tools (D7): `find_postings` and `find_similar_postings` mark `closed: true`, and no tool writes availability. Verify with `test_agent.py` (spec: Closed postings are no recommendation, Search results mark a closed posting, No silent data changes).
+- [ ] 2.7 Every posting is checked again (D5, D6; replaces the hand-setting gate of 1.4 and the closed/hand-set exclusion of 2.2):
+  - `check_batch` covers open postings with a fetchable link whatever their availability, and the batch keeps each posting's availability at the start;
+  - `write_availability(..., expected)` writes only when the stored availability still equals the snapshot, and never writes `unknown` over closed;
+  - the report's `closed` list holds only postings whose snapshot was not closed;
+  - `PATCH` drops the `"check"` value, and `update_posting` drops key removal if nothing else uses it.
+
+  Verify with tests:
+  - a hand-closed posting whose link answers 200 ends available, set by the check;
+  - a hand-available posting whose link answers 404 ends closed;
+  - a closed posting answering 429 stays closed with its old record, and counts as unknown;
+  - a value set (or changed and changed back) while the check runs survives;
+  - an already closed posting answering 404 is counted closed but not listed;
+  - `PATCH availability: "check"` answers 422.
+
+  Specs: What a check covers, Unknown never reopens a closed posting, Hand setting of availability, A hand setting lasts until the next check, Report of a check.
 
 ## 3. Frontend
 
@@ -136,6 +151,7 @@
 - [x] 3.4 `App.tsx`: the settings icon button „Einstellungen“ at the right end of the header, after the backup control, opening the threshold and rate form in a panel anchored to it, closed by Escape, from every view. Verify with `App.test.tsx`: the panel opens from the intake view, saving changes the pool's hint, Escape closes it and focus returns to the button (spec: Settings in the header).
 - [x] 3.5 `PostingPage.tsx`: under the title one row with „Bearbeiten“, „Bewerbungsstatus“ and „Verfügbarkeit“; the note with its time and setter or „nicht geprüft“; the hand setting; „Wieder automatisch prüfen“ for a hand setting; the old status row removed. The score button stays enabled for a closed posting. Verify with `PostingPage.test.tsx` (specs: Availability on the posting page, Labels for application status and availability).
 - [x] 3.6 `IntakeView.tsx` and `AlertMailView.tsx`: „Stelle geschlossen“ with its attempts and no text or PDF option, for a single link, among several links and for an alert run entry. Verify with `IntakeView.test.tsx` and `AlertMailView.test.tsx` (spec: Intake view, Several links at once, Alert mail run progress and outcome).
+- [ ] 3.7 Follow 2.7 in the UI (D8): „Wieder automatisch prüfen“ goes; a hand setting's note reads „von dir gesetzt am …, die nächste Prüfung prüft neu“; the disabled check's reason reads „Nichts zu prüfen: Keine offene Anzeige hat einen Link, den die Prüfung abrufen kann.“; the report head says „N Stellen neu geschlossen“ and adds „N weiterhin geschlossen.“ when some were closed before. Verify with `PostingPage.test.tsx` and `PoolView.test.tsx` (specs: Availability on the posting page, Availability check button, Availability check progress and report).
 
 ## 4. End to end and docs
 

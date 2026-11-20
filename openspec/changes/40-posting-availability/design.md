@@ -16,7 +16,8 @@ See `proposal.md` → Why. The code this change builds on:
 
 - One set of functions decides closed, available or unknown for a fetched link. The check and intake share it.
 - A closed redirect is recognised before its target is requested, in the plain and in the rendered fetch, guarded or not.
-- A check never overwrites a hand setting, even one made while the check runs.
+- A hand setting never takes a posting out of later checks. The next check replaces it with its own result, but it never replaces a value the user set while that check runs.
+- An unknown result never reopens a closed posting.
 
 **Non-Goals:**
 
@@ -76,8 +77,9 @@ New module `availability.py`:
 
 - **Selection** (`check_batch`): the batch is computed when the check starts and is the size `GET /pool` announces. A posting is in it when:
   - its application status is `open`;
-  - its availability is not closed and not `set_by: user`;
-  - it has at least one URL whose host is not login-walled (`login_wall_hosts`).
+  - it has at least one URL on a public host (`public_link`) that is not login-walled (`login_wall_hosts`).
+
+  Its availability does not matter: closed postings and hand settings are checked too, so a posting that is back online is found again. Rejected: leaving hand settings out of later checks. A hand setting is a snapshot of one moment, and a posting the user reopened can close an hour later. The batch keeps each posting's availability as it was when the check started (the snapshot the write compares against).
 - `check_posting(posting) -> state`:
   - Each non-walled URL is fetched in order, with `guarded_link` set to it, as the alert run sets it. A refused hop gives `unknown`.
   - The first URL that answers 200 with no text marker gives `available`.
@@ -89,7 +91,12 @@ New module `availability.py`:
   - a `ThreadPoolExecutor` of one;
   - state in memory: `{check_id, status: running|done|cancelled|failed, total, done, cancel_requested, counts: {available, closed, unknown}, closed: [{posting_id, title, company}], error}`;
   - a cancel sets `cancel_requested`. The worker reads it before each posting, so the posting it works on finishes and is written, and the check ends `cancelled` with the counts so far. This follows the pass's cancel (`runs.cancel`). Rejected: stopping mid-fetch, which would leave a posting half-checked and gain at most one request's time.
-- **Write by a check:** `write_availability(root, posting_id, availability)` is gated. It re-reads the file under `write_gate` and writes nothing when the file's availability is `set_by: user`, or when the posting no longer exists ([#113 (Delete a posting permanently from the web app)](https://github.com/therealmodbom/jobadvaisor/issues/113)). A hand setting made while the check runs therefore survives.
+- **Write by a check:** `write_availability(root, posting_id, availability, expected)` is gated. It re-reads the file under `write_gate` and writes nothing when:
+  - the file's availability no longer equals `expected`, the snapshot taken when the check started, so a hand setting made while the check runs survives (also one changed and changed back);
+  - the posting no longer exists ([#113 (Delete a posting permanently from the web app)](https://github.com/therealmodbom/jobadvaisor/issues/113));
+  - the result is `unknown` and the posting is closed, so a rate limit or a timeout never reopens a dead posting.
+
+  Rejected: comparing `set_at` with the check's start time, which depends on clocks and misses a change undone within the check. The report's `closed` list names only postings whose snapshot was not closed, so postings closed earlier are counted but not listed again on every check.
 - **Write by the user:** `PATCH /postings/{id}` writes unconditionally through `update_posting`, so one hand setting can replace another.
 
 ### D6 API
@@ -98,7 +105,7 @@ New module `availability.py`:
 - `GET /availability/checks/{id}` → the state, or 404 for an unknown check.
 - `POST /availability/checks/{id}/cancel` → 202 `{check_id}` at once, 404 for an unknown check, 409 `check not running` for one that has ended. Same contract as `POST /pool/passes/{id}/cancel`.
 - `GET /pool` adds `next_check: {total}`.
-- `PATCH /postings/{id}` accepts `availability: "available"|"closed"` and writes `{state, now, user}`. `availability: "check"` removes the key („Wieder automatisch prüfen“), so the posting counts as never checked. Removing it does not keep the last state as set by a check, because no check set it. `"unknown"` answers 422. `update_posting` gains key removal for this.
+- `PATCH /postings/{id}` accepts `availability: "available"|"closed"` and writes `{state, now, user}`. Any other value, `"unknown"` included, answers 422. There is no value that removes the availability: the next check covers every posting anyway.
 - `POST /postings/{id}/score` keeps refusing only held and excluded postings. A closed posting can be scored on request; only the pass leaves it out.
 - Pool rows gain `availability` (the stored dict, or null).
 
@@ -121,19 +128,21 @@ New module `availability.py`:
 - The look follows the Design artifact https://claude.ai/artifact/CJ2BCcyxxoB53mRnCkyf3D (version 19, approved 2026-11-20). Its boards are captured from the running app over the demo persona, so they show each view whole. Chosen layout and texts:
   - **Pool head, side by side.** Two columns: the pass button with the counter line below it, then its progress or result; beside it „Verfügbarkeit prüfen (N)“, then its progress or report. Each status grows down in its own column, so neither button moves when the other action's status changes height. Rejected: the two buttons stacked in one column with the statuses to their right. There the scoring status sets the height of the first row, so the check button moves down when the cancel notice appears.
   - **Counter line** under the pass button, small: „N Korrekturen · Ranking passt gut“ (or „neu scoren sinnvoll“), then „Anteil N %“ or „Anteil ab 10 Bewertungen (bisher N)“. It replaces the cost line, since the menu already names count and model calls per variant.
-  - **Disabled actions** keep the existing pattern: the button is `aria-disabled`, and a focusable info icon beside it gives the reason („Es gibt keine Anzeigen ohne Score. Über den Pfeil wählst du „Alle Anzeigen neu scoren“.“, „Nichts zu prüfen: Jede offene Anzeige ist schon geschlossen, von Hand gesetzt oder hat keinen Link.“).
+  - **Disabled actions** keep the existing pattern: the button is `aria-disabled`, and a focusable info icon beside it gives the reason („Es gibt keine Anzeigen ohne Score. Über den Pfeil wählst du „Alle Anzeigen neu scoren“.“, „Nichts zu prüfen: Keine offene Anzeige hat einen Link, den die Prüfung abrufen kann.“).
   - **Check running:** the button becomes „Prüfen abbrechen“; the progress block matches the pass's (head line „Verfügbarkeit: N von M geprüft“, bar, hint „K geschlossen bisher. Abbrechen hält nach der aktuellen Anzeige an. Was schon geprüft ist, bleibt gespeichert.“).
-  - **Report:** a card in the check's column, „Prüfung fertig: N Stellen geschlossen“ with a dismiss button, the first three closed postings linked, the rest behind „K weitere anzeigen“, then „N verfügbar. N blieben unbekannt, die nächste Prüfung versucht sie erneut.“ A cancelled check says so in the head line. The pass's cancel notice sits in the pass column the same way.
+  - **Report:** a card in the check's column, „Prüfung fertig: N Stellen neu geschlossen“ with a dismiss button, the first three newly closed postings linked, the rest behind „K weitere anzeigen“, then „N verfügbar. N blieben unbekannt, die nächste Prüfung versucht sie erneut.“ and, when some were closed before, „N weiterhin geschlossen.“ A cancelled check says so in the head line. The pass's cancel notice sits in the pass column the same way.
   - **Settings** move out of the pool view into an icon button „Einstellungen“ at the right end of the app header, after the backup control. It opens a panel with the threshold and rate form, anchored to the button, closed by Escape.
   - **Wording:** the filter and the row mark read „Stelle geschlossen“, and the application status is labelled „Bewerbungsstatus“ in rows and on the posting page, so the two states are not confused.
-  - **Posting page:** under the title one row holds „Bearbeiten“, „Bewerbungsstatus“ and „Verfügbarkeit“ (a select: verfügbar, geschlossen; „nicht geprüft“ only shown, not choosable). Below the select a note: „laut Prüfung vom …“ or „von dir gesetzt am …“ with „Wieder automatisch prüfen“. The old status row further down goes.
+  - **Posting page:** under the title one row holds „Bearbeiten“, „Bewerbungsstatus“ and „Verfügbarkeit“ (a select: verfügbar, geschlossen; „nicht geprüft“ only shown, not choosable). Below the select a note: „laut Prüfung vom …“ or „von dir gesetzt am …, die nächste Prüfung prüft neu“. The old status row further down goes.
   - **Intake:** „Stelle geschlossen“ as a neutral card (not the red failure card) with the attempts and no text or PDF option; among several links a neutral entry with the same icon.
 - Kept as is: the pass button's menu with count and model calls per variant. A cost estimate in money is [#135 (Show an estimated cost before a scoring pass)](https://github.com/therealmodbom/jobadvaisor/issues/135).
 - The view remembers a running check's ID in `localStorage`, like the pass, so a reload resumes the poll.
 
 ## Risks / Trade-offs
 
-- [An employer's site answers 404 for a moment and the posting is closed wrongly] → The user reopens it by hand on its page, and a check never overwrites that.
+- [An employer's site answers 404 for a moment and the posting is closed wrongly] → The next check that sees the page reopens it. Until then the user can reopen it by hand.
+- [A closed rule matches a live page, so every check closes the posting again after the user reopened it] → The user fixes or removes the rule in the policy pack. A hand setting is not meant to override a wrong rule.
+- [A closed posting's host rate-limits or times out on every check] → The posting stays closed (an unknown result never reopens it) and is fetched again on each check, at one request per check.
 - [LinkedIn changes its redirect marker] → Postings then stay available, so nothing is closed wrongly. A new default rule fixes it, or the user adds a rule to the policy pack.
 - [Rate limits leave many postings unknown] → They stay in the pool, the next check tries them again, and the report names the count.
 - [A context variable set in one thread is not seen in another] → It is set in the thread that fetches, as `guarded_link` is in the alert run.

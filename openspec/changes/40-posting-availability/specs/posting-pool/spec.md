@@ -21,11 +21,15 @@ The pool SHALL offer a check of availability that the user starts. No check SHAL
 - **THEN** no check runs until the user starts one
 
 ### Requirement: Report of a check
-While a check runs, the system SHALL report how many of its postings are done. At its end it SHALL report how many postings it found available, closed and unknown, and SHALL list each posting it found closed.
+While a check runs, the system SHALL report how many of its postings are done. At its end it SHALL report how many postings it found available, closed and unknown, and SHALL list each posting it closed that was not closed before the check.
 
 #### Scenario: Check finds closed postings
 - **WHEN** the user starts a check and 3 of the 20 postings it covers answer HTTP 404
 - **THEN** those 3 are stored as closed, the report counts 3 closed, and it lists them
+
+#### Scenario: Already closed postings not listed again
+- **WHEN** a check covers 2 postings that were already closed and 1 newly closed one, and all 3 links answer HTTP 404
+- **THEN** the report counts 3 closed and lists only the newly closed one
 
 ### Requirement: One check at a time
 The system SHALL run one check at a time. A request to start a check while one runs SHALL be refused, naming the running check. A check SHALL NOT wait for a scoring pass, and a pass SHALL NOT wait for a check.
@@ -42,15 +46,15 @@ The user SHALL be able to cancel a running check. The check SHALL stop after the
 - **THEN** it fetches no further posting, the 2 stay closed, the other 12 keep their earlier availability, and the check ends as cancelled reporting the 8
 
 ### Requirement: What a check covers
-A check SHALL cover every posting whose application status is open, whose availability is not closed and not set by the user, and that has at least one stored link on a host that is not login-walled. It SHALL leave every other posting as it is.
+A check SHALL cover every posting whose application status is open and that has at least one stored link on a public host that is not login-walled, whatever its availability and whoever set it. It SHALL leave every other posting as it is.
 
 #### Scenario: Applied posting not checked
 - **WHEN** a posting has the application status "beworben" and the user starts a check
 - **THEN** the check does not fetch it and its availability stays as it was
 
-#### Scenario: Closed posting not checked again
-- **WHEN** a posting is closed and the user starts a check
-- **THEN** the check does not fetch it
+#### Scenario: Closed posting checked again
+- **WHEN** a posting is closed, its link now shows the posting again, and the user starts a check
+- **THEN** the check finds it available, and the pool lists it as open again
 
 #### Scenario: Pasted posting not checked
 - **WHEN** a posting was added as pasted text or a PDF and has no link
@@ -86,6 +90,13 @@ A check SHALL find a posting unknown when none of its fetched links shows an ava
 - **WHEN** a posting has two links, one answering HTTP 404 and the other timing out
 - **THEN** the check finds the posting unknown
 
+### Requirement: Unknown never reopens a closed posting
+When a check finds a closed posting unknown, the posting SHALL stay closed, with the record of who closed it and when. Only a link that shows an available page SHALL reopen a closed posting. The report SHALL count the posting as unknown.
+
+#### Scenario: Closed posting rate limited
+- **WHEN** a closed posting's link answers HTTP 429 during a check
+- **THEN** the posting stays closed with its earlier record, the report counts it as unknown, and the pool still lists it only under „Stelle geschlossen“
+
 ### Requirement: Closed rules from code and policy pack
 The system SHALL ship default closed rules, each naming a host and either a redirect marker or a page text marker, starting with LinkedIn's redirect marker "trk=expired_jd_redirect". The policy pack MAY hold further closed rules. They SHALL add to the defaults, never replace them. A rule's host SHALL match itself and its subdomains.
 
@@ -101,22 +112,26 @@ A page text marker SHALL match, ignoring case, against the text a reader sees on
 - **THEN** the rule does not match
 
 ### Requirement: Hand setting of availability
-The user SHALL be able to set a posting's availability to available or closed by hand, and change a hand setting by hand again. A check SHALL NOT change an availability the user set by hand, also when the user set it while the check ran.
+The user SHALL be able to set a posting's availability to available or closed by hand, and change it by hand again at any time.
+
+#### Scenario: Close by hand
+- **WHEN** the user sets an available posting to closed
+- **THEN** it is stored as closed, set by the user, and passes leave it out
+
+### Requirement: A hand setting lasts until the next check
+A hand setting SHALL NOT take a posting out of later checks. The next check that reaches the posting SHALL replace the hand setting with its own result, as for any other posting, except that an unknown result keeps a closed posting closed. A check SHALL NOT replace an availability the user set after that check started.
 
 #### Scenario: Wrongly closed posting reopened
-- **WHEN** a check closed a posting the employer still lists, the user sets it to available, and the user starts another check
-- **THEN** the posting stays available and the check does not fetch it
+- **WHEN** a check closed a posting the employer still lists, the user sets it to available, and the user starts another check whose fetch of the link answers HTTP 404 again
+- **THEN** the check fetches the posting and stores it as closed again
+
+#### Scenario: Hand-closed posting still online
+- **WHEN** the user closes a posting by hand whose page still shows it, and later starts a check
+- **THEN** the check finds it available, stores it as set by the check, and the pool lists it as open again
 
 #### Scenario: Set by hand during a check
 - **WHEN** a check runs, the user sets a posting it covers to available before the check reaches it, and the posting's link answers HTTP 404
-- **THEN** the posting stays available, set by the user
-
-### Requirement: Hand setting returned to the check
-The user SHALL be able to remove a hand setting. The posting then counts as never checked, and the next check SHALL cover it again.
-
-#### Scenario: Reopened posting checked again
-- **WHEN** the user set a posting to available by hand, later removes the hand setting, and starts a check whose fetch of the posting's link answers HTTP 404
-- **THEN** the check finds the posting closed
+- **THEN** the posting stays available, set by the user, and the next check covers it again
 
 ### Requirement: Single score of a closed posting
 The user SHALL be able to score a closed posting on request, like any posting that is neither excluded nor held.

@@ -592,11 +592,11 @@ UI texts SHALL say „scoren“ or „Score“ for the AI's scoring, and „bewe
 The pool view SHALL offer „Verfügbarkeit prüfen“ beside the pass button, naming how many postings the check will cover. When it covers none, the button SHALL be disabled, with a visible, focusable info icon that says why.
 
 #### Scenario: Nothing to check
-- **WHEN** every open posting is closed, set by hand or has no link
+- **WHEN** no open posting has a link the check can fetch
 - **THEN** the button is disabled, and its info icon says there is nothing to check
 
 ### Requirement: Availability check progress and report
-While a check runs, the pool view SHALL show below its button how many of its postings are done, and SHALL NOT offer a second start. When the check ends, the view SHALL load the pool again and show the report in the same place: how many postings it found closed, available and unknown, and each posting found closed with a link to its page. The report SHALL list the first three closed postings and the rest behind a toggle, and the user SHALL be able to dismiss it.
+While a check runs, the pool view SHALL show below its button how many of its postings are done, and SHALL NOT offer a second start. When the check ends, the view SHALL load the pool again and show the report in the same place: how many postings it found closed, available and unknown, and each posting it newly closed with a link to its page. The report SHALL list the first three closed postings and the rest behind a toggle, and the user SHALL be able to dismiss it.
 
 #### Scenario: Check from the pool
 - **WHEN** the user presses „Verfügbarkeit prüfen“ and the check finds 2 postings closed
@@ -633,7 +633,7 @@ Wherever the pool view lists a closed posting, its row SHALL carry the mark „S
 - **THEN** its row is listed and marked as closed
 
 ### Requirement: Availability on the posting page
-The posting page SHALL show the posting's availability under the title, beside „Bearbeiten“ and the application status, as a field the user can set to closed or to available. Below it the page SHALL say when the availability was set and whether a check or the user set it, or that it was never checked. For a hand setting, it SHALL offer „Wieder automatisch prüfen“, which removes the hand setting.
+The posting page SHALL show the posting's availability under the title, beside „Bearbeiten“ and the application status, as a field the user can set to closed or to available. Below it the page SHALL say when the availability was set and whether a check or the user set it, or that it was never checked. For a hand setting, the note SHALL say that the next check replaces it.
 
 #### Scenario: Close by hand
 - **WHEN** the user sets an open posting to closed on its page
@@ -641,11 +641,7 @@ The posting page SHALL show the posting's availability under the title, beside �
 
 #### Scenario: Reopen by hand
 - **WHEN** the user sets a closed posting to available on its page
-- **THEN** the page shows it as available, set by hand, and later checks leave it as it is
-
-#### Scenario: Back to automatic
-- **WHEN** the user presses „Wieder automatisch prüfen“ on a posting set by hand
-- **THEN** the page says it was never checked, and the button „Verfügbarkeit prüfen“ in the pool counts it again
+- **THEN** the page shows it as available, set by hand, with the note that the next check replaces it
 
 ### Requirement: Cancel button of a check
 While a check runs, „Verfügbarkeit prüfen“ SHALL give way to „Prüfen abbrechen“, which cancels the check at once and without a confirm step. The view SHALL say that the check stops after the current posting and that what it already found stays stored. When the cancelled check has stopped, the view SHALL show its report with what it found so far, and say it was cancelled.
