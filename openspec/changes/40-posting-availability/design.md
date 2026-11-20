@@ -20,7 +20,6 @@ See `proposal.md` → Why. The code this change builds on:
 
 **Non-Goals:**
 
-- A cancel button for a check. A check sends one plain request per link and no model call.
 - Rendering pages in a browser during the check. A script-only page that answers 200 counts as available. The probe found that a removed Arbeitsagentur posting answers HTTP 410 to the plain fetch, so the check catches it without the adapter.
 - A default page text marker for LinkedIn. The phrase "no longer accepting applications" did not appear on any guest page in the probe of 2026-11-20 (it seems to be shown only when logged in). A default that was never seen to match is left out. LinkedIn's expired postings are caught by the redirect marker and by 404. A user who sees such a phrase on a guest page can add a rule to the policy pack.
 - Skipping the rendered step after a 404 at intake. Only a closed redirect ends the ladder early (D4).

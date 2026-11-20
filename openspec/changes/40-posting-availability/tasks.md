@@ -61,7 +61,7 @@
 
 ## 2. Backend: intake, check, pool, agent
 
-- [ ] 2.1 Intake (D4):
+- [x] 2.1 Intake (D4):
   - `CLOSED_REDIRECT` and `CLOSED_TEXT` join `GONE_OUTCOMES`;
   - `fetch_posting` stops after either;
   - `find_posting`, the agent's `fetch_posting` tool and research set `closed_rules` from the policy pack;
@@ -79,7 +79,7 @@
   - a long page with a text marker is stored closed, set by check.
 
   Specs: Closed page at intake, Closed when no other source holds the posting, Closed page text stored as closed, Chosen entries added in the background, Closed postings are not imported.
-- [ ] 2.2 `availability.py` (D5) needs:
+- [x] 2.2 `availability.py` (D5) needs:
   - `check_batch`, which drops applied, closed, hand-set, linkless and login-walled-only postings;
   - `check_posting` over the non-walled URLs with `guarded_link` set;
   - round-robin host order and a `Throttle(HOST_SPACING_SECONDS)`;
@@ -95,14 +95,14 @@
   - a second start raises `CheckBusyError`.
 
   Specs: What a check covers, Closed by a gone link or a closed rule, Unknown never closes a posting, One check at a time, Report of a check.
-- [ ] 2.3 API (D6):
+- [x] 2.3 API (D6):
   - `POST /availability/checks` (202, or 409 with `check_id`);
   - `GET /availability/checks/{id}` (404 when unknown);
   - `GET /pool` `next_check`;
   - `availability` on pool rows.
 
   Verify with `test_api.py`.
-- [ ] 2.4 Pool (D7): `pass_batch`, `next_pass`, `best_open` and the `_explore` input leave closed postings out, and `rank` keeps them, each once. Verify with `test_pool.py`:
+- [x] 2.4 Pool (D7): `pass_batch`, `next_pass`, `best_open` and the `_explore` input leave closed postings out, and `rank` keeps them, each once. Verify with `test_pool.py`:
   - a closed posting, scored or not, is in neither pass variant's batch nor counted in `next_pass`;
   - it gets no exploration mark;
   - a closed scored unrated row appears once, in rank order;
@@ -112,8 +112,8 @@
   Also verify with graph tests in `test_triage_graph.py`:
   - the pass's batch skips a closed posting;
   - a posting closed on disk after the batch was taken, before `score` reaches it, gets no judge call and no new score, and counts as done. Specs: A pass leaves closed postings out, No exploration mark on a closed posting, Ratings of closed postings still count, Ranking by fit.
-- [ ] 2.6 Cancel a check (D5, D6): `AvailabilityChecks.cancel` sets `cancel_requested`, the worker stops before the next posting and ends `cancelled`; `POST /availability/checks/{id}/cancel` (202, 404, 409). Verify with tests: a cancel after some postings fetches no further posting, keeps the written results and reports their counts; a cancel of an ended check answers 409; an unknown ID 404 (spec: Cancel a check).
-- [ ] 2.5 Agent tools (D7): `find_postings` and `find_similar_postings` mark `closed: true`, and no tool writes availability. Verify with `test_agent.py` (spec: Closed postings are no recommendation, Search results mark a closed posting, No silent data changes).
+- [x] 2.6 Cancel a check (D5, D6): `AvailabilityChecks.cancel` sets `cancel_requested`, the worker stops before the next posting and ends `cancelled`; `POST /availability/checks/{id}/cancel` (202, 404, 409). Verify with tests: a cancel after some postings fetches no further posting, keeps the written results and reports their counts; a cancel of an ended check answers 409; an unknown ID 404 (spec: Cancel a check).
+- [x] 2.5 Agent tools (D7): `find_postings` and `find_similar_postings` mark `closed: true`, and no tool writes availability. Verify with `test_agent.py` (spec: Closed postings are no recommendation, Search results mark a closed posting, No silent data changes).
 
 ## 3. Frontend
 
