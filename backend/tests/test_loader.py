@@ -1,5 +1,7 @@
 """One test per `data-repository` spec scenario the loader covers, plus its file-level rules."""
 
+import json
+
 import pytest
 from conftest import POSTING, write_json
 
@@ -216,3 +218,13 @@ def test_file_by_external_writer_loads(data_repository):
     repository = load(data_repository)
     assert repository.postings["ext-1"].legacy_decision == "discarded"
     assert repository.labels["ext-1"].verdict is None
+
+
+def test_invalid_closed_rule_names_file_and_position(data_repository):
+    pack = json.loads((data_repository / "policy-pack.json").read_text())
+    rules = [{"host": "jobs.example.com", "text_marker": "filled"},
+             {"host": "linkedin.com", "redirect_marker": "a", "text_marker": "b"}]
+    write_json(data_repository / "policy-pack.json", {**pack, "closed_rules": rules})
+    with pytest.raises(DataRepositoryError) as error:
+        load(data_repository)
+    assert "policy-pack.json: closed_rules[1]: " in str(error.value)

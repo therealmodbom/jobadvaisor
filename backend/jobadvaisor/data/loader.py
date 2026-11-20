@@ -153,7 +153,8 @@ def _load_file[M: Entity](
         return model.model_validate_json(text, strict=True)
     except ValidationError as error:
         for detail in error.errors():
-            location = ".".join(str(part) for part in detail["loc"])
+            location = "".join(f"[{part}]" if isinstance(part, int) else f".{part}"
+                               for part in detail["loc"]).lstrip(".")
             message = detail["msg"]
             if detail["type"] in _BOUND_ERRORS:
                 message += f" (got {detail['input']})"

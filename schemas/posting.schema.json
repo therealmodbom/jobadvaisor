@@ -1,6 +1,41 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$defs": {
+    "Availability": {
+      "additionalProperties": false,
+      "description": "Whether a posting is still open for applications: `state` is `available`, `closed` or\n`unknown` (the last check could not tell), `set_at` when it was set and `set_by` whether a\n`check` or the `user` set it. A check never overwrites one set by the user.",
+      "properties": {
+        "state": {
+          "enum": [
+            "available",
+            "closed",
+            "unknown"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "set_at": {
+          "format": "date-time",
+          "title": "Set At",
+          "type": "string"
+        },
+        "set_by": {
+          "enum": [
+            "check",
+            "user"
+          ],
+          "title": "Set By",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state",
+        "set_at",
+        "set_by"
+      ],
+      "title": "Availability",
+      "type": "object"
+    },
     "Guard": {
       "additionalProperties": false,
       "description": "The content guard's result for a posting. `released_at` is set once the user releases a\nflagged posting.",
@@ -91,7 +126,7 @@
     }
   },
   "additionalProperties": false,
-  "description": "`postings/<id>.json`; the ID is the file name and matches ^[a-z0-9][a-z0-9-]{0,63}$.\nVersions 1 and 2 load; version 1 has no `status` or `origin` and reads as status open without\nan origin. New postings are written as version 2. `status` is the user's application status.\n`urls` holds the submitted URL first when `source_type` is url. `guard` absent means never\nscreened; `legacy_decision` is written only by an exporter. Unresolved `title`, `company` or\n`location_raw` hold \"unknown\".",
+  "description": "`postings/<id>.json`; the ID is the file name and matches ^[a-z0-9][a-z0-9-]{0,63}$.\nVersions 1 and 2 load; version 1 has no `status` or `origin` and reads as status open without\nan origin. New postings are written as version 2. `status` is the user's application status.\n`urls` holds the submitted URL first when `source_type` is url. `guard` absent means never\nscreened; `availability` absent means never checked (it does not change the schema version);\n`legacy_decision` is written only by an exporter. Unresolved `title`, `company` or\n`location_raw` hold \"unknown\".",
   "if": {
     "properties": {
       "source_type": {
@@ -188,6 +223,17 @@
       "anyOf": [
         {
           "$ref": "#/$defs/Guard"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "availability": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Availability"
         },
         {
           "type": "null"

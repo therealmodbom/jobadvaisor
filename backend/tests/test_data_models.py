@@ -235,3 +235,48 @@ def test_extraction_labels_default_to_no_minimum_and_no_labels():
 def test_extraction_labels_reject_a_minimum_outside_0_to_1(value):
     with pytest.raises(ValidationError, match="min_accuracy"):
         ExtractionLabels.model_validate({"schema_version": "1", "min_accuracy": value})
+
+
+AVAILABILITY = {"state": "closed", "set_at": AT, "set_by": "check"}
+
+
+@pytest.mark.parametrize("version", ["1", "2"])
+def test_posting_without_availability_loads_as_never_checked(version):
+    assert Posting.model_validate(with_(POSTING, schema_version=version)).availability is None
+
+
+def test_availability_round_trips_on_a_posting():
+    posting = Posting.model_validate(with_(POSTING, availability=AVAILABILITY))
+    assert posting.availability.state == "closed"
+    assert Posting.model_validate_json(posting.model_dump_json()) == posting
+
+
+@pytest.mark.parametrize(("field", "value"), [
+    ("state", "gone"), ("set_by", "robot"), ("set_at", "2026-01-05T09:00:00")])
+def test_availability_rejects_a_bad_value(field, value):
+    with pytest.raises(ValidationError, match=field):
+        Posting.model_validate(with_(POSTING, availability={**AVAILABILITY, field: value}))
+
+
+def test_policy_pack_without_closed_rules_loads():
+    assert PolicyPack.model_validate(POLICY_PACK).closed_rules is None
+
+
+def test_policy_pack_holds_closed_rules_with_one_marker_each():
+    rules = [{"host": "linkedin.com", "redirect_marker": "trk=gone"},
+             {"host": "jobs.example.com", "text_marker": "position filled"}]
+    pack = PolicyPack.model_validate(with_(POLICY_PACK, closed_rules=rules))
+    assert [(rule.host, rule.redirect_marker, rule.text_marker) for rule in pack.closed_rules] == [
+        ("linkedin.com", "trk=gone", None), ("jobs.example.com", None, "position filled")]
+
+
+@pytest.mark.parametrize("rule", [
+    {"host": "jobs.example.com"},
+    {"host": "jobs.example.com", "redirect_marker": "a", "text_marker": "b"},
+    {"host": "jobs.example.com", "text_marker": ""},
+    {"host": "https://jobs.example.com/", "text_marker": "filled"},
+    {"host": "localhost", "text_marker": "filled"},
+])
+def test_closed_rule_needs_exactly_one_marker_and_a_host(rule):
+    with pytest.raises(ValidationError, match="closed_rules"):
+        PolicyPack.model_validate(with_(POLICY_PACK, closed_rules=[rule]))
