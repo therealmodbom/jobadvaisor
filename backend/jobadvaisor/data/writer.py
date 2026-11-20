@@ -229,7 +229,8 @@ def write_guard(root: Path, posting_id: str, guard: Guard) -> Posting:
 
 def read_posting(root: Path, posting_id: str) -> Posting:
     """`postings/<posting_id>.json` under `root` as the file on disk holds it now. Raises
-    `ValueError` for an unsafe ID or a posting that does not exist."""
+    `ValueError` for an unsafe ID, a posting that does not exist or a file that does not
+    validate; `FileNotFoundError` when the file is removed between that check and the read."""
     return Posting.model_validate_json(_posting_path(root, posting_id).read_text(), strict=True)
 
 
