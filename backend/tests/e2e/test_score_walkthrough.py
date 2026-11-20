@@ -413,9 +413,10 @@ def a_check(status, done):
 
 
 def test_both_columns_of_the_pool_head_start_their_status_at_one_height(page, app_url):
-    """Only the pass has a counter line under its button, yet from 640 px both statuses start at
-    one height: the check's progress bar sits level with the pass's, and the check's report starts
-    level with the pass's progress block. Pass and check endpoints are stubbed."""
+    """Only the pass has a counter line under its button, yet from 640 px both buttons sit at the
+    top and both statuses start at one height: the check's start and cancel buttons sit level with
+    the pass's button (idle and running), the check's progress bar level with the pass's, and its
+    report starts level with the pass's progress block. Pass and check endpoints are stubbed."""
     current = {"check": a_check("running", 10)}
     a_pass = running_pass("scoring", (0, 141))
     page.route("**/pool/passes/ps-row", lambda route: route.fulfill(json=a_pass))
@@ -424,6 +425,9 @@ def test_both_columns_of_the_pool_head_start_their_status_at_one_height(page, ap
     check_block = page.get_by_role("region", name="Stand der Prüfung")
     heading = page.get_by_role("heading", name=re.compile("^Prüfung abgebrochen"))
     report = heading.locator("xpath=../..")
+    pass_cancel = page.locator("button[aria-describedby=cancel-why]")
+    check_cancel = page.locator("button[aria-describedby=check-why]")
+    check_start = page.get_by_role("button", name=re.compile(r"^Verfügbarkeit prüfen \(\d+\)$"))
 
     def top(locator):
         """The y position of `locator`'s box."""
@@ -432,6 +436,12 @@ def test_both_columns_of_the_pool_head_start_their_status_at_one_height(page, ap
     offsets = []
     try:
         page.goto(f"{app_url}/#/pool")
+        page.reload()
+        split = page.locator("[role=group][aria-label=Scoren]")
+        expect(split).to_be_visible()
+        for width in ROW_WIDTHS[2:]:
+            page.set_viewport_size({"width": width, "height": 900})
+            offsets.append((width, "idle", top(check_start) - top(split)))
         page.evaluate("sessionStorage.setItem('jobadvaisor.pool-pass', 'ps-row')")
         page.evaluate("localStorage.setItem('jobadvaisor.pool-check', 'ck-row')")
         page.reload()
@@ -441,11 +451,13 @@ def test_both_columns_of_the_pool_head_start_their_status_at_one_height(page, ap
             page.set_viewport_size({"width": width, "height": 900})
             offsets.append((width, "bar", top(check_block.locator("progress"))
                             - top(pass_block.locator("progress"))))
+            offsets.append((width, "cancel", top(check_cancel) - top(pass_cancel)))
         current["check"] = a_check("cancelled", 19)
         expect(report).to_be_visible(timeout=15_000)
         for width in ROW_WIDTHS[2:]:
             page.set_viewport_size({"width": width, "height": 900})
             offsets.append((width, "report", top(report) - top(pass_block)))
+            offsets.append((width, "start", top(check_start) - top(pass_cancel)))
     finally:  # later tests share the page: desktop width, no stored pass or check
         page.unroute("**/pool/passes/ps-row")
         page.unroute("**/availability/checks/ck-row")

@@ -146,8 +146,10 @@ const HINT_STOPPING = 'Wird nach der aktuellen Anzeige beendet.'
 const HINT_STORING = 'Das Speichern lässt sich nicht mehr abbrechen.'
 
 /** A column of the pool head: its button part and its status part, stacked below `sm`, from `sm`
- * placed on the head grid's two shared rows (a subgrid), so the statuses of both columns align. */
-const COLUMN = 'flex min-w-0 flex-col gap-3 sm:row-span-2 sm:grid sm:grid-rows-subgrid'
+ * placed on the head grid's two shared rows (a subgrid), so the statuses of both columns align.
+ * Each part sits at the top of its row (`items-start`): a stretched button part would center the
+ * check button in the taller row of the pass button and its counter line. */
+const COLUMN = 'flex min-w-0 flex-col gap-3 sm:row-span-2 sm:grid sm:grid-rows-subgrid sm:items-start'
 
 /** The progress of a running pass, below the pass button in the pass column: a head line with the
  * loader, a bar and a hint line, each of fixed height (the head has room for two lines below `lg`,
