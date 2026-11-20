@@ -20,7 +20,7 @@ const page = (changes: Partial<PostingPageData> = {}): PostingPageData => ({
   posting,
   score: { score: 8, reasoning: 'Viel SQL, passt zu deinen Beispielen.', example_ids: ['ex1'], scored_at: '2026-10-13T08:00:00+00:00' },
   examples: [{ posting_id: 'ex1', title: 'Analyst Energie', company: 'Nordblatt' }],
-  reason_chips: POOL.reason_chips, screening: true, ...changes,
+  checkable: true, reason_chips: POOL.reason_chips, screening: true, ...changes,
 })
 
 test('shows heading, text, original link, score with reasoning, examples, rating, status and no origin', async () => {
@@ -412,10 +412,10 @@ test('a posting never checked shows "nicht geprüft", only shown, and says it wa
   expect(screen.queryByRole('button', { name: 'Wieder automatisch prüfen' })).toBeNull()
 })
 
-test.each([[null, 'ohne Link, wird nicht geprüft'],
+test.each([[null, 'kein prüfbarer Link, wird nicht geprüft'],
            [availability('closed', 'user', '2026-11-20T12:40:00+00:00'), 'von dir gesetzt am 20.11.2026, 13:40']])(
-  'a posting without a link (text or PDF) never promises a check: %o', async (value, note) => {
-    stubApi({ 'GET /postings/p1': { body: { ...withAvailability(value), posting: { ...posting, urls: [], source_type: 'text' } } } })
+  'a posting no check can read (text, PDF, only login-walled links) never promises a check: %o', async (value, note) => {
+    stubApi({ 'GET /postings/p1': { body: { ...withAvailability(value), checkable: false } } })
     render(<PostingPage postingId="p1" />)
     await screen.findByRole('combobox', { name: 'Verfügbarkeit' })
     expect(screen.getByText(note)).toBeVisible()

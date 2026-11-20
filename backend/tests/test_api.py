@@ -367,6 +367,14 @@ def test_posting_page_without_a_score_has_none_and_an_unscored_row(api, root):
     assert page["score"] is None and page["row"]["state"] == "unscored"
 
 
+def test_posting_page_says_whether_a_check_can_read_the_posting(api, root):
+    """`checkable` follows the check's link rule: a pasted posting (no link) is not checkable."""
+    add_posting(root, "linked", "Linked Engineer", source_type="url",
+                urls=["https://jobs.example.org/stelle/1"])
+    assert api.client.get("/postings/linked").json()["checkable"] is True
+    assert api.client.get("/postings/p5").json()["checkable"] is False
+
+
 def test_pool_and_posting_page_say_whether_screening_is_on(tmp_path, root):
     off = Api(Harness(tmp_path / "off", root))
     assert off.client.get("/pool").json()["screening"] is False

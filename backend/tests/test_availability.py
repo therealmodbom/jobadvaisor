@@ -19,6 +19,7 @@ from jobadvaisor.availability import (
     CheckStateError,
     check_batch,
     check_posting,
+    checkable,
 )
 from jobadvaisor.data.loader import load
 from jobadvaisor.data.models import ClosedRule, Posting
@@ -224,6 +225,20 @@ def test_the_batch_covers_open_postings_with_a_link_whatever_their_availability(
                 urls=["https://www.xing.com/jobs/2", OTHER])
     assert check_batch(load(root)) == [
         "by-check", "by-user", "closed", "never-checked", "walled-and-open"]
+
+
+@pytest.mark.parametrize(("urls", "expected"), [
+    ([JOB], True), (["https://www.xing.com/jobs/1"], False),
+    (["http://[bad"], False), (["http://localhost/job"], False),
+    (["https://www.xing.com/jobs/2", OTHER], True)])
+def test_a_posting_is_checkable_by_the_links_the_batch_reads(urls, expected):
+    """`checkable` uses the batch's link rule, whatever the posting's application status."""
+    assert checkable(posting(*urls, status="applied"), ["xing.com"]) is expected
+
+
+def test_a_pasted_posting_is_not_checkable():
+    pasted = posting(JOB).model_copy(update={"source_type": "text", "urls": []})
+    assert checkable(pasted, []) is False
 
 
 # --- AvailabilityChecks: the run and its report

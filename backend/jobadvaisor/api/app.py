@@ -30,6 +30,7 @@ from jobadvaisor.availability import (
     CheckBusyError,
     CheckStateError,
     check_batch,
+    checkable,
 )
 from jobadvaisor.data.backup import (
     Backup,
@@ -382,8 +383,9 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
     def read_posting_page(posting_id: str) -> dict:
         """Everything the posting page shows: its pool `row` (exploration off), the `posting`,
         its stored `score` (null without one), the `examples` the judge compared it with that
-        still exist and `screening` (a content-guard classifier is configured). 404 for an
-        unknown or unsafe ID."""
+        still exist, `checkable` (a check can read one of its links: not pasted text or a PDF,
+        not only login-walled or non-public links) and `screening` (a content-guard classifier
+        is configured). 404 for an unknown or unsafe ID."""
         repository, scores, problems, _ = pool_state(intake.root)
         if posting_id not in repository.postings:
             return problem(404, "not found", f"no posting {posting_id}")
@@ -426,9 +428,11 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
         examples = [{"posting_id": example, "title": found.title, "company": found.company}
                     for example in (score.example_ids if score else [])
                     if (found := repository.postings.get(example))]
-        return {"row": row, "posting": repository.postings[posting_id].model_dump(mode="json"),
+        posting = repository.postings[posting_id]
+        return {"row": row, "posting": posting.model_dump(mode="json"),
                 "score": score.model_dump(mode="json", exclude={"schema_version"})
                 if score else None, "examples": examples,
+                "checkable": checkable(posting, login_wall_hosts(repository.policy_pack)),
                 "reason_chips": reason_chips(repository),
                 "screening": intake.guard.classifier is not None}
 

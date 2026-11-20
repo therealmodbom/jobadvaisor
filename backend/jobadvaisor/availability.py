@@ -56,6 +56,13 @@ def _links(posting: Posting, walled: list[str]) -> list[str]:
             if public_link(url) and not is_login_walled(url, walled)]
 
 
+def checkable(posting: Posting, walled: list[str]) -> bool:
+    """Whether a check can read `posting` at all: it holds a link `_links` keeps (`walled` are
+    the login-walled hosts). The application status does not count here; the posting page
+    uses this to promise a next check only where one can come."""
+    return bool(_links(posting, walled))
+
+
 def check_batch(repository: DataRepository) -> list[str]:
     """The IDs, in ID order, of the postings a check covers: application status open and at
     least one stored link a check can fetch (`_links`: on a public host that is not
@@ -65,7 +72,7 @@ def check_batch(repository: DataRepository) -> list[str]:
     and a check starts with exactly this batch."""
     walled = login_wall_hosts(repository.policy_pack)
     return sorted(posting_id for posting_id, posting in repository.postings.items()
-                  if posting.status == "open" and _links(posting, walled))
+                  if posting.status == "open" and checkable(posting, walled))
 
 
 def check_posting(posting: Posting, walled: list[str], *, http: httpx.Client | None = None,

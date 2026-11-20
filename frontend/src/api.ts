@@ -181,6 +181,9 @@ export type PostingPageData = {
   posting: Posting
   score: { score: number; reasoning: string; example_ids: string[]; scored_at: string } | null
   examples: { posting_id: string; title: string; company: string }[]
+  /** A check can read one of the posting's links (false for pasted text, a PDF, or only
+   * login-walled or non-public links). */
+  checkable: boolean
   reason_chips: ReasonChip[]
   screening: boolean
 }

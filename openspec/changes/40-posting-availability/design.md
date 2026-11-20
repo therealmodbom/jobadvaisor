@@ -69,7 +69,7 @@ Rejected: matching the final address after the redirect was followed. That works
   - `POST /postings` answers 422 with `"closed": true`.
   - `POST /postings/batch` answers `outcome: "closed"`.
   - The alert run reports `state: "closed"`, and its `done` count includes closed entries (`alert_runs.py`, the count over finished states).
-- A `Page` with `closed` is stored with `availability {closed, now, check}`. Any other `url` submission is stored with `availability {available, now, check}`: intake just read the posting from a page, which is what a check calls available, also when the text came from another source. Pasted text and a PDF stay never checked, and their posting page promises no check.
+- A `Page` with `closed` is stored with `availability {closed, now, check}`. Any other `url` submission is stored with `availability {available, now, check}`: intake just read the posting from a page, which is what a check calls available, also when the text came from another source. Pasted text and a PDF stay never checked. The posting page promises no check for a posting no check can read: `GET /postings/{id}` answers `checkable` (`availability.checkable`, the batch's link rule without the status), false for no link or only login-walled or non-public links.
 
 ### D5 The check
 

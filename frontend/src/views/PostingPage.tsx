@@ -47,8 +47,8 @@ function LoadedPage({ postingId }: { postingId: string }) {
   useEffect(load, [load])
 
   /** A score from the button replaces the page's data (the counter and next-pass figures are the pool's). */
-  const score = useScore(({ row, posting, score, examples, reason_chips, screening }: ScoreAnswer) =>
-    setData({ row, posting, score, examples, reason_chips, screening }), load)
+  const score = useScore(({ row, posting, score, examples, checkable, reason_chips, screening }: ScoreAnswer) =>
+    setData({ row, posting, score, examples, checkable, reason_chips, screening }), load)
 
   const title = data?.posting.title
   useEffect(() => {
@@ -153,7 +153,7 @@ function LoadedPage({ postingId }: { postingId: string }) {
           </Button>
           <StatusControl id="posting-status" title={posting.title} value={row.status} saving={saving}
                          failed={failed} onStatus={setStatus} />
-          <AvailabilityControl id="posting-availability" value={row.availability} linked={posting.urls.length > 0}
+          <AvailabilityControl id="posting-availability" value={row.availability} checkable={data.checkable}
                                saving={availSaving}
                                failed={availFailed} onChange={setAvailability} />
         </div>
