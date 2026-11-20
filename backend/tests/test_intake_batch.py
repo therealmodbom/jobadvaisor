@@ -35,7 +35,7 @@ def test_a_failed_link_does_not_stop_the_others(api, site):
     assert response.status_code == 200, response.text
     first, second, third = response.json()["results"]
     assert [first["outcome"], second["outcome"], third["outcome"]] == [
-        "stored", "failed", "stored"]
+        "stored", "closed", "stored"]  # a 404 is a closed page when no other source holds it
     assert [first["url"], second["url"], third["url"]] == [
         f"{site}/static.html", f"{site}/dead.html", f"{site}/jsonld.html"]
     assert [a["step"] for a in second["attempts"]] == ["plain", "rendered"]
@@ -56,6 +56,24 @@ def test_an_address_that_is_no_http_link_fails_alone(api, site):
     bad, good = batch(http, "not a url", f"{site}/static.html").json()["results"]
     assert bad["outcome"] == "failed" and "http" in bad["detail"]
     assert good["outcome"] == "stored" and len(load(root).postings) == 1
+
+
+def test_a_closed_link_is_closed_among_the_others(tmp_path, closed_site):
+    root = tmp_path / "data"
+    write_json(root / "profile.json", {"schema_version": "1", "summary": "Developer"})
+    write_json(root / "policy-pack.json", {**POLICY_PACK, "closed_rules": closed_site.rules})
+    harness = Harness(tmp_path, root)
+    http = TestClient(create_app(
+        Runs(harness.graph, harness.context),
+        Intake(root, FakeStructuredModel(*[FIELDS] * 3), ContentGuard(None, {}),
+               loop_model=ToolScriptModel(plan=[]))), raise_server_exceptions=False)
+    first, closed, last = batch(http, f"{closed_site.url}/open", f"{closed_site.url}/expired/1",
+                                f"{closed_site.url}/filled").json()["results"]
+    assert (first["outcome"], closed["outcome"], last["outcome"]) == ("stored", "closed", "stored")
+    assert [a["outcome"] for a in closed["attempts"]] == ["closed page (redirect)"]
+    assert closed["url"] == f"{closed_site.url}/expired/1" and "paste" in closed["detail"]
+    assert "/search" not in "".join(closed_site.hits)
+    assert load(root).postings[last["posting_id"]].availability.state == "closed"
 
 
 @pytest.mark.parametrize("body", [{"urls": []}, {"urls": [3]}, {}])

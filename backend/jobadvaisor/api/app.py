@@ -525,7 +525,10 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
         """Store a posting from pasted `text`, a `url` or an uploaded PDF `file` (form-encoded,
         exactly one), with optional fields the user supplies. Answers the ID, the stored
         posting, whether screening is on and, for a URL, the ladder's attempts. 422 when no
-        posting text results; for a URL, with the attempts, so the user can paste or upload."""
+        posting text results; for a URL, with the attempts, so the user can paste or upload, and
+        `closed` true when the link is gone (404, 410, a closed redirect or notice) and no other
+        source holds the posting. A page that shows a closed notice beside its posting text is
+        stored with the availability closed."""
         given = [value for value in (text and text.strip(), url and url.strip(), file) if value]
         if len(given) != 1:
             return problem(422, "invalid request", "submit exactly one of text, url or file")
@@ -545,8 +548,8 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
                 posting_id, posting, duplicate = add_submission(intake, submission)
         except PostingNotFoundError as error:
             return JSONResponse({
-                "error": "posting not found",
-                "detail": NOT_FOUND_DETAIL, "attempts": error.attempts}, status_code=422)
+                "error": "posting not found", "detail": NOT_FOUND_DETAIL,
+                "attempts": error.attempts, "closed": error.closed}, status_code=422)
         except NoPostingTextError as error:
             return problem(422, "no posting text", str(error))
         return stored_answer(posting_id, posting, duplicate, attempts)
@@ -554,9 +557,10 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
     @app.post("/postings/batch")
     def add_postings(body: BatchBody) -> dict:
         """Store the posting behind each of several URLs, one after the other. Answers 200 with
-        `results`, one per URL in order: `{"url", "outcome": "stored" | "duplicate" | "failed",
-        "posting_id"}` for the first two, `{"url", "outcome": "failed", "detail", "attempts"?}`
-        for a failure, which never stops the rest. 422 for an empty list or a non-string."""
+        `results`, one per URL in order: `{"url", "outcome": "stored" | "duplicate",
+        "posting_id"}` for the first two, `{"url", "outcome": "closed" | "failed", "detail",
+        "attempts"?}` for the others (`closed`: the link is gone and no other source holds the
+        posting), which never stop the rest. 422 for an empty list or a non-string."""
         results = []
         for url in (entry.strip() for entry in body.urls):
             try:
@@ -566,8 +570,8 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
                 results.append({"url": url, "posting_id": posting_id,
                                 "outcome": "stored" if duplicate is None else "duplicate"})
             except PostingNotFoundError as error:
-                results.append({"url": url, "outcome": "failed", "detail": NOT_FOUND_DETAIL,
-                                "attempts": error.attempts})
+                results.append({"url": url, "outcome": "closed" if error.closed else "failed",
+                                "detail": NOT_FOUND_DETAIL, "attempts": error.attempts})
             except ValueError as error:  # includes NoPostingTextError
                 results.append({"url": url, "outcome": "failed", "detail": str(error)})
         return {"results": results}

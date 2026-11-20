@@ -18,6 +18,7 @@ from test_triage_graph import (
 from jobadvaisor.api.app import configured_intake, configured_runs, create_app
 from jobadvaisor.data.loader import DataRepositoryError
 from jobadvaisor.data.writer import read_pool, read_posting, read_score
+from jobadvaisor.intake.ladder import LadderResult
 from jobadvaisor.intake.postings import Intake
 from jobadvaisor.settings import Settings
 from jobadvaisor.triage.graph import checkpoint_path
@@ -660,6 +661,18 @@ def test_a_closed_posting_is_scored_on_request_and_stays_closed(api, root):
     assert body["score"]["score"] == 2 and read_score(root, "p2").score == 2
     assert body["row"]["availability"]["state"] == "closed"
     assert read_posting(root, "p2").availability.state == "closed"
+
+
+def test_a_closed_link_is_closed_in_both_intake_answers(api, root, closed_site, monkeypatch):
+    write_json(root / "policy-pack.json", POLICY_PACK | {"closed_rules": closed_site.rules})
+    monkeypatch.setattr("jobadvaisor.intake.postings.run_intake_loop",
+                        lambda url, attempts, *args, **kwargs: LadderResult(None, attempts))
+    link = f"{closed_site.url}/expired/1"
+    single = api.client.post("/postings", data={"url": link})
+    assert single.status_code == 422 and single.json()["closed"] is True
+    batch = api.client.post("/postings/batch", json={"urls": [link]}).json()["results"][0]
+    assert batch["outcome"] == "closed" and batch["attempts"] == single.json()["attempts"]
+    assert closed_site.hits == ["/expired/1", "/expired/1"]
 
 
 @pytest.fixture

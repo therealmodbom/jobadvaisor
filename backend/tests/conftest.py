@@ -181,6 +181,54 @@ def site():
     server.shutdown()
 
 
+CLOSED_PAGE = ("<html><body><main>" + "We look for a developer to join our team. " * 30
+               + "</main></body></html>")
+CLOSED_RULES = [{"host": "127.0.0.1", "redirect_marker": "trk=expired_jd_redirect"},
+                {"host": "127.0.0.1", "text_marker": "has been filled"}]
+
+
+class ClosedSiteHandler(SimpleHTTPRequestHandler):
+    """Serves the pages of `closed_site`; records every requested path in `server.hits`."""
+
+    def log_message(self, *args):
+        pass
+
+    def do_GET(self):
+        self.server.hits.append(self.path)
+        path = self.path.split("?")[0]
+        if path.startswith("/expired"):
+            self.send_response(302)
+            self.send_header("Location", "/search?trk=expired_jd_redirect")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        pages = {"/open": CLOSED_PAGE, "/search": CLOSED_PAGE, "/alt": CLOSED_PAGE,
+                 "/filled": CLOSED_PAGE.replace("<main>",
+                                                "<main><p>This role has been filled.</p>"),
+                 "/notice": "<html><body><p>This role has been filled.</p></body></html>"}
+        body = pages.get(path)
+        self.send_response(200 if body else 500 if path == "/error" else 404)
+        data = (body or "").encode()
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+
+@pytest.fixture
+def closed_site():
+    """A local server of closed and open posting pages: `/expired*` redirects to
+    `/search?trk=expired_jd_redirect`, `/filled` is a long page and `/notice` a short one that
+    say "has been filled", `/open`, `/search` and `/alt` are plain long pages, `/error`
+    answers 500, anything else 404. Has `url` (base), `hits` (every requested path, in order)
+    and `rules`, the `closed_rules` of a policy pack that match its two markers."""
+    server = ThreadingHTTPServer(("127.0.0.1", 0), ClosedSiteHandler)
+    server.hits = []
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield SimpleNamespace(url=f"http://127.0.0.1:{server.server_port}", hits=server.hits,
+                          rules=CLOSED_RULES)
+    server.shutdown()
+
+
 @pytest.fixture
 def demo_copy(tmp_path) -> Path:
     """A copy of the demo persona under `tmp_path`, so runs never write into `fixtures/`."""

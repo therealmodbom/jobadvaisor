@@ -35,14 +35,15 @@ class RunEntry:
 def add_entry(intake: Intake, entry: RunEntry) -> dict:
     """Put one entry through `add_from_url` with `guarded_link` set to its link, and return
     its outcome: `{state: "stored", posting_id}`, `{state: "duplicate", posting_id,
-    duplicate_by}`, or `{state: "failed"}` with the ladder's `attempts` or a `reason` (a
+    duplicate_by}`, `{state: "closed", attempts}` when the link is gone and no other source
+    holds the posting, or `{state: "failed"}` with the ladder's `attempts` or a `reason` (a
     `ValueError`'s text, else the exception's type name). Never raises."""
     token = guarded_link.set(entry.url)
     try:
         posting_id, _, duplicate_by, _ = add_from_url(intake, entry.url,
                                                      allow_text_duplicate=entry.force)
     except PostingNotFoundError as error:
-        return {"state": "failed", "attempts": error.attempts}
+        return {"state": "closed" if error.closed else "failed", "attempts": error.attempts}
     except ValidationError as error:  # a ValueError, but its text is multi-line
         return {"state": "failed", "reason": type(error).__name__}
     except ValueError as error:  # includes NoPostingTextError
@@ -89,15 +90,16 @@ class AlertRuns:
     def read(self, run_id: str) -> dict | None:
         """A copy of the run's state, or `None` for an unknown ID: `run_id`, `status`
         (`running`, `done`, `failed`), `error` (the exception's type name when the run
-        crashed), `total`, `done` (entries ended), and `entries` in order, each `{url, title,
-        state}` with `state` one of `waiting`, `running`, `stored`, `duplicate`, `failed`, plus
-        the outcome's fields (`add_entry`)."""
+        crashed), `total`, `done` (entries ended, closed ones included), and `entries` in
+        order, each `{url, title, state}` with `state` one of `waiting`, `running`, `stored`,
+        `duplicate`, `closed`, `failed`, plus the outcome's fields (`add_entry`)."""
         with self._lock:
             state = self._state.get(run_id)
             if state is None:
                 return None
             entries = [dict(entry) for entry in state["entries"]]
-            done = sum(entry["state"] in ("stored", "duplicate", "failed") for entry in entries)
+            done = sum(entry["state"] in ("stored", "duplicate", "closed", "failed")
+                       for entry in entries)
             return state | {"entries": entries, "done": done}
 
     def _run(self, run_id: str, entries: list[RunEntry]) -> None:

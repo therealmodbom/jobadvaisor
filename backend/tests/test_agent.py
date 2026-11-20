@@ -120,6 +120,24 @@ def test_clean_fetched_page_reaches_the_model_as_data(tmp_path, root):
     assert "<page>" in tool_output(model, "fetch_posting") and "heat pumps" in model.seen_text()
 
 
+def test_the_fetch_tool_applies_the_policy_packs_closed_rules(tmp_path, root, closed_site):
+    write_json(root / "policy-pack.json", {**POLICY_PACK, "closed_rules": closed_site.rules})
+    model = ToolScriptModel(plan=[("fetch_posting", {"url": f"{closed_site.url}/expired/1"})])
+    answer(ASK, model, context(Harness(tmp_path, root)))
+    assert tool_output(model, "fetch_posting") == (
+        "no posting text found: plain: closed page (redirect)")
+    assert closed_site.hits == ["/expired/1"]  # the search page behind it is never requested
+
+
+def test_company_research_applies_the_policy_packs_closed_rules(tmp_path, root, closed_site):
+    write_json(root / "policy-pack.json", {**POLICY_PACK, "closed_rules": closed_site.rules})
+    model = ToolScriptModel(plan=[("research_company", {
+        "company": "Acme", "website": f"{closed_site.url}/expired/1"})])
+    answer(ASK, model, context(Harness(tmp_path, root)))
+    assert "fetch failed: closed page (redirect)" in tool_output(model, "research_company")
+    assert closed_site.hits == ["/expired/1"]
+
+
 def test_flagged_company_research_never_reaches_the_model(tmp_path, root):
     add_posting(root, "acme", "Backend Engineer", company="Acme Solar",
                 urls=["https://careers.acme-solar.example/1"])

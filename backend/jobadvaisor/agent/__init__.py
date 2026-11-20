@@ -23,7 +23,12 @@ from jobadvaisor.data.models import Score
 from jobadvaisor.data.writer import read_scores
 from jobadvaisor.index import LabelIndex, PostingIndex, embedding_text
 from jobadvaisor.intake.fetch import download_plain
-from jobadvaisor.intake.ladder import LadderResult, fetch_posting, login_wall_hosts
+from jobadvaisor.intake.ladder import (
+    LadderResult,
+    closed_rules_of,
+    fetch_posting,
+    login_wall_hosts,
+)
 from jobadvaisor.tools import exclusions, extraction, research, scoring, similar
 from jobadvaisor.tools.guard import WITHHELD, ContentGuard
 from jobadvaisor.tools.prompts import DATA_RULE, data_block
@@ -300,14 +305,16 @@ def agent_tools(context: AgentContext) -> list:
     @tool(name_or_callable="research_company")
     def research_company_tool(company: str, website: str | None = None) -> str:
         """What the user's stored postings and the employer's website say about a company."""
-        return research.research_company(company, repository, guard, website=website,
-                                         plain=context.plain, search=context.search)
+        with closed_rules_of(repository.policy_pack):
+            return research.research_company(company, repository, guard, website=website,
+                                             plain=context.plain, search=context.search)
 
     @tool(name_or_callable="fetch_posting")
     def fetch_posting_tool(url: str) -> str:
         """Fetch a job posting from a URL (not stored); returns its text."""
         walled = login_wall_hosts(repository.policy_pack)
-        found = (context.fetch or (lambda target: fetch_posting(target, walled)))(url)
+        with closed_rules_of(repository.policy_pack):
+            found = (context.fetch or (lambda target: fetch_posting(target, walled)))(url)
         if found.page is None:
             return "no posting text found: " + "; ".join(
                 f"{attempt.step}: {attempt.outcome}" for attempt in found.attempts)
