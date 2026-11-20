@@ -599,6 +599,69 @@ def test_patch_rejects_explicit_nulls_with_a_problem_body(api):
         assert {"error", "detail"} <= response.json().keys()
 
 
+def patch_availability(api: Api, value: str, posting_id: str = "p1"):
+    return api.client.patch(f"/postings/{posting_id}", json={"availability": value})
+
+
+def pool_row(api: Api, posting_id: str) -> dict:
+    rows = api.client.get("/pool").json()["rows"]
+    return next(row for row in rows if row["posting_id"] == posting_id)
+
+
+def test_a_posting_is_closed_by_hand_and_reopened_by_hand(api, root):
+    closed = patch_availability(api, "closed")
+    assert closed.status_code == 200, closed.text
+    stored = read_posting(root, "p1")
+    assert (stored.availability.state, stored.availability.set_by) == ("closed", "user")
+    assert closed.json()["posting"]["availability"]["state"] == "closed"
+    assert (stored.status, stored.schema_version) == ("open", "1")  # status apart, no new version
+    assert pool_row(api, "p1")["availability"]["state"] == "closed"
+    reopened = patch_availability(api, "available")
+    assert reopened.status_code == 200
+    stored = read_posting(root, "p1")
+    assert (stored.availability.state, stored.availability.set_by) == ("available", "user")
+    assert pool_row(api, "p1")["availability"]["set_by"] == "user"
+
+
+def test_a_hand_setting_leaves_the_application_status_alone(api, root):
+    api.client.patch("/postings/p1", json={"status": "applied"})
+    patch_availability(api, "closed")
+    stored = read_posting(root, "p1")
+    assert (stored.status, stored.availability.state) == ("applied", "closed")
+
+
+def test_check_removes_the_hand_setting_so_the_posting_counts_as_never_checked(api, root):
+    patch_availability(api, "closed")
+    response = patch_availability(api, "check")
+    assert response.status_code == 200, response.text
+    assert read_posting(root, "p1").availability is None
+    assert "availability" not in json.loads((root / "postings/p1.json").read_text())
+    assert response.json()["posting"]["availability"] is None
+    assert pool_row(api, "p1")["availability"] is None
+
+
+def test_a_hand_setting_of_unknown_or_anything_else_is_a_422(api, root):
+    for value in ("unknown", "open", ""):
+        response = patch_availability(api, value)
+        assert response.status_code == 422, value
+    assert api.client.patch("/postings/p1", json={"availability": None}).status_code == 422
+    assert read_posting(root, "p1").availability is None
+
+
+def test_a_hand_setting_of_an_unknown_posting_is_a_404(api):
+    assert patch_availability(api, "closed", "nope").status_code == 404
+
+
+def test_a_closed_posting_is_scored_on_request_and_stays_closed(api, root):
+    patch_availability(api, "closed", "p2")
+    response = post_score(api, "p2")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["score"]["score"] == 2 and read_score(root, "p2").score == 2
+    assert body["row"]["availability"]["state"] == "closed"
+    assert read_posting(root, "p2").availability.state == "closed"
+
+
 @pytest.fixture
 def polar(root):
     """The policy pack with a positive, a negative and a polarity-less chip."""

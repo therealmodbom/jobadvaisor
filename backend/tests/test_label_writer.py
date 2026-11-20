@@ -1,10 +1,17 @@
+import json
 from datetime import UTC, datetime
 
 import pytest
 
 from jobadvaisor.data.loader import load
-from jobadvaisor.data.models import Guard, Label
-from jobadvaisor.data.writer import write_guard, write_label
+from jobadvaisor.data.models import Availability, Guard, Label
+from jobadvaisor.data.writer import (
+    read_posting,
+    update_posting,
+    write_availability,
+    write_guard,
+    write_label,
+)
 
 LABEL = Label(schema_version="1", kind="rating", verdict="negative", chips=["too-junior"],
               note="Too many on-call weeks.", rated_at=datetime(2026, 2, 1, 14, 30, tzinfo=UTC))
@@ -72,6 +79,59 @@ def test_write_guard_sets_only_the_guard_of_the_posting_on_disk(data_repository)
     assert reloaded == written and reloaded.guard == GUARD
     assert reloaded.title == "Edited meanwhile"
     assert '"released_at"' not in (data_repository / "postings/p1.json").read_text()
+
+
+def checked(state: str = "closed") -> Availability:
+    return Availability(state=state, set_at=datetime(2026, 3, 1, 9, 0, tzinfo=UTC), set_by="check")
+
+
+def by_user(state: str = "available") -> dict:
+    return {"state": state, "set_at": "2026-03-01T10:00:00Z", "set_by": "user"}
+
+
+def test_write_availability_sets_only_the_availability_of_the_posting_on_disk(data_repository):
+    path = data_repository / "postings/p1.json"
+    before = json.loads(path.read_text())
+    assert write_availability(data_repository, "p1", checked()) is True
+    after = json.loads(path.read_text())
+    assert after == before | {"availability": {"state": "closed",
+                                               "set_at": "2026-03-01T09:00:00Z",
+                                               "set_by": "check"}}
+    assert after["schema_version"] == before["schema_version"] == "1"
+    assert load(data_repository).postings["p1"].availability == checked()
+
+
+def test_write_availability_replaces_an_availability_a_check_set(data_repository):
+    write_availability(data_repository, "p1", checked("unknown"))
+    assert write_availability(data_repository, "p1", checked("available")) is True
+    assert read_posting(data_repository, "p1").availability.state == "available"
+
+
+def test_a_hand_setting_made_after_the_checks_read_survives_its_write(data_repository):
+    to_check = read_posting(data_repository, "p1")  # what the check started from
+    assert to_check.availability is None
+    update_posting(data_repository, "p1", {"availability": by_user()})  # the user, meanwhile
+    assert write_availability(data_repository, "p1", checked("closed")) is False
+    assert read_posting(data_repository, "p1").availability.set_by == "user"
+    assert read_posting(data_repository, "p1").availability.state == "available"
+
+
+def test_write_availability_for_a_missing_posting_writes_nothing(data_repository):
+    assert write_availability(data_repository, "p9", checked()) is False
+    assert not (data_repository / "postings/p9.json").exists()
+
+
+def test_write_availability_refuses_an_unsafe_posting_id(data_repository):
+    with pytest.raises(ValueError, match="posting ID"):
+        write_availability(data_repository, "../profile", checked())
+
+
+def test_update_posting_removes_the_keys_it_is_told_to_and_keeps_the_rest(data_repository):
+    write_availability(data_repository, "p1", checked())
+    posting = update_posting(data_repository, "p1", {"title": "Renamed"}, remove=["availability"])
+    stored = json.loads((data_repository / "postings/p1.json").read_text())
+    assert "availability" not in stored and stored["title"] == "Renamed"
+    assert stored["schema_version"] == "1" and posting.availability is None
 
 
 def test_write_guard_refuses_an_unsafe_or_unknown_posting(data_repository):

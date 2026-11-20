@@ -166,8 +166,10 @@ class PoolSettingsBody(BaseModel):
 
 
 class PostingPatch(BaseModel):
-    """`PATCH /postings/{id}` body: corrected fields, the application `status` and/or
-    `"release": true` for a posting the content guard flagged. At least one is required."""
+    """`PATCH /postings/{id}` body: corrected fields, the application `status`, the hand setting
+    `availability` (`"available"` or `"closed"`, or `"check"` to remove the hand setting; any
+    other value, `"unknown"` included, is a 422) and/or `"release": true` for a posting the
+    content guard flagged. At least one is required."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -175,6 +177,7 @@ class PostingPatch(BaseModel):
     company: str | None = Field(None, min_length=1)
     location_raw: str | None = Field(None, min_length=1)
     status: Literal["open", "applied", "done"] | None = None
+    availability: Literal["available", "closed", "check"] | None = None
     release: Literal[True] | None = None
 
     @model_validator(mode="after")
@@ -674,16 +677,19 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
 
     @app.patch("/postings/{posting_id}")
     def amend(posting_id: str, body: PostingPatch) -> dict:
-        """Correct title, company or location, set the application `status` and/or release a
-        flagged posting; answers the stored posting (a `status` makes it schema version 2). 404
-        for an unknown posting, 409 for releasing one the content guard did not flag."""
+        """Correct title, company or location, set the application `status`, set or remove the
+        hand setting `availability` and/or release a flagged posting; answers the stored posting
+        (a `status` makes it schema version 2). A hand setting replaces any availability, one a
+        check set included, and keeps the version; `"check"` removes it. 404 for an unknown
+        posting, 409 for releasing one the content guard did not flag."""
         try:
             read_posting(intake.root, posting_id)
         except ValueError:
             return problem(404, "not found", f"no posting {posting_id}")
-        corrections = body.model_dump(exclude_unset=True, exclude={"release"})
+        corrections = body.model_dump(exclude_unset=True, exclude={"release", "availability"})
         try:
-            posting = amend_posting(intake.root, posting_id, corrections, bool(body.release))
+            posting = amend_posting(intake.root, posting_id, corrections, bool(body.release),
+                                    availability=body.availability)
         except NotFlaggedError as error:
             return problem(409, "not flagged", str(error))
         return {"posting_id": posting_id, "posting": posting.model_dump(mode="json")}

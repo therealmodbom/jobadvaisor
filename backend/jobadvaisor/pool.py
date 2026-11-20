@@ -161,6 +161,8 @@ def _row(repository: DataRepository, posting_id: str, posting: Posting,
         "score_problem": score_problems.get(posting_id),
         "label": _label(label), "status": posting.status,
         "origin": posting.origin.model_dump(mode="json") if posting.origin else None,
+        "availability": posting.availability.model_dump(mode="json")
+        if posting.availability else None,
         "exploration": False}
 
 
