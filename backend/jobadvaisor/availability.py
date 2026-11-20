@@ -49,14 +49,19 @@ class CheckStateError(Exception):
 
 
 def _links(posting: Posting, walled: list[str]) -> list[str]:
-    """The posting's stored links that are not on a login-walled host: the ones a check fetches."""
-    return [url for url in posting.urls if not is_login_walled(url, walled)]
+    """The posting's stored links a check fetches: those on a public host (`public_link`, so not
+    a malformed link, localhost, a private address or a non-http scheme) that is not
+    login-walled. The rest are left out, as if the posting did not hold them."""
+    return [url for url in posting.urls
+            if public_link(url) and not is_login_walled(url, walled)]
 
 
 def check_batch(repository: DataRepository) -> list[str]:
     """The IDs, in ID order, of the postings a check covers: application status open,
-    availability neither closed nor set by the user, and at least one stored link on a host that
-    is not login-walled (so a pasted or uploaded posting, with no link, is never covered). The
+    availability neither closed nor set by the user, and at least one stored link a check can
+    fetch (`_links`: on a public host that is not login-walled), so a pasted or uploaded
+    posting, with no link, or one whose links are all malformed or non-public, is never
+    covered. The
     API announces this count and a check starts with exactly this batch."""
     walled = login_wall_hosts(repository.policy_pack)
     return sorted(
@@ -79,7 +84,7 @@ def check_posting(posting: Posting, walled: list[str], *, http: httpx.Client | N
     else, a 429, another HTTP error, a timeout, a failed connection or a refused redirect,
     leaves it unknown, and so does a posting with no link to fetch. A link that is not on a
     public host (`public_link`: localhost, a private or loopback address, a non-http scheme)
-    is never requested and counts like an unreachable one. Never raises. The caller
+    is never requested and does not count (`_links`). Never raises. The caller
     sets the closed rules (`closed_rules_of`); `http` replaces the client in tests."""
     links, gone = _links(posting, walled), 0
     for url in links:
@@ -177,8 +182,8 @@ class AvailabilityChecks:
         check crashed), `total`, `done` (postings checked), `cancel_requested` (true once a
         cancel arrived, while the check runs on to the end of its posting), `counts`
         (`available`, `closed`, `unknown`) and `closed`, the postings found closed as
-        `{posting_id, title, company}`. A posting whose availability the user set meanwhile
-        counts as done and in no count."""
+        `{posting_id, title, company}`. A posting whose availability the user set meanwhile,
+        that was deleted, or whose file no longer validates counts as done and in no count."""
         with self._lock:
             state = self._state.get(check_id)
             if state is None:
@@ -200,12 +205,15 @@ class AvailabilityChecks:
                             status = "cancelled"
                             break
                     found = check_posting(posting, walled, http=http, throttle=self._throttle)
-                    stored = write_availability(self._root, posting_id, Availability(
-                        state=found, set_at=datetime.now(UTC), set_by="check"))
+                    try:
+                        stored = write_availability(self._root, posting_id, Availability(
+                            state=found, set_at=datetime.now(UTC), set_by="check"))
+                    except ValueError:  # the file no longer validates: skip it, check the rest
+                        stored = False
                     with self._lock:
                         state = self._state[check_id]
                         state["done"] += 1
-                        if stored:  # False: the user set it meanwhile, or deleted the posting
+                        if stored:  # False: set by the user meanwhile, deleted or invalid
                             state["counts"][found] += 1
                             if found == "closed":
                                 state["closed"].append({"posting_id": posting_id,

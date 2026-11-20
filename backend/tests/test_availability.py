@@ -320,15 +320,34 @@ def test_the_policy_packs_closed_rules_reach_the_worker_thread(root):
     assert state["counts"] == {"available": 0, "closed": 1, "unknown": 0}
 
 
-def test_a_malformed_link_leaves_its_posting_unknown_and_the_others_are_checked(root):
+def test_a_posting_with_only_malformed_or_non_public_links_is_not_in_the_batch(root):
     add_posting(root, "bad", "Engineer 1", urls=["http://[bad"])
-    add_posting(root, "good", "Engineer 2", urls=[JOB])
-    assert check_batch(load(root)) == ["bad", "good"]
+    add_posting(root, "local", "Engineer 2", urls=["http://localhost:8710/pool"])
+    add_posting(root, "good", "Engineer 3", urls=[JOB])
+    assert check_batch(load(root)) == ["good"]  # and a malformed link does not raise
     site = Site()
     state = run(root, site)
     assert state["status"] == "done"
-    assert state["counts"] == {"available": 1, "closed": 0, "unknown": 1}
+    assert (state["total"], state["counts"]) == (1, {"available": 1, "closed": 0, "unknown": 0})
     assert site.seen == [JOB]
+    assert read_posting(root, "bad").availability is None
+
+
+def test_a_posting_that_no_longer_validates_is_skipped_and_the_check_goes_on(root, monkeypatch):
+    add_posting(root, "p1", "Engineer 1", urls=["https://a.example.org/1"])
+    add_posting(root, "p2", "Engineer 2", urls=["https://b.example.org/2"])
+    real = availability_module.write_availability
+
+    def write(root_, posting_id, availability):
+        if posting_id == "p1":
+            raise ValueError("p1.json does not validate")
+        return real(root_, posting_id, availability)
+    monkeypatch.setattr(availability_module, "write_availability", write)
+    state = run(root, Site())
+    assert (state["status"], state["error"]) == ("done", None)
+    assert (state["total"], state["done"]) == (2, 2)
+    assert state["counts"] == {"available": 1, "closed": 0, "unknown": 0}  # p1 counts nowhere
+    assert read_posting(root, "p2").availability.state == "available"
 
 
 def test_a_second_start_is_refused_while_the_first_computes(root):
