@@ -44,8 +44,8 @@ export function StatusControl({ id, title, value, saving, failed, onStatus }: {
 }) {
   return (
     <div className="flex flex-col gap-1">
-      <label htmlFor={id} className="text-sm font-bold">Status</label>
-      <select id={id} value={value} aria-busy={saving} aria-label={`Status: ${title}`}
+      <label htmlFor={id} className="text-sm font-bold">Bewerbungsstatus</label>
+      <select id={id} value={value} aria-busy={saving} aria-label={`Bewerbungsstatus: ${title}`}
               onChange={(event) => !saving && onStatus(event.target.value as Status)}
               className="min-h-11 rounded-lg border border-input bg-background px-2.5 text-[15px]">
         {STATUSES.map(([option, label]) => <option key={option} value={option}>{label}</option>)}
@@ -53,7 +53,7 @@ export function StatusControl({ id, title, value, saving, failed, onStatus }: {
       {saving && <span role="status" className="text-sm text-muted-foreground">wird gespeichert…</span>}
       {failed && (
         <span role="alert" className="flex flex-col items-start gap-1 text-sm text-danger">
-          Der Status wurde nicht gespeichert.
+          Der Bewerbungsstatus wurde nicht gespeichert.
           <Button type="button" variant="outline" size="sm" onClick={() => onStatus(failed)}>Erneut versuchen</Button>
         </span>
       )}

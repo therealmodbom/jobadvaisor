@@ -1,22 +1,24 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { Check, ChevronDown, ChevronUp, Compass, LoaderCircle, ShieldAlert, Square } from 'lucide-react'
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { Check, ChevronDown, ChevronUp, CircleSlash, Compass, ShieldAlert, Square } from 'lucide-react'
 import { DropdownMenu } from 'radix-ui'
-import { api, ApiError, type NextPass, type PassProgress, type PassState, type PassVariant, type Pool, type PoolRow, type RatingAnswer, type ScoreAnswer, type Status, type Strength, type Verdict } from '@/api'
+import { api, ApiError, type Counter, type NextPass, type PassProgress, type PassState, type PassVariant, type Pool, type PoolRow, type RatingAnswer, type ScoreAnswer, type Status, type Strength, type Verdict } from '@/api'
+import { CheckButton, CheckStatus } from '@/components/check'
 import { Badge, ChipList, ScoreButton, ScoreProblem, ScoreText, StatusControl } from '@/components/posting'
+import { ProgressBlock } from '@/components/progress'
 import { Legend, ReasonsAndNote, VerdictButtons } from '@/components/rating'
 import { EmptyState, ErrorWithRetry, Loading } from '@/components/states'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { WhyDisabled } from '@/components/why'
+import { useCheck } from '@/lib/check'
 import { addedLabel, STATUSES } from '@/lib/german'
 import { FULL_RANGE, inRange, NO_SCORE, SORTS, sortRows, TOP_SCORE, type ScoreRange, type Sort } from '@/lib/pool-order'
 import { LEVELS, strayPaste, useRating, type Rating } from '@/lib/rating'
+import { POLL_FAILURES, POLL_MS, SWAP_LOCK_MS, useSwapLock } from '@/lib/run'
 import { useScore, type ScoreCall } from '@/lib/score'
 import { cn, without } from '@/lib/utils'
 
-/** How often a computing scoring pass is polled, in milliseconds. */
-export const POLL_MS = 1000
-/** Failed polls in a row after which polling stops and a retry is offered. */
-export const POLL_FAILURES = 3
+export { POLL_FAILURES, POLL_MS, SWAP_LOCK_MS }
 const PASS_KEY = 'jobadvaisor.pool-pass'
 
 /** The pass ID kept across a reload; storage may be blocked, so every access is guarded. */
@@ -37,15 +39,19 @@ const storedPass = {
 }
 
 const verdictOf = (row: PoolRow) => row.label?.verdict ?? null
+/** The posting's availability is closed (a check or the user set it; unknown is not closed). */
+const isClosed = (row: PoolRow) => row.availability?.state === 'closed'
 
-/** The filters; each keeps the rows it shows, in the server's order. "Herkunft" keeps every
- * imported row whatever its status. */
+/** The filters; each keeps the rows it shows, in the server's order. "Offen", "Noch nicht
+ * bewertet" and "Bewertet" leave closed postings out, "Stelle geschlossen" lists the closed ones
+ * with application status open, and "Herkunft" keeps every imported row whatever its status. */
 const FILTERS: { id: string; label: string; keep: (row: PoolRow) => boolean }[] = [
-  { id: 'open', label: 'Offen', keep: (row) => row.status === 'open' },
-  { id: 'unrated', label: 'Noch nicht bewertet', keep: (row) => row.status === 'open' && verdictOf(row) === null },
-  { id: 'rated', label: 'Bewertet', keep: (row) => row.status === 'open' && verdictOf(row) !== null },
+  { id: 'open', label: 'Offen', keep: (row) => row.status === 'open' && !isClosed(row) },
+  { id: 'unrated', label: 'Noch nicht bewertet', keep: (row) => row.status === 'open' && !isClosed(row) && verdictOf(row) === null },
+  { id: 'rated', label: 'Bewertet', keep: (row) => row.status === 'open' && !isClosed(row) && verdictOf(row) !== null },
   { id: 'applied', label: 'Beworben', keep: (row) => row.status === 'applied' },
   { id: 'done', label: 'Erledigt', keep: (row) => row.status === 'done' },
+  { id: 'closed', label: 'Stelle geschlossen', keep: (row) => row.status === 'open' && isClosed(row) },
   { id: 'imported', label: 'Herkunft', keep: (row) => row.origin !== null },
 ]
 
@@ -132,23 +138,18 @@ function usePass(onDone: () => void) {
            retryPoll: () => setPollFailed(false) }
 }
 
-/** How long a button that just appeared after a swap ignores presses, in milliseconds. */
-export const SWAP_LOCK_MS = 1000
 const HINT_DEFAULT = 'Abbrechen hält nach der aktuellen Anzeige an. Was schon gescort ist, bleibt gespeichert.'
 /** The default hint is shorter on a phone (design: A-Phone), so it keeps its two lines there. */
 const HINT_DEFAULT_PHONE = 'Abbrechen hält nach der aktuellen Anzeige an. Gescortes bleibt gespeichert.'
 const HINT_STOPPING = 'Wird nach der aktuellen Anzeige beendet.'
 const HINT_STORING = 'Das Speichern lässt sich nicht mehr abbrechen.'
 
-/** The progress of a running pass, beside the pass button (design variant A): a head line with the
- * loader, a bar and a hint line, each of fixed height (the hint always has two lines' room), taking
- * the remaining row width from `sm` (it grows from a 340 px basis, so a neighbour wraps instead of
- * squeezing it) and the full width below, so the block keeps one size in every
- * phase (while no pass runs, an empty slot of the same flex keeps the counter in its place). `progress` null
- * (no report yet) reads like checking: no count, empty bar. The bar fills with `done`/`total`
- * while scoring and is full while storing. The hint (`#cancel-why`, the cancel button's
- * description) says what a cancel does, that one was requested (`stopping`), or why storing cannot
- * be cancelled. Only texts and the bar change. */
+/** The progress of a running pass, below the pass button in the pass column: a head line with the
+ * loader, a bar and a hint line, each of fixed height (the hint always has two lines' room), so the
+ * block keeps one size in every phase. `progress` null (no report yet) reads like checking: no
+ * count, empty bar. The bar fills with `done`/`total` while scoring and is full while storing. The
+ * hint (`#cancel-why`, the cancel button's description) says what a cancel does, that one was
+ * requested (`stopping`), or why storing cannot be cancelled. Only texts and the bar change. */
 function PassProgressBlock({ progress, stopping }: { progress: PassProgress | null; stopping: boolean }) {
   const phase = progress?.phase ?? 'checking'
   const score = progress?.score ?? null
@@ -161,22 +162,14 @@ function PassProgressBlock({ progress, stopping }: { progress: PassProgress | nu
   // The bar is full while storing, but its name says how many were scored (a cancel stores fewer).
   const barLabel = counted ? `Scoren: ${counted.done} von ${counted.total}` : storing ? 'Scores speichern' : 'Anzeigen prüfen'
   return (
-    <section aria-label="Stand des Scorens" className="flex w-full min-w-0 flex-col gap-1.5 sm:w-auto sm:flex-[1_1_340px]">
-      <div className="flex h-6 items-center gap-2">
-        <LoaderCircle className="size-[18px] flex-none motion-safe:animate-spin" aria-hidden="true" />
-        <strong>{head}</strong>
-      </div>
-      <progress value={value} max={max} aria-label={barLabel}
-                className="h-2.5 w-full appearance-none overflow-hidden rounded-full border-0 bg-border [&::-moz-progress-bar]:bg-primary [&::-webkit-progress-bar]:rounded-full [&::-webkit-progress-bar]:bg-border [&::-webkit-progress-value]:rounded-full [&::-webkit-progress-value]:bg-primary" />
-      <p id="cancel-why" className={cn('h-10 text-sm leading-5 text-muted-foreground', stopping && !storing && 'font-bold text-foreground')}>
-        {storing ? HINT_STORING : stopping ? HINT_STOPPING : (
-          <>
-            <span className="sm:hidden">{HINT_DEFAULT_PHONE}</span>
-            <span className="max-sm:hidden">{HINT_DEFAULT}</span>
-          </>
-        )}
-      </p>
-    </section>
+    <ProgressBlock label="Stand des Scorens" head={head} barLabel={barLabel} value={value} max={max} hintId="cancel-why"
+                   hintClass={cn('h-10 text-muted-foreground', stopping && !storing && 'font-bold text-foreground')}
+                   hint={storing ? HINT_STORING : stopping ? HINT_STOPPING : (
+                     <>
+                       <span className="sm:hidden">{HINT_DEFAULT_PHONE}</span>
+                       <span className="max-sm:hidden">{HINT_DEFAULT}</span>
+                     </>
+                   )} />
   )
 }
 
@@ -186,9 +179,11 @@ const cancelledText = (scored: number) => `Das Scoren wurde abgebrochen. ${
 
 const VARIANT_TITLE: Record<PassVariant, string> = { unscored: 'Nur Anzeigen ohne Score', all: 'Alle Anzeigen neu scoren' }
 const VARIANT_VERBS: Record<PassVariant, string> = { unscored: 'Anzeigen ohne Score scoren', all: 'Alle Anzeigen neu scoren' }
-const NOTHING_TO_SCORE = {
-  unscored: 'Es gibt keine Anzeigen ohne Score.',
-  all: 'Es gibt nichts zu scoren: Alle Anzeigen sind ausgeschlossen oder zurückgehalten.',
+/** Why a pass of the shown variant has nothing to score; the "unscored" reason points at the menu
+ * only while "all" has postings. */
+const NOTHING_TO_SCORE: Record<PassVariant, (next: NextPass) => string> = {
+  unscored: (next) => `Es gibt keine Anzeigen ohne Score.${next.all > 0 ? ' Über den Pfeil wählst du „Alle Anzeigen neu scoren“.' : ''}`,
+  all: () => 'Es gibt nichts zu scoren: Alle Anzeigen sind ausgeschlossen oder zurückgehalten.',
 }
 
 /** What a pass of `variant` over `n` postings costs: one model call per posting. */
@@ -200,13 +195,14 @@ function costLine(variant: PassVariant, n: number) {
 
 /** The scoring pass as a split button that turns into its own cancel button.
  * Idle (`working` false): the main part starts the pass of the `shown` variant, the trigger opens a
- * menu whose entries `onPick` a variant without starting anything. The text under it (`#pass-why`,
- * the main part's description) is the cost line, or the reason the main part is disabled: no
- * postings for the variant, or a pass is `busy`. Only `busy` disables the trigger.
+ * menu whose entries `onPick` a variant, with its count and cost, without starting anything. When
+ * the main part is disabled (no postings for the variant, or a pass is `busy`) a focusable info
+ * icon beside the button gives the reason, which is also the main part's description. Only `busy`
+ * disables the trigger.
  * `working` (a pass computes): the split button gives way to one outline button that calls
  * `onCancel`. Both sit in one grid cell, the split button stays in the layout, `invisible` and
- * `inert`, and reserves the width, so nothing beside it moves when a pass starts or ends; the cost
- * line is not shown. `stopping` (a cancel was requested): the button reads "Wird beendet…".
+ * `inert`, and reserves the width, so nothing beside it moves when a pass starts or ends; the info
+ * icon is not shown. `stopping` (a cancel was requested): the button reads "Wird beendet…".
  * `storing`: it keeps its label but cannot cancel any more. In both it is `aria-disabled`, not
  * `disabled`, so it keeps focus and a further Enter does nothing; `#cancel-why` (the progress
  * block's hint) gives the reason.
@@ -234,22 +230,9 @@ function PassButton({ nextPass, shown, busy, working, stopping, storing, onPick,
   const [open, setOpen] = useState(false)
   // A pass that starts while the menu is open closes it (render-time sync, no effect).
   if (busy && open) setOpen(false)
-  // A swap locks the new button for SWAP_LOCK_MS (render-time sync, the timer is the effect).
-  const [seenWorking, setSeenWorking] = useState(working)
-  const [locked, setLocked] = useState(false)
-  const [handoff, setHandoff] = useState(false)
-  if (seenWorking !== working) {
-    setSeenWorking(working)
-    setLocked(true)
-    // Read focus now, before the commit: Chromium blurs a focused button that turns inert, so by
-    // the layout effect `document.activeElement` can already be `body`.
-    setHandoff(document.activeElement?.closest('[data-pass-area]') != null)
-  }
-  useEffect(() => {
-    if (!locked) return
-    const timer = setTimeout(() => setLocked(false), SWAP_LOCK_MS)
-    return () => clearTimeout(timer)
-  }, [locked, seenWorking])
+  // A swap locks the new button for SWAP_LOCK_MS and hands focus on (lib/run.ts).
+  const { locked, handoff, seenWorking } = useSwapLock(working, '[data-pass-area]')
+  const reasonId = useId()
   const mainRef = useRef<HTMLButtonElement>(null)
   const cancelRef = useRef<HTMLButtonElement>(null)
   // Both buttons stay mounted, so the target exists at commit time. Nothing here starts paid work:
@@ -264,17 +247,18 @@ function PassButton({ nextPass, shown, busy, working, stopping, storing, onPick,
     target?.focus()
   }, [handoff, seenWorking])
   const count = nextPass[shown]
-  const why = busy ? 'Das Scoren läuft.' : count === 0 ? NOTHING_TO_SCORE[shown] : costLine(shown, count)
+  // Why the main part cannot start now; null while it can (the cost is in the menu).
+  const why = busy ? 'Das Scoren läuft.' : count === 0 ? NOTHING_TO_SCORE[shown](nextPass) : null
   const Chevron = open ? ChevronUp : ChevronDown
   const cancelDead = locked || stopping || storing
   const mainDead = locked || busy || count === 0
   return (
-    <div className="flex flex-col gap-1.5 max-sm:w-full">
-      <div data-pass-area className="grid">
+    <div className="flex items-center gap-1">
+      <div data-pass-area className="grid max-sm:flex-1">
         <div role="group" aria-label="Scoren" inert={working} aria-hidden={working || undefined}
              className={cn('col-start-1 row-start-1 flex', working && 'invisible')}>
           <Button ref={mainRef} onClick={() => { if (!mainDead) onStart(shown) }}
-                  aria-disabled={mainDead || undefined} aria-describedby="pass-why"
+                  aria-disabled={mainDead || undefined} aria-describedby={why ? reasonId : undefined}
                   className={cn('min-w-0 flex-1 rounded-r-none transition-colors', (busy || count === 0) && 'cursor-default opacity-50 hover:bg-primary')}>
             {/* Both labels share one grid cell, so the button keeps the wider one's size when the
                 variant changes; the hidden one only reserves space. */}
@@ -323,8 +307,7 @@ function PassButton({ nextPass, shown, busy, working, stopping, storing, onPick,
           <Square aria-hidden="true" />{stopping && !storing ? 'Wird beendet…' : 'Scoren abbrechen'}
         </Button>
       </div>
-      {/* w-0 min-w-full: the line wraps within the button's width instead of setting it. */}
-      {!working && <p id="pass-why" className="w-0 min-w-full text-sm text-muted-foreground">{why}</p>}
+      {why && !working && <WhyDisabled id={reasonId} label="Warum ist Scoren nicht möglich?" reason={why} />}
     </div>
   )
 }
@@ -366,7 +349,23 @@ function UnscreenedQuestion({ pass, onAnswer }: { pass: PassState; onAnswer: (pr
   )
 }
 
-/** One pool row: the "Hinzugefügt" line (when it entered the app), title link, company and location, score with its button, the "Stichprobe" and
+/** The one line below the pass button: the correction counter, the pool's hint ("Ranking passt gut"
+ * or "neu scoren sinnvoll") and the share of corrections, or how many ratings it still needs
+ * (`counter.rate` is null below ten). The menu of the pass button says what a pass costs. */
+function CounterLine({ counter }: { counter: Counter }) {
+  const rescore = counter.hint === 'rescore'
+  return (
+    <p className="text-sm text-muted-foreground">
+      <strong className="text-foreground">{counter.corrections === 1 ? '1 Korrektur' : `${counter.corrections} Korrekturen`}</strong>
+      {' · '}
+      <span className={cn('font-bold', rescore ? 'text-negative' : 'text-primary')}>{rescore ? 'neu scoren sinnvoll' : 'Ranking passt gut'}</span>
+      {' · '}
+      <span>{counter.rate === null ? `Anteil ab 10 Bewertungen (bisher ${counter.rated})` : `Anteil ${Math.round(counter.rate * 100)} %`}</span>
+    </p>
+  )
+}
+
+/** One pool row: the "Hinzugefügt" line (when it entered the app), title link, company and location, score with its button, the "Stichprobe", "Stelle geschlossen" and
  * import marks, the rating (verdict buttons; the selected row also shows every reason chip and the
  * note field, the others their chosen reasons) and the status control. `onSelect` makes it the row
  * the shortcuts act on, `onLevel` sends a rating level. `onStatus` sends a new status; `saving`
@@ -405,8 +404,11 @@ function Row({ row, chips, rating, selected, onSelect, onLevel, saving, failed, 
           <a id={`title-${row.posting_id}`} href={`#/anzeigen/${encodeURIComponent(row.posting_id)}`} className="text-foreground">{row.title}</a>
         </h3>
         <p className="text-[15px] text-muted-foreground">{row.company}, {row.location_raw}</p>
-        {(row.exploration || row.origin) && (
+        {(row.exploration || row.origin || isClosed(row)) && (
           <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {isClosed(row) && (
+              <Badge className="bg-muted text-muted-foreground"><CircleSlash className="size-3.5" aria-hidden="true" />Stelle geschlossen</Badge>
+            )}
             {row.exploration && (
               <Badge className="bg-explore-soft text-explore"><Compass className="size-4" aria-hidden="true" />Stichprobe</Badge>
             )}
@@ -554,6 +556,7 @@ export function PoolView({ active = true, reloadKey = 0 }: { active?: boolean; r
     clearBusy()
   }, [load, clearBusy])
   const { pass, busy, notice, start, answer, cancel, cancelling, cancelledScored, pollFailed, retryPoll } = usePass(passDone)
+  const check = useCheck(load)
 
   async function setStatus(postingId: string, status: Status) {
     setSaving((current) => ({ ...current, [postingId]: true }))
@@ -565,7 +568,7 @@ export function PoolView({ active = true, reloadKey = 0 }: { active?: boolean; r
       const changed = pool?.rows.find((row) => row.posting_id === postingId)
       if (changed) {
         const leaves = !FILTERS.find((entry) => entry.id === filter)!.keep({ ...changed, status })
-        setAnnounce(`${changed.title}: Status ${STATUSES.find(([id]) => id === status)![1]}.${leaves ? ' Die Anzeige ist nicht mehr in dieser Ansicht.' : ''}`)
+        setAnnounce(`${changed.title}: Bewerbungsstatus ${STATUSES.find(([id]) => id === status)![1]}.${leaves ? ' Die Anzeige ist nicht mehr in dieser Ansicht.' : ''}`)
       }
     } catch {
       setFailed((current) => ({ ...current, [postingId]: status }))
@@ -629,15 +632,15 @@ export function PoolView({ active = true, reloadKey = 0 }: { active?: boolean; r
   })
 
   useEffect(() => {
-    /** The pool's shortcuts (`design.md` "Rating without a run"): off while a text field, select, dialog (the header settings),
-     * editable element or menu (the pass variant menu) has focus, while a modifier other than Shift
-     * is held and while the view is hidden. A held key repeats only j and k, so it never rates or
+    /** The pool's shortcuts (`design.md` "Rating without a run"): off while a text field, select,
+     * editable element, menu (the pass variant menu), dialog (the header settings) or the check
+     * column has focus, while a modifier other than Shift is held and while the view is hidden. A held key repeats only j and k, so it never rates or
      * toggles twice. */
     function onKey(event: KeyboardEvent) {
       const row = shown.find((entry) => entry.posting_id === current)
       if (!active || !pool || !row || event.altKey || event.ctrlKey || event.metaKey) return
       if (event.repeat && event.key !== 'j' && event.key !== 'k') return
-      if ((event.target as HTMLElement).closest?.('input, textarea, select, [role="menu"], [role="dialog"], [contenteditable]:not([contenteditable="false"])')) return
+      if ((event.target as HTMLElement).closest?.('input, textarea, select, [role="menu"], [role="dialog"], [data-no-shortcuts], [contenteditable]:not([contenteditable="false"])')) return
       const digit = /^Digit([1-9])$/.exec(event.code)?.[1]
       const level = LEVELS.find(({ key }) => key === event.key)
       const step = { j: 1, k: -1 }[event.key]
@@ -692,36 +695,36 @@ export function PoolView({ active = true, reloadKey = 0 }: { active?: boolean; r
       <h1 className="text-3xl leading-tight font-bold tracking-tight">Deine Anzeigen</h1>
 
       {pool && (
-        <div className="flex flex-wrap items-start gap-x-8 gap-y-4">
-          <PassButton nextPass={pool.next_pass} shown={shownVariant} busy={busy} working={working} stopping={stopping}
-                      storing={storing} onPick={setPicked} onStart={start} onCancel={cancel} />
-          {working ? <PassProgressBlock progress={pass?.progress ?? null} stopping={stopping} />
-            : <div aria-hidden="true" className="min-w-0 max-sm:hidden sm:flex-[1_1_340px]" />}
-          {counter && (
-            <div className="flex w-full flex-col gap-1 sm:w-[280px] sm:flex-none">
-              <p>
-                <strong>{counter.corrections === 1 ? '1 Korrektur' : `${counter.corrections} Korrekturen`}</strong>
-                {counter.rate !== null && `, Anteil ${Math.round(counter.rate * 100)} %`}
-              </p>
-              <Badge className={counter.hint === 'rescore' ? 'self-start bg-negative-soft text-negative' : 'self-start bg-positive-soft text-primary'}>
-                {counter.hint === 'rescore' ? 'neu scoren sinnvoll' : 'Ranking passt gut'}
-              </Badge>
-              {counter.rate === null && (
-                <p className="text-sm text-muted-foreground">Anteil erst ab 10 Bewertungen (bisher {counter.rated})</p>
-              )}
+        // Two columns, each action with its status below it, so neither button moves when the
+        // other action's status changes height; stacked on a phone.
+        <div className="grid grid-cols-1 items-start gap-x-8 gap-y-4 sm:grid-cols-2">
+          <div data-column="pass" className="flex min-w-0 flex-col gap-3">
+            <div className="flex flex-col gap-1.5">
+              <PassButton nextPass={pool.next_pass} shown={shownVariant} busy={busy} working={working} stopping={stopping}
+                          storing={storing} onPick={setPicked} onStart={start} onCancel={cancel} />
+              {counter && <CounterLine counter={counter} />}
             </div>
-          )}
+            {working && <PassProgressBlock progress={pass?.progress ?? null} stopping={stopping} />}
+            {/* The live region holds only text that does not change per poll, so it is read once; the
+                visible counts sit outside it. */}
+            <div role="status" className="flex flex-col gap-3">
+              {working && <span className="sr-only">Das Scoren läuft.</span>}
+              {working && stopping && <span className="sr-only">Das Scoren wird nach der aktuellen Anzeige beendet.</span>}
+              {pass?.status === 'aborted' && <p className="rounded-xl border bg-card px-4 py-3">Das Scoren wurde abgebrochen.</p>}
+              {cancelledScored !== null && <p className="rounded-xl border bg-card px-4 py-3">{cancelledText(cancelledScored)}</p>}
+            </div>
+          </div>
+          {/* The pool's key shortcuts stay off inside this column (`data-no-shortcuts`). */}
+          <div data-column="check" data-no-shortcuts className="flex min-w-0 flex-col gap-3">
+            <CheckButton total={pool.next_check.total} working={check.running && !check.pollFailed}
+                         stopping={check.stopping} onStart={check.start} onCancel={check.cancel} />
+            <CheckStatus check={check.check} running={check.running} stopping={check.stopping} lost={check.lost}
+                         notice={check.notice} pollFailed={check.pollFailed} onStart={check.start}
+                         onRetryPoll={check.retryPoll} onDismiss={check.dismiss} />
+          </div>
         </div>
       )}
 
-      {/* The live region holds only text that does not change per poll, so it is read once; the
-          visible counts sit outside it. */}
-      <div role="status">
-        {working && <span className="sr-only">Das Scoren läuft.</span>}
-        {working && stopping && <span className="sr-only">Das Scoren wird nach der aktuellen Anzeige beendet.</span>}
-        {pass?.status === 'aborted' && <p className="rounded-xl border bg-card px-4 py-3">Das Scoren wurde abgebrochen.</p>}
-        {cancelledScored !== null && <p className="rounded-xl border bg-card px-4 py-3">{cancelledText(cancelledScored)}</p>}
-      </div>
       <p role="status" className="sr-only">{announce}</p>
       <p role="status" className="sr-only">{end}</p>
       {notice && <p role="alert" className="rounded-xl border border-danger bg-danger-soft px-4 py-3">{notice}</p>}

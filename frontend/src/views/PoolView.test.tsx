@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, expect, test, vi } from 'vitest'
-import type { PassProgress, PassState, Pool, PoolRow, RatingAnswer, RatingBody } from '@/api'
+import type { CheckState, PassProgress, PassState, Pool, PoolRow, RatingAnswer, RatingBody } from '@/api'
 import { axe } from '@/test-axe'
 import { type Call, pending, stubApi } from '@/test-api'
 import { label, POOL, poolWith, ratingAnswer, row as makeRow } from '@/test-fixtures'
@@ -20,6 +20,7 @@ afterEach(() => {
   vi.useRealTimers()
   vi.unstubAllGlobals()
   sessionStorage.clear()
+  localStorage.clear()
 })
 
 /** Titles of the listed rows, in order. */
@@ -50,7 +51,7 @@ test('a row shows score, rating, status, link and the exploration mark', async (
   expect(first.getByText('8')).toBeVisible()
   expect(first.getByText('Bewertet: Ja')).toBeVisible()
   expect(first.getByText('great stack')).toBeVisible()
-  expect(first.getByRole('combobox', { name: /Status/ })).toHaveValue('open')
+  expect(first.getByRole('combobox', { name: /Bewerbungsstatus/ })).toHaveValue('open')
   expect(first.getByRole('link', { name: 'Data Analyst (m/w/d)' })).toHaveAttribute('href', '#/anzeigen/p1')
   expect(first.queryByText('Stichprobe')).toBeNull()
   expect(row('Datenjournalist (m/w/d)').getByText('Stichprobe')).toBeVisible()
@@ -129,9 +130,9 @@ test('the counter shows corrections, share and the fitting hint', async () => {
   stubApi({ 'GET /pool': { body: POOL } })
   render(<PoolView />)
   expect(await screen.findByText('3 Korrekturen')).toBeVisible()
-  expect(screen.getByText('3 Korrekturen').parentElement).toHaveTextContent('3 Korrekturen, Anteil 25 %')
+  expect(screen.getByText('3 Korrekturen').parentElement).toHaveTextContent('3 Korrekturen · Ranking passt gut · Anteil 25 %')
   expect(screen.getByText('Ranking passt gut')).toBeVisible()
-  expect(screen.queryByText(/Anteil erst ab 10 Bewertungen/)).toBeNull()
+  expect(screen.queryByText(/Anteil ab 10 Bewertungen/)).toBeNull()
   expect(screen.queryByText(/seit dem letzten Neu-Scoren/)).toBeNull()
 })
 
@@ -144,8 +145,8 @@ test('one correction reads in the singular', async () => {
 test('below ten ratings the share is not shown and a rescore hint is', async () => {
   stubApi({ 'GET /pool': { body: poolWith({ counter: { ...POOL.counter, rate: null, hint: 'rescore' } }) } })
   render(<PoolView />)
-  expect(await screen.findByText(`Anteil erst ab 10 Bewertungen (bisher ${POOL.counter.rated})`)).toBeVisible()
-  expect(screen.getByText('3 Korrekturen').parentElement).toHaveTextContent(/^3 Korrekturen$/)
+  expect(await screen.findByText(`Anteil ab 10 Bewertungen (bisher ${POOL.counter.rated})`)).toBeVisible()
+  expect(screen.getByText('3 Korrekturen').parentElement).toHaveTextContent('3 Korrekturen · neu scoren sinnvoll · Anteil ab 10 Bewertungen (bisher 12)')
   expect(screen.getByText('neu scoren sinnvoll')).toBeVisible()
 })
 
@@ -171,28 +172,28 @@ async function openMenu() {
 test('below the thresholds the main part scores the postings without a score', async () => {
   stubApi({ 'GET /pool': { body: NEXT() } })
   render(<PoolView />)
-  const main = await mainPart('Anzeigen ohne Score scoren (3)')
-  expect(main).toBeEnabled()
-  expect(main).toHaveAccessibleDescription('3 Anzeigen ohne Score, je ein Modellaufruf.')
+  expect(await mainPart('Anzeigen ohne Score scoren (3)')).toBeEnabled()
 })
 
-test('with the rescore hint the main part scores all postings and says it replaces scores', async () => {
+test('with the rescore hint the main part scores all postings, and the menu says it replaces scores', async () => {
   stubApi({ 'GET /pool': { body: NEXT({ default: 'all' }) } })
   render(<PoolView />)
-  const main = await mainPart('Alle Anzeigen neu scoren (12)')
-  expect(main).toHaveAccessibleDescription(COST_ALL(12))
+  expect(await mainPart('Alle Anzeigen neu scoren (12)')).toBeEnabled()
+  expect(within(await openMenu()).getByRole('menuitemradio', { name: /Alle Anzeigen neu scoren/ })).toHaveTextContent(COST_ALL(12))
 })
 
 test('one posting without a score is named in the singular', async () => {
   stubApi({ 'GET /pool': { body: NEXT({ unscored: 1 }) } })
   render(<PoolView />)
-  expect(await mainPart('Anzeigen ohne Score scoren (1)')).toHaveAccessibleDescription('1 Anzeige ohne Score, je ein Modellaufruf.')
+  await mainPart('Anzeigen ohne Score scoren (1)')
+  expect(within(await openMenu()).getByRole('menuitemradio', { name: /Nur Anzeigen ohne Score/ })).toHaveTextContent('1 Anzeige ohne Score, je ein Modellaufruf.')
 })
 
 test('one posting to rescore is named in the singular', async () => {
   stubApi({ 'GET /pool': { body: NEXT({ default: 'all', all: 1 }) } })
   render(<PoolView />)
-  expect(await mainPart('Alle Anzeigen neu scoren (1)')).toHaveAccessibleDescription('1 Anzeige, je ein Modellaufruf. Vorhandene Scores werden ersetzt.')
+  await mainPart('Alle Anzeigen neu scoren (1)')
+  expect(within(await openMenu()).getByRole('menuitemradio', { name: /Alle Anzeigen neu scoren/ })).toHaveTextContent('1 Anzeige, je ein Modellaufruf. Vorhandene Scores werden ersetzt.')
 })
 
 test('the menu, opened by keyboard, lists both variants with counts and costs and marks the shown one', async () => {
@@ -214,7 +215,7 @@ test('choosing a menu entry switches the main part and sends no request', async 
   await mainPart(/Anzeigen ohne Score scoren/)
   await openMenu()
   await userEvent.click(screen.getByRole('menuitemradio', { name: /Alle Anzeigen neu scoren/ }))
-  expect(await mainPart('Alle Anzeigen neu scoren (12)')).toHaveAccessibleDescription(COST_ALL(12))
+  await mainPart('Alle Anzeigen neu scoren (12)')
   expect(calls.filter((call) => call.method !== 'GET')).toEqual([])
   expect(screen.queryByRole('menu')).toBeNull()
 })
@@ -346,7 +347,7 @@ test('nothing without a score disables the main part with a reason, and the trig
   render(<PoolView />)
   const main = await mainPart('Anzeigen ohne Score scoren (0)')
   expect(main).toHaveAttribute('aria-disabled', 'true')
-  expect(main).toHaveAccessibleDescription('Es gibt keine Anzeigen ohne Score.')
+  expect(main).toHaveAccessibleDescription('Es gibt keine Anzeigen ohne Score. Über den Pfeil wählst du „Alle Anzeigen neu scoren“.')
   expect(screen.getByRole('button', { name: 'Andere Variante wählen' })).toBeEnabled()
 })
 
@@ -568,21 +569,12 @@ test('the progress block keeps its structure and its fixed boxes in every phase,
   }
 })
 
-test('the progress slot has the same width idle and running, so the counter keeps its place', async () => {
-  stubApi({ 'GET /pool': { body: NEXT() } })
-  const idle = render(<PoolView />)
-  await mainPart(/Anzeigen ohne Score scoren/)
-  const slot = () => splitGroup().parentElement!.parentElement!.nextElementSibling!
-  expect(slot()).toHaveAttribute('aria-hidden', 'true')
-  const idleClasses = slot().className
-  expect(idleClasses).toContain('sm:flex-[1_1_340px]')
-  idle.unmount()
-  vi.unstubAllGlobals()
+
+test('the progress block fills the pass column and sets no width of its own', async () => {
   await openRunning(running('scoring', [30, 79]))
-  expect(slot()).toBe(block())
-  expect(block().className).toContain('sm:flex-[1_1_340px]')
-  expect(block().className).toContain('min-w-0')
-  expect(idleClasses).toContain('min-w-0')
+  expect(block().parentElement).toBe(passColumn())
+  expect(block()).toHaveClass('w-full', 'min-w-0')
+  expect(block().className).not.toMatch(/sm:flex-/)
 })
 
 test('the cancel button shares the split button\'s grid cell, so the width stays', async () => {
@@ -929,7 +921,7 @@ test('the status control shows saving, and a failure offers a retry', async () =
   render(<PoolView />)
   await titles()
   await userEvent.selectOptions(row('Data Engineer (m/w/d)').getByRole('combobox'), 'done')
-  const failed = await screen.findByText('Der Status wurde nicht gespeichert.')
+  const failed = await screen.findByText('Der Bewerbungsstatus wurde nicht gespeichert.')
   expect(row('Data Engineer (m/w/d)').getByRole('combobox')).toHaveValue('open')
   await userEvent.click(within(failed).getByRole('button', { name: 'Erneut versuchen' }))
   await vi.waitFor(() => expect(screen.queryByRole('heading', { name: 'Data Engineer (m/w/d)' })).toBeNull())
@@ -1197,9 +1189,9 @@ test('the four level buttons sit in one line below the description, score and st
   expect([...line.children].map((child) => child.getAttribute('aria-label')?.split(':')[0])).toEqual(
     ['Ja, auf jeden Fall', 'Ja, vielleicht', 'Nein, eher nicht', 'Nein, auf keinen Fall'])
   const below = line.parentElement!.parentElement!
-  expect(below.parentElement).toBe(row(ENGINEER).getByRole('combobox', { name: /Status/ }).closest('li'))
+  expect(below.parentElement).toBe(row(ENGINEER).getByRole('combobox', { name: /Bewerbungsstatus/ }).closest('li'))
   expect(below).toHaveClass('basis-full')
-  const status = row(ENGINEER).getByRole('combobox', { name: /Status/ })
+  const status = row(ENGINEER).getByRole('combobox', { name: /Bewerbungsstatus/ })
   expect(status.compareDocumentPosition(below) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
 })
 
@@ -1527,7 +1519,7 @@ test('a finished status change tells that the row left the view', async () => {
   render(<PoolView />)
   await titles()
   await userEvent.selectOptions(row(ENGINEER).getByRole('combobox'), 'applied')
-  expect(await screen.findByText(`${ENGINEER}: Status beworben. Die Anzeige ist nicht mehr in dieser Ansicht.`)).toBeInTheDocument()
+  expect(await screen.findByText(`${ENGINEER}: Bewerbungsstatus beworben. Die Anzeige ist nicht mehr in dieser Ansicht.`)).toBeInTheDocument()
 })
 
 /** The answer of `POST /postings/{id}/score` for `base`: the posting page, of which the pool reads
@@ -2012,7 +2004,7 @@ test('a status change still removes a row rated here from the list it no longer 
   await userEvent.click(button(`Ja, auf jeden Fall: ${ENGINEER}`))
   await vi.waitFor(() => corrections(4))
   expect(await titles()).toEqual([ENGINEER])
-  await userEvent.selectOptions(row(ENGINEER).getByRole('combobox', { name: /Status/ }), 'applied')
+  await userEvent.selectOptions(row(ENGINEER).getByRole('combobox', { name: /Bewerbungsstatus/ }), 'applied')
   await vi.waitFor(() => expect(screen.queryByText(ENGINEER)).toBeNull())
 })
 
@@ -2026,7 +2018,7 @@ test('a status change removes a row scored here that lies outside the range', as
   await userEvent.click(row(NEW).getByRole('button', { name: 'Score berechnen' }))
   await vi.waitFor(() => corrections(4))
   expect(await titles()).toContain(NEW) // 9 lies outside "ohne Score": the row stays only as touched
-  await userEvent.selectOptions(row(NEW).getByRole('combobox', { name: /Status/ }), 'applied')
+  await userEvent.selectOptions(row(NEW).getByRole('combobox', { name: /Bewerbungsstatus/ }), 'applied')
   await vi.waitFor(() => expect(screen.queryByText(NEW)).toBeNull())
 })
 
@@ -2038,4 +2030,511 @@ test('a "Stichprobe" row sorted by score sits by its score and keeps its mark', 
   const listed = await titles()
   expect(listed.slice(0, 5)).toEqual([DATA_ANALYST, ENGINEER, 'Importierte Stelle (m/w/d)', 'Datenjournalist (m/w/d)', 'Junior Controller (m/w/d)'])
   expect(row('Datenjournalist (m/w/d)').getByText('Stichprobe')).toBeVisible()
+})
+
+// --- the pool head: two columns (3.2) ---------------------------------------------------------
+
+const passColumn = () => splitGroup().closest('[data-column="pass"]') as HTMLElement
+const checkColumn = () => document.querySelector<HTMLElement>('[data-column="check"]')!
+const checkStart = (name: string | RegExp = /Verfügbarkeit prüfen/) => screen.getByRole('button', { name })
+
+test('the head has two columns: the pass with its counter line, and the check beside it', async () => {
+  stubApi({ 'GET /pool': { body: POOL } })
+  render(<PoolView />)
+  await mainPart(/Anzeigen ohne Score scoren/)
+  expect(passColumn()).not.toBeNull()
+  expect(checkColumn()).not.toBeNull()
+  expect(passColumn().parentElement).toBe(checkColumn().parentElement)
+  expect(passColumn().nextElementSibling).toBe(checkColumn())
+  expect(within(passColumn()).queryByRole('button', { name: /Verfügbarkeit prüfen/ })).toBeNull()
+  expect(within(checkColumn()).getByRole('button', { name: 'Verfügbarkeit prüfen (8)' })).toBeVisible()
+  expect(within(passColumn()).getByText('3 Korrekturen')).toBeVisible()
+})
+
+test('the counter line sits directly below the pass button and the cost line is gone', async () => {
+  stubApi({ 'GET /pool': { body: POOL } })
+  render(<PoolView />)
+  await mainPart(/Anzeigen ohne Score scoren/)
+  const line = screen.getByText('3 Korrekturen').parentElement!
+  expect(splitGroup().compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(line.previousElementSibling).toContainElement(splitGroup())
+  expect(screen.queryByText(/je ein Modellaufruf/)).toBeNull()
+  expect(document.getElementById('pass-why')).toBeNull()
+  expect(screen.queryByText('Einstellungen')).toBeNull()
+})
+
+test('the main part has no description while it is usable, since the cost stays in the menu', async () => {
+  stubApi({ 'GET /pool': { body: NEXT() } })
+  render(<PoolView />)
+  expect(await mainPart('Anzeigen ohne Score scoren (3)')).not.toHaveAccessibleDescription()
+})
+
+test('a pass without postings gives its reason in an info icon, which is focusable', async () => {
+  stubApi({ 'GET /pool': { body: NEXT({ unscored: 0 }) } })
+  render(<PoolView />)
+  const main = await mainPart('Anzeigen ohne Score scoren (0)')
+  const reason = 'Es gibt keine Anzeigen ohne Score. Über den Pfeil wählst du „Alle Anzeigen neu scoren“.'
+  expect(main).toHaveAccessibleDescription(reason)
+  const icon = screen.getByRole('button', { name: 'Warum ist Scoren nicht möglich?' })
+  const tip = within(passColumn()).getByRole('tooltip', { hidden: true })
+  expect(tip).not.toBeVisible()
+  act(() => icon.focus())
+  expect(tip).toHaveTextContent(reason)
+  expect(tip).toBeVisible()
+})
+
+test('starting a pass leaves the check button where it was, and the progress grows in the pass column', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  stubApi({ 'GET /pool': { body: NEXT() }, 'POST /pool/passes': { status: 202, body: { pass_id: 'ps1' } },
+            'GET /pool/passes/ps1': () => ({ body: running('scoring', [4, 12]) }) })
+  render(<PoolView />)
+  const start = await mainPart('Anzeigen ohne Score scoren (3)')
+  const before = checkStart()
+  const column = checkColumn()
+  await act(async () => start.click())
+  await tick()
+  expect(checkStart()).toBe(before)
+  expect(checkColumn()).toBe(column)
+  expect(within(passColumn()).getByRole('region', { name: 'Stand des Scorens' })).toBeVisible()
+  expect(within(column).queryByRole('region', { name: 'Stand des Scorens' })).toBeNull()
+})
+
+test('the cancelled pass notice sits in the pass column', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  sessionStorage.setItem('jobadvaisor.pool-pass', 'ps1')
+  stubApi({ 'GET /pool': { body: POOL }, 'GET /pool/passes/ps1': { body: pass({ status: 'cancelled', scored: 5 }) } })
+  render(<PoolView />)
+  await loaded()
+  await tick()
+  expect(within(passColumn()).getByText(`${CANCELLED} 5 Anzeigen haben einen neuen Score.`)).toBeVisible()
+})
+
+// --- the availability check (3.3) -------------------------------------------------------------
+
+const CHECK_KEY = 'jobadvaisor.pool-check'
+const CHECK_CANCEL = { 'POST /availability/checks/c1/cancel': { status: 202, body: { check_id: 'c1' } } }
+const checkState = (changes: Partial<CheckState> = {}): CheckState => ({
+  check_id: 'c1', status: 'running', error: null, total: 8, done: 3, cancel_requested: false,
+  counts: { available: 2, closed: 1, unknown: 0 },
+  closed: [{ posting_id: 'p1', title: 'Data Analyst (m/w/d)', company: 'Grünwerk Solar' }], ...changes })
+const closedOnes = (count: number) => Array.from({ length: count }, (_, index) => (
+  { posting_id: `c${index}`, title: `Geschlossene Stelle ${index + 1}`, company: 'Nordblatt' }))
+const finished = (closed: number, changes: Partial<CheckState> = {}) => checkState({
+  status: 'done', done: 8, counts: { available: 4, closed, unknown: 2 }, closed: closedOnes(closed), ...changes })
+const checkBlock = () => screen.getByRole('region', { name: 'Stand der Prüfung' })
+const checkCalls = (calls: Call[]) => calls.filter((call) => call.method === 'POST' && call.path === '/availability/checks')
+const CHECK_HINT = 'Abbrechen hält nach der aktuellen Anzeige an. Was schon geprüft ist, bleibt gespeichert.'
+
+/** A view whose stored check `c1` answers `answer()` per poll; waits for the first poll. */
+async function openCheck(answer: CheckState | (() => CheckState), extra: Parameters<typeof stubApi>[0] = {}) {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  localStorage.setItem(CHECK_KEY, 'c1')
+  const calls = stubApi({ 'GET /pool': { body: POOL },
+                          'GET /availability/checks/c1': () => ({ body: typeof answer === 'function' ? answer() : answer }), ...extra })
+  const view = render(<PoolView />)
+  await loaded()
+  await tick()
+  return { calls, ...view }
+}
+
+/** A view with a startable check `c1` (8 postings) that answers `answer()` once started. */
+async function openStartableCheck(answer: () => CheckState, extra: Parameters<typeof stubApi>[0] = {}) {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  const calls = stubApi({ 'GET /pool': { body: POOL }, 'POST /availability/checks': { status: 202, body: { check_id: 'c1', total: 8 } },
+                          'GET /availability/checks/c1': () => ({ body: answer() }), ...extra })
+  render(<PoolView />)
+  await loaded()
+  return calls
+}
+
+test('the check button names how many postings the check covers', async () => {
+  stubApi({ 'GET /pool': { body: POOL } })
+  render(<PoolView />)
+  expect(await screen.findByRole('button', { name: 'Verfügbarkeit prüfen (8)' })).toBeEnabled()
+  expect(screen.queryByRole('button', { name: 'Warum ist Prüfen nicht möglich?' })).toBeNull()
+})
+
+test('with nothing to check the button is inert and an info icon says why', async () => {
+  const calls = stubApi({ 'GET /pool': { body: poolWith({ next_check: { total: 0 } }) } })
+  render(<PoolView />)
+  const button = await screen.findByRole('button', { name: 'Verfügbarkeit prüfen (0)' })
+  const reason = 'Nichts zu prüfen: Jede offene Anzeige ist schon geschlossen, von Hand gesetzt oder hat keinen Link.'
+  expect(button).toHaveAttribute('aria-disabled', 'true')
+  expect(button).toHaveAccessibleDescription(reason)
+  const icon = screen.getByRole('button', { name: 'Warum ist Prüfen nicht möglich?' })
+  act(() => icon.focus())
+  expect(within(checkColumn()).getByRole('tooltip')).toHaveTextContent(reason)
+  expect(within(checkColumn()).getByRole('tooltip')).toBeVisible()
+  await act(async () => button.click())
+  expect(checkCalls(calls)).toHaveLength(0)
+})
+
+test('a press starts the check, shows its progress and offers the cancel button instead of a second start', async () => {
+  let polls = 0
+  const calls = await openStartableCheck(() => ++polls === 1 ? checkState() : checkState({ done: 5, counts: { available: 3, closed: 2, unknown: 0 } }))
+  await act(async () => checkStart().click())
+  expect(checkCalls(calls)).toHaveLength(1)
+  expect(localStorage.getItem(CHECK_KEY)).toBe('c1')
+  // Before the first poll the answer's total is shown.
+  expect(screen.getByText('Verfügbarkeit: 0 von 8 geprüft')).toBeVisible()
+  expect(within(checkColumn()).getByRole('button', { name: 'Prüfen abbrechen' })).toBeVisible()
+  expect(screen.queryByRole('button', { name: /Verfügbarkeit prüfen \(/ })).toBeNull()
+  await tick()
+  expect(screen.getByText('Verfügbarkeit: 3 von 8 geprüft')).toBeVisible()
+  expect(within(checkBlock()).getByRole('progressbar')).toHaveAccessibleName('Prüfung: 3 von 8')
+  expect(within(checkBlock()).getByRole('progressbar')).toHaveAttribute('value', '3')
+  expect(checkBlock()).toHaveTextContent(`1 geschlossen bisher. ${CHECK_HINT}`)
+  await tick()
+  expect(screen.getByText('Verfügbarkeit: 5 von 8 geprüft')).toBeVisible()
+  expect(screen.getByText('Verfügbarkeit: 5 von 8 geprüft').closest('[role="status"]')).toBeNull()
+  expect(checkCalls(calls)).toHaveLength(1)
+})
+
+test('the running check keeps the pass untouched, and its progress sits in the check column', async () => {
+  await openCheck(checkState())
+  expect(within(passColumn()).getByRole('button', { name: /Anzeigen ohne Score scoren/ })).toBeEnabled()
+  expect(within(checkColumn()).getByRole('region', { name: 'Stand der Prüfung' })).toBeVisible()
+})
+
+test('a check that ends reloads the pool and shows its report with the closed postings linked', async () => {
+  let reloads = 0
+  const { calls } = await openCheck(() => finished(2), {
+    'GET /pool': () => ({ body: ++reloads === 1 ? POOL : poolWith({ next_check: { total: 3 } }) }) })
+  await titles()
+  expect(calls.filter((call) => call.path === '/pool')).toHaveLength(2)
+  const report = within(checkColumn()).getByRole('status')
+  expect(within(report).getByRole('heading', { name: 'Prüfung fertig: 2 Stellen geschlossen' })).toBeVisible()
+  const links = within(report).getAllByRole('link')
+  expect(links.map((link) => link.textContent)).toEqual(['Geschlossene Stelle 1, Nordblatt', 'Geschlossene Stelle 2, Nordblatt'])
+  expect(links[0]).toHaveAttribute('href', '#/anzeigen/c0')
+  expect(report).toHaveTextContent('4 verfügbar. 2 blieben unbekannt, die nächste Prüfung versucht sie erneut.')
+  expect(screen.queryByRole('region', { name: 'Stand der Prüfung' })).toBeNull()
+  expect(screen.getByRole('button', { name: 'Verfügbarkeit prüfen (3)' })).toBeEnabled()
+  expect(localStorage.getItem(CHECK_KEY)).toBe('c1')
+})
+
+test('one closed posting and one unknown read in the singular', async () => {
+  await openCheck(finished(1, { counts: { available: 6, closed: 1, unknown: 1 } }))
+  expect(screen.getByRole('heading', { name: 'Prüfung fertig: 1 Stelle geschlossen' })).toBeVisible()
+  expect(within(checkColumn()).getByRole('status')).toHaveTextContent('1 blieb unbekannt, die nächste Prüfung versucht sie erneut.')
+})
+
+test('no unknown posting leaves out that sentence', async () => {
+  await openCheck(finished(0, { counts: { available: 8, closed: 0, unknown: 0 } }))
+  expect(screen.getByRole('heading', { name: 'Prüfung fertig: 0 Stellen geschlossen' })).toBeVisible()
+  expect(within(checkColumn()).getByRole('status')).toHaveTextContent('8 verfügbar.')
+  expect(within(checkColumn()).queryByText(/unbekannt/)).toBeNull()
+})
+
+test('the report links the first three closed postings and puts the rest behind a toggle', async () => {
+  await openCheck(finished(5))
+  const report = within(checkColumn()).getByRole('status')
+  const toggle = within(report).getByText('2 weitere anzeigen')
+  expect(toggle.tagName).toBe('SUMMARY')
+  expect(within(report).getByRole('link', { name: 'Geschlossene Stelle 3, Nordblatt' })).toBeVisible()
+  expect(within(report).getByRole('link', { name: 'Geschlossene Stelle 4, Nordblatt' })).not.toBeVisible()
+  fireEvent.click(toggle)
+  expect(within(report).getByRole('link', { name: 'Geschlossene Stelle 4, Nordblatt' })).toBeVisible()
+  expect(within(report).getByRole('link', { name: 'Geschlossene Stelle 5, Nordblatt' })).toBeVisible()
+})
+
+test('three closed postings need no toggle', async () => {
+  await openCheck(finished(3))
+  expect(within(checkColumn()).queryByText(/weitere anzeigen/)).toBeNull()
+})
+
+test('the report can be dismissed, and the stored check goes with it', async () => {
+  await openCheck(finished(2))
+  await act(async () => screen.getByRole('button', { name: 'Bericht ausblenden' }).click())
+  expect(within(checkColumn()).queryByText(/Prüfung fertig/)).toBeNull()
+  expect(localStorage.getItem(CHECK_KEY)).toBeNull()
+  expect(screen.getByRole('button', { name: /Verfügbarkeit prüfen \(/ })).toBeEnabled()
+})
+
+test('the report survives a reload while the server still knows the check', async () => {
+  const first = await openCheck(finished(2))
+  first.unmount()
+  vi.unstubAllGlobals()
+  await openCheck(finished(2))
+  expect(screen.getByRole('heading', { name: 'Prüfung fertig: 2 Stellen geschlossen' })).toBeVisible()
+})
+
+test('a reload during a check shows its progress again', async () => {
+  await openCheck(checkState({ done: 5 }))
+  expect(screen.getByText('Verfügbarkeit: 5 von 8 geprüft')).toBeVisible()
+  expect(screen.getByRole('button', { name: 'Prüfen abbrechen' })).toBeVisible()
+})
+
+test('before the first poll of a restored check the progress has no count', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  localStorage.setItem(CHECK_KEY, 'c1')
+  stubApi({ 'GET /pool': { body: POOL }, 'GET /availability/checks/c1': { body: checkState() } })
+  render(<PoolView />)
+  await loaded()
+  expect(screen.getByText('Verfügbarkeit: Stand wird geladen…')).toBeVisible()
+  expect(within(checkBlock()).getByRole('progressbar')).toHaveAttribute('value', '0')
+  expect(checkBlock()).toHaveTextContent(CHECK_HINT)
+})
+
+test('a server that forgot the check says so and offers a new start', async () => {
+  await openCheck(checkState(), { 'GET /availability/checks/c1': { status: 404, body: { error: 'not found', detail: 'x' } } })
+  expect(within(checkColumn()).getByText(/Die Prüfung ist dem Server nicht mehr bekannt/)).toBeVisible()
+  expect(screen.getByRole('button', { name: 'Verfügbarkeit prüfen (8)' })).toBeEnabled()
+  expect(localStorage.getItem(CHECK_KEY)).toBeNull()
+})
+
+test('a start refused because a check runs follows that check', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  stubApi({ 'GET /pool': { body: POOL },
+            'POST /availability/checks': { status: 409, body: { error: 'check in progress', detail: 'x', check_id: 'c9' } },
+            'GET /availability/checks/c9': { body: checkState({ check_id: 'c9', done: 6 }) } })
+  render(<PoolView />)
+  await loaded()
+  await act(async () => checkStart().click())
+  expect(screen.queryByRole('alert')).toBeNull()
+  expect(localStorage.getItem(CHECK_KEY)).toBe('c9')
+  await tick()
+  expect(screen.getByText('Verfügbarkeit: 6 von 8 geprüft')).toBeVisible()
+})
+
+test('a start that fails says so and keeps the button', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  stubApi({ 'GET /pool': { body: POOL }, 'POST /availability/checks': { status: 500 } })
+  render(<PoolView />)
+  await loaded()
+  await act(async () => checkStart().click())
+  expect(within(checkColumn()).getByRole('alert')).toHaveTextContent('Die Prüfung konnte nicht gestartet werden. Ist der Server erreichbar?')
+  expect(checkStart()).not.toHaveAttribute('aria-disabled')
+})
+
+test('a failed check says so and a retry starts a new one', async () => {
+  const { calls } = await openCheck(checkState({ status: 'failed', error: 'RuntimeError' }), {
+    'POST /availability/checks': { status: 202, body: { check_id: 'c2', total: 8 } },
+    'GET /availability/checks/c2': { body: checkState({ check_id: 'c2' }) } })
+  const alert = within(checkColumn()).getByRole('alert')
+  expect(alert).toHaveTextContent('Die Prüfung ist fehlgeschlagen')
+  expect(localStorage.getItem(CHECK_KEY)).toBeNull()
+  await act(async () => within(alert).getByRole('button', { name: 'Erneut versuchen' }).click())
+  expect(checkCalls(calls)).toHaveLength(1)
+  expect(localStorage.getItem(CHECK_KEY)).toBe('c2')
+})
+
+test('three failed polls show a notice with a retry that resumes polling', async () => {
+  let fail = true
+  await openCheck(checkState(), { 'GET /availability/checks/c1': () => (fail ? { status: 500 } : { body: checkState({ done: 7 }) }) })
+  await tick()
+  await tick()
+  expect(within(checkColumn()).getByRole('alert')).toHaveTextContent('Der Stand der Prüfung ist gerade nicht abrufbar')
+  fail = false
+  await act(async () => within(checkColumn()).getByRole('button', { name: 'Erneut versuchen' }).click())
+  await tick()
+  expect(screen.getByText('Verfügbarkeit: 7 von 8 geprüft')).toBeVisible()
+})
+
+test('a press on the cancel button cancels at once without a dialog and says what happens', async () => {
+  const { calls } = await openCheck(checkState(), CHECK_CANCEL)
+  const cancel = screen.getByRole('button', { name: 'Prüfen abbrechen' })
+  expect(cancel).toHaveAccessibleDescription(expect.stringContaining(CHECK_HINT))
+  await act(async () => cancel.click())
+  expect(calls.filter((call) => call.path === '/availability/checks/c1/cancel')).toHaveLength(1)
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(cancel).toHaveAccessibleName('Wird beendet…')
+  expect(cancel).toHaveAttribute('aria-disabled', 'true')
+  expect(checkBlock()).toHaveTextContent('Wird nach der aktuellen Anzeige beendet. Was schon geprüft ist, bleibt gespeichert.')
+  await tick()
+  expect(screen.getByRole('button', { name: 'Wird beendet…' })).toHaveAttribute('aria-disabled', 'true')
+})
+
+test('a cancel request the server reports shows the stopping state after a reload', async () => {
+  await openCheck(checkState({ cancel_requested: true }))
+  expect(screen.getByRole('button', { name: 'Wird beendet…' })).toHaveAttribute('aria-disabled', 'true')
+})
+
+test('a cancelled check reports what it found and says it was cancelled', async () => {
+  let status: CheckState['status'] = 'running'
+  let requested = false
+  await openCheck(() => checkState({ status, cancel_requested: requested, done: 4,
+                                     counts: { available: 2, closed: 2, unknown: 0 }, closed: closedOnes(2) }), CHECK_CANCEL)
+  await act(async () => screen.getByRole('button', { name: 'Prüfen abbrechen' }).click())
+  requested = true
+  status = 'cancelled'
+  await tick()
+  expect(screen.getByRole('heading', { name: 'Prüfung abgebrochen: 2 Stellen geschlossen' })).toBeVisible()
+  expect(within(checkColumn()).getAllByRole('link')).toHaveLength(2)
+  expect(screen.getByRole('button', { name: /Verfügbarkeit prüfen \(/ })).toBeEnabled()
+})
+
+test('a check that finished although a cancel came with its last posting is a finished check', async () => {
+  await openCheck(finished(2, { cancel_requested: true }))
+  expect(screen.getByRole('heading', { name: 'Prüfung fertig: 2 Stellen geschlossen' })).toBeVisible()
+  expect(screen.queryByText(/abgebrochen/)).toBeNull()
+})
+
+test('a 409 on the cancel request shows no error, another failure shows its text and keeps the button', async () => {
+  let status = 409
+  await openCheck(checkState(), { 'POST /availability/checks/c1/cancel': () => ({ status, body: { error: 'check not running', detail: 'x' } }) })
+  const cancel = screen.getByRole('button', { name: 'Prüfen abbrechen' })
+  await act(async () => cancel.click())
+  expect(screen.queryByRole('alert')).toBeNull()
+  status = 500
+  await act(async () => cancel.click())
+  expect(within(checkColumn()).getByRole('alert')).toHaveTextContent('Das Prüfen konnte nicht abgebrochen werden. Versuch es noch einmal.')
+  expect(cancel).not.toHaveAttribute('aria-disabled')
+})
+
+test('the cancel button keeps the start button\'s grid cell, so the width stays', async () => {
+  await openCheck(checkState())
+  const cancel = screen.getByRole('button', { name: 'Prüfen abbrechen' })
+  const start = document.querySelector<HTMLElement>('[data-column="check"] button[aria-hidden="true"]')!
+  expect(start.parentElement).toBe(cancel.parentElement)
+  for (const element of [cancel, start]) expect(element).toHaveClass('col-start-1', 'row-start-1')
+  expect(start).toHaveClass('invisible')
+  expect(start).toHaveAttribute('inert')
+})
+
+const FAKE_BOTH = { toFake: ['setInterval' as const, 'clearInterval' as const, 'setTimeout' as const, 'clearTimeout' as const] }
+
+test('a second press within 1 s of the start sends no cancel, and focus follows to the cancel button', async () => {
+  const calls = stubApi({ 'GET /pool': { body: POOL }, 'POST /availability/checks': { status: 202, body: { check_id: 'c1', total: 8 } },
+                          'GET /availability/checks/c1': { body: checkState() }, ...CHECK_CANCEL })
+  render(<PoolView />)
+  const start = await screen.findByRole('button', { name: 'Verfügbarkeit prüfen (8)' })
+  vi.useFakeTimers(FAKE_BOTH)
+  act(() => start.focus())
+  await act(async () => start.click())
+  const cancel = screen.getByRole('button', { name: 'Prüfen abbrechen' })
+  expect(cancel).toHaveFocus()
+  expect(cancel).toHaveAttribute('aria-disabled', 'true')
+  await act(async () => cancel.click())
+  expect(calls.filter((call) => call.path.endsWith('/cancel'))).toHaveLength(0)
+  await act(() => vi.advanceTimersByTimeAsync(SWAP_LOCK_MS))
+  expect(cancel).not.toHaveAttribute('aria-disabled')
+})
+
+test('the check controls have no accessibility violations: disabled, running, report', async () => {
+  stubApi({ 'GET /pool': { body: poolWith({ next_check: { total: 0 } }) } })
+  const disabled = render(<PoolView />)
+  await screen.findByRole('button', { name: 'Verfügbarkeit prüfen (0)' })
+  expect(await axe(disabled.container)).toHaveNoViolations()
+  disabled.unmount()
+  vi.unstubAllGlobals()
+  const running = await openCheck(checkState())
+  vi.useRealTimers()
+  expect(await axe(running.container)).toHaveNoViolations()
+  running.unmount()
+  vi.unstubAllGlobals()
+  const report = await openCheck(finished(5))
+  vi.useRealTimers()
+  expect(await axe(report.container)).toHaveNoViolations()
+})
+
+test('the pool\'s keys do nothing while focus is in the check column', async () => {
+  const calls = stubApi({ 'GET /pool': { body: POOL } })
+  render(<PoolView />)
+  await titles()
+  const start = checkStart()
+  act(() => start.focus())
+  await userEvent.keyboard('1')
+  await userEvent.keyboard('j')
+  expect(calls.some((call) => call.path.includes('/rating'))).toBe(false)
+  expect(start).toHaveFocus()
+})
+
+// --- the filter "Stelle geschlossen" and the row mark (3.3) -----------------------------------
+
+const closedAvailability = { state: 'closed' as const, set_at: '2026-11-20T13:05:00+00:00', set_by: 'check' as const }
+/** `POOL` with the rated `Data Analyst`, the unrated `Data Engineer`, an imported open row and the
+ * applied row closed. */
+const CLOSED_POOL = poolWith({ rows: POOL.rows.map((entry) => (
+  ['p1', 'p2', 'imp1', 'app1'].includes(entry.posting_id) ? { ...entry, availability: closedAvailability } : entry)) })
+
+test('the filters list "Stelle geschlossen" before "Herkunft"', async () => {
+  stubApi({ 'GET /pool': { body: POOL } })
+  render(<PoolView />)
+  await titles()
+  const names = within(screen.getByRole('group', { name: 'Filter' })).getAllByRole('button').map((button) => button.textContent)
+  expect(names).toEqual(['Offen', 'Noch nicht bewertet', 'Bewertet', 'Beworben', 'Erledigt', 'Stelle geschlossen', 'Herkunft'])
+})
+
+test('closed postings leave Offen, Noch nicht bewertet and Bewertet and show under their own filter', async () => {
+  stubApi({ 'GET /pool': { body: CLOSED_POOL } })
+  render(<PoolView />)
+  const open = await titles()
+  expect(open).not.toContain('Data Analyst (m/w/d)')
+  expect(open).not.toContain('Data Engineer (m/w/d)')
+  expect(open).not.toContain('Importierte Stelle (m/w/d)')
+  await userEvent.click(screen.getByRole('button', { name: 'Noch nicht bewertet' }))
+  expect(await titles()).not.toContain('Data Engineer (m/w/d)')
+  await userEvent.click(screen.getByRole('button', { name: 'Bewertet' }))
+  expect(await titles()).toEqual(['Junior Controller (m/w/d)'])
+  await userEvent.click(screen.getByRole('button', { name: 'Stelle geschlossen' }))
+  expect(await titles()).toEqual(['Data Analyst (m/w/d)', 'Data Engineer (m/w/d)', 'Importierte Stelle (m/w/d)'])
+})
+
+test('a closed row carries the mark, an available, unknown or unchecked one does not', async () => {
+  stubApi({ 'GET /pool': { body: poolWith({ rows: [
+    makeRow('a', 'Verfügbare Stelle (m/w/d)', { availability: { ...closedAvailability, state: 'available' } }),
+    makeRow('b', 'Geschlossene Stelle (m/w/d)', { availability: closedAvailability, status: 'applied' }),
+    makeRow('c', 'Unbekannte Stelle (m/w/d)', { availability: { ...closedAvailability, state: 'unknown' } }),
+    makeRow('d', 'Ungeprüfte Stelle (m/w/d)')] }) } })
+  render(<PoolView />)
+  await titles()
+  for (const title of ['Verfügbare Stelle (m/w/d)', 'Unbekannte Stelle (m/w/d)', 'Ungeprüfte Stelle (m/w/d)']) {
+    expect(row(title).queryByText('Stelle geschlossen')).toBeNull()
+  }
+  await userEvent.click(screen.getByRole('button', { name: 'Beworben' }))
+  await titles()
+  expect(row('Geschlossene Stelle (m/w/d)').getByText('Stelle geschlossen')).toBeVisible()
+})
+
+test('a closed imported posting is listed and marked under Herkunft', async () => {
+  stubApi({ 'GET /pool': { body: CLOSED_POOL } })
+  render(<PoolView />)
+  await titles()
+  await userEvent.click(screen.getByRole('button', { name: 'Herkunft' }))
+  expect(await titles()).toContain('Importierte Stelle (m/w/d)')
+  expect(row('Importierte Stelle (m/w/d)').getByText('Stelle geschlossen')).toBeVisible()
+  expect(row('Projektleiter (m/w/d)').getByText('Stelle geschlossen')).toBeVisible()
+})
+
+test('the closed filter keeps only closed postings with application status open', async () => {
+  stubApi({ 'GET /pool': { body: CLOSED_POOL } })
+  render(<PoolView />)
+  await titles()
+  await userEvent.click(screen.getByRole('button', { name: 'Stelle geschlossen' }))
+  expect(await titles()).not.toContain('Projektleiter (m/w/d)')
+})
+
+test('a closed posting can be rated from its filter and stays marked', async () => {
+  const calls = stubApi({ 'GET /pool': { body: CLOSED_POOL },
+    'PUT /postings/p2/rating': (call) => ratingAnswer({ ...baseRow('p2'), availability: closedAvailability }, call.body as RatingBody) })
+  render(<PoolView />)
+  await titles()
+  await userEvent.click(screen.getByRole('button', { name: 'Stelle geschlossen' }))
+  await titles()
+  await userEvent.click(screen.getByRole('button', { name: 'Ja, auf jeden Fall: Data Engineer (m/w/d)' }))
+  await vi.waitFor(() => expect(calls.some((call) => call.method === 'PUT')).toBe(true))
+  await vi.waitFor(() => expect(screen.getByRole('button', { name: 'Ja, auf jeden Fall: Data Engineer (m/w/d)' })).toHaveAttribute('aria-pressed', 'true'))
+  expect(row('Data Engineer (m/w/d)').getByText('Stelle geschlossen')).toBeVisible()
+})
+
+test('the application status is labelled Bewerbungsstatus in a row', async () => {
+  stubApi({ 'GET /pool': { body: CLOSED_POOL } })
+  render(<PoolView />)
+  await titles()
+  await userEvent.click(screen.getByRole('button', { name: 'Stelle geschlossen' }))
+  await titles()
+  const closed = row('Data Engineer (m/w/d)')
+  expect(closed.getByText('Stelle geschlossen')).toBeVisible()
+  expect(closed.getByLabelText('Bewerbungsstatus: Data Engineer (m/w/d)')).toHaveValue('open')
+  expect(closed.getByText('Bewerbungsstatus')).toBeVisible()
+})
+
+test('the pool with closed rows has no accessibility violations', async () => {
+  stubApi({ 'GET /pool': { body: CLOSED_POOL } })
+  const { container } = render(<PoolView />)
+  await titles()
+  await userEvent.click(screen.getByRole('button', { name: 'Stelle geschlossen' }))
+  await titles()
+  expect(await axe(container)).toHaveNoViolations()
 })

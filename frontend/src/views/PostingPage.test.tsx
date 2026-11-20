@@ -37,7 +37,7 @@ test('shows heading, text, original link, score with reasoning, examples, rating
   expect(screen.getByText('Bewertet: Ja')).toBeVisible()
   expect(screen.getByText('great stack')).toBeVisible()
   expect(screen.getByDisplayValue('Passt zu meinem Profil.')).toBeVisible()
-  expect(screen.getByRole('combobox', { name: /Status/ })).toHaveValue('open')
+  expect(screen.getByRole('combobox', { name: /Bewerbungsstatus/ })).toHaveValue('open')
   expect(screen.getByText(/Du wertest Daten aus\./)).toBeVisible()
   expect(screen.queryByText(/Importiert aus/)).toBeNull()
   await waitFor(() => expect(document.title).toBe('Data Analyst (m/w/d) – JobAdvAIsor'))
@@ -161,7 +161,7 @@ test('held and excluded postings say why, an unreadable score says so', async ()
 test('changing the status sends a PATCH and shows the new status', async () => {
   const calls = stubApi({ 'GET /postings/p1': { body: page() }, 'PATCH /postings/p1': { body: { posting_id: 'p1', posting } } })
   render(<PostingPage postingId="p1" />)
-  await userEvent.selectOptions(await screen.findByRole('combobox', { name: /Status/ }), 'applied')
+  await userEvent.selectOptions(await screen.findByRole('combobox', { name: /Bewerbungsstatus/ }), 'applied')
   expect(calls.find((call) => call.method === 'PATCH')?.body).toEqual({ status: 'applied' })
   expect(await screen.findByDisplayValue('beworben')).toBeVisible()
 })
@@ -171,13 +171,13 @@ test('a failed status change shows an error, keeps the old status and retries', 
   stubApi({ 'GET /postings/p1': { body: page() },
     'PATCH /postings/p1': () => (fail ? { status: 500, body: { error: 'x', detail: '' } } : { body: {} }) })
   render(<PostingPage postingId="p1" />)
-  await userEvent.selectOptions(await screen.findByRole('combobox', { name: /Status/ }), 'done')
-  expect(await screen.findByText('Der Status wurde nicht gespeichert.')).toBeVisible()
-  expect(screen.getByRole('combobox', { name: /Status/ })).toHaveValue('open')
+  await userEvent.selectOptions(await screen.findByRole('combobox', { name: /Bewerbungsstatus/ }), 'done')
+  expect(await screen.findByText('Der Bewerbungsstatus wurde nicht gespeichert.')).toBeVisible()
+  expect(screen.getByRole('combobox', { name: /Bewerbungsstatus/ })).toHaveValue('open')
   fail = false
   await userEvent.click(screen.getByRole('button', { name: 'Erneut versuchen' }))
   expect(await screen.findByDisplayValue('erledigt')).toBeVisible()
-  expect(screen.queryByText('Der Status wurde nicht gespeichert.')).toBeNull()
+  expect(screen.queryByText('Der Bewerbungsstatus wurde nicht gespeichert.')).toBeNull()
 })
 
 /** Stubs the page and a PATCH that stores the sent fields; `fail` makes the PATCH answer 500. */
@@ -215,7 +215,7 @@ test('a corrected title reaches the heading, the tab title and the status contro
   await userEvent.click(screen.getByRole('button', { name: 'Korrekturen speichern' }))
   expect(await screen.findByRole('heading', { level: 1, name: 'Data Engineer' })).toBeVisible()
   await waitFor(() => expect(document.title).toBe('Data Engineer – JobAdvAIsor'))
-  expect(screen.getByRole('combobox', { name: 'Status: Data Engineer' })).toBeVisible()
+  expect(screen.getByRole('combobox', { name: 'Bewerbungsstatus: Data Engineer' })).toBeVisible()
 })
 
 test('an emptied field is not sent and says so', async () => {
