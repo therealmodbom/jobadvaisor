@@ -213,7 +213,7 @@ function FailedLink({ attempts, onText, onPdf, onRetry }: {
   )
 }
 
-const OUTCOMES = { stored: 'Hinzugefügt', duplicate: 'Schon gespeichert', failed: 'Nicht gelesen' }
+const OUTCOMES = { stored: 'Hinzugefügt', duplicate: 'Schon gespeichert', closed: 'Stelle geschlossen', failed: 'Nicht gelesen' }
 
 /** The outcome of each link of a batch: stored or duplicate with a link to the posting's page,
  * failed with the attempts made and the text and PDF options. A failed link never hides the rest. */
@@ -248,7 +248,7 @@ function BatchResults({ results, onText, onPdf }: {
                 {OUTCOMES[result.outcome]}
               </strong>
               <span className="min-w-0 break-all font-mono text-sm">{result.url}</span>
-              {result.outcome !== 'failed' && (
+              {'posting_id' in result && (
                 <a href={`#/anzeigen/${encodeURIComponent(result.posting_id)}`}
                    className="text-primary underline">Anzeige ansehen</a>
               )}

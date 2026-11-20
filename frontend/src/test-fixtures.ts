@@ -4,7 +4,7 @@ import type { Counter, NextPass, Pool, PoolRow, RatingBody, Strength } from '@/a
 export const row = (posting_id: string, title: string, extra: Partial<PoolRow> = {}): PoolRow => ({
   posting_id, title, company: 'Grünwerk Solar', location_raw: 'Kiel', added_at: '2026-10-10T07:12:00+00:00',
   state: 'scored', unscreened: false, rules: [], categories: [], score: 6, score_problem: null, label: null, status: 'open',
-  origin: null, exploration: false, ...extra,
+  origin: null, exploration: false, availability: null, ...extra,
 })
 
 /** A stored label; `strength` null is a plain yes or no, the way the server sends it. */
@@ -32,6 +32,7 @@ export const POOL: Pool = {
   counter: { corrections: 3, rated: 12, rate: 0.25, hint: 'fits', since: '2026-10-14T19:00:00+00:00' },
   settings: { correction_threshold: 10, correction_rate: 0.3 },
   next_pass: { default: 'unscored', unscored: 12, all: 12 },
+  next_check: { total: 8 },
   reason_chips: [{ id: 'great-stack', label: 'great stack', polarity: 'positive' },
                  { id: 'too-junior', label: 'too junior', polarity: 'negative' }],
   screening: true,

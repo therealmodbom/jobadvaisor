@@ -64,6 +64,7 @@ export type Posting = {
   urls: string[]
   text?: string
   guard?: Guard
+  availability?: Availability | null
 }
 
 /** One fetch-ladder or intake-loop step tried on a URL. */
@@ -85,6 +86,19 @@ export type ReasonChip = { id: string; label: string; polarity: 'positive' | 'ne
 /** The application status of a posting. */
 export type Status = 'open' | 'applied' | 'done'
 
+/** Whether a posting is still open for applications: a check or the user set `state` at `set_at`
+ * (ISO timestamp). `unknown` is what a check stores when it could not tell. A pool row carries
+ * `null` and a posting no value while the posting was never checked. */
+export type Availability = {
+  state: 'available' | 'closed' | 'unknown'
+  set_at: string
+  set_by: 'check' | 'user'
+}
+
+/** The `availability` value of `PATCH /postings/{id}`: a hand setting, or `check` to remove it so
+ * the next check covers the posting again. */
+export type AvailabilityChoice = 'available' | 'closed' | 'check'
+
 /** One pool row (`GET /pool` `rows`), in rank order. */
 export type PoolRow = {
   posting_id: string
@@ -103,6 +117,7 @@ export type PoolRow = {
   status: Status
   origin: { table: string; fit: string | null; status: string | null } | null
   exploration: boolean
+  availability: Availability | null
 }
 
 /** The two scoring passes: `unscored` scores the postings without a score, `all` every scorable posting. */
@@ -125,12 +140,14 @@ export type Counter = {
 /** The hint thresholds (`correction_rate` in 0..1). */
 export type PoolSettings = { correction_threshold: number; correction_rate: number }
 
-/** `GET /pool`; `screening` is true when a content-guard classifier is configured. */
+/** `GET /pool`; `screening` is true when a content-guard classifier is configured. `next_check`
+ * says how many postings an availability check would cover. */
 export type Pool = {
   rows: PoolRow[]
   counter: Counter
   settings: PoolSettings
   next_pass: NextPass
+  next_check: { total: number }
   reason_chips: ReasonChip[]
   screening: boolean
 }
@@ -198,6 +215,22 @@ export type PassState = {
   cancel_requested: boolean
   scored: number
   unscreened: { posting_id: string; title: string; company: string }[]
+}
+
+/** `GET /availability/checks/{id}`: an availability check. `done` counts the postings handled and
+ * `total` those the check covers. `cancel_requested` is true from a cancel on, also on a check that
+ * then ends `done` because the cancel came with its last posting, so the view follows `status`.
+ * `counts` tallies what was stored (a posting the user set meanwhile is in none); `closed` lists
+ * the postings found closed. `error` is a code, never shown. */
+export type CheckState = {
+  check_id: string
+  status: 'running' | 'done' | 'cancelled' | 'failed'
+  error: string | null
+  total: number
+  done: number
+  cancel_requested: boolean
+  counts: { available: number; closed: number; unknown: number }
+  closed: { posting_id: string; title: string; company: string }[]
 }
 
 /** A stored posting whose application `status` differs from what the import list says
@@ -286,12 +319,12 @@ export type AlertPreview = {
 }
 
 /** One entry of an alert run: `state` is where it is; a stored or duplicate entry has its
- * `posting_id`, a duplicate its `duplicate_by`, a failed one its `attempts` or an English
- * `reason` (not shown). */
+ * `posting_id`, a duplicate its `duplicate_by`, a closed one (gone, and no other source holds the
+ * posting) its `attempts`, a failed one its `attempts` or an English `reason` (not shown). */
 export type AlertRunEntry = {
   url: string
   title: string
-  state: 'waiting' | 'running' | 'stored' | 'duplicate' | 'failed'
+  state: 'waiting' | 'running' | 'stored' | 'duplicate' | 'closed' | 'failed'
   posting_id?: string
   duplicate_by?: 'url' | 'text' | 'similar_text'
   attempts?: Attempt[]
@@ -309,10 +342,11 @@ export type AlertRunState = {
 }
 
 /** One entry of the `POST /postings/batch` answer, in the order the links were sent. A failed
- * link has `detail` (English, not shown) and, when fetching was tried, its `attempts`. */
+ * link has `detail` (English, not shown) and, when fetching was tried, its `attempts`. A closed
+ * link (gone, and no other source holds the posting) has them too. */
 export type BatchResult =
   | { url: string; outcome: 'stored' | 'duplicate'; posting_id: string }
-  | { url: string; outcome: 'failed'; detail: string; attempts?: Attempt[] }
+  | { url: string; outcome: 'closed' | 'failed'; detail: string; attempts?: Attempt[] }
 
 /** `POST /postings` answer for a stored (201) or duplicate (200) posting. */
 export type IntakeAnswer = {
