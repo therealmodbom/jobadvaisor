@@ -103,6 +103,19 @@ def test_an_expired_link_from_a_mail_is_closed_not_refused(tmp_path, closed_site
     assert closed_site.hits == ["/expired/1"]
 
 
+def test_an_entry_read_from_its_page_is_stored_available(tmp_path, closed_site):
+    """The run read the posting from its page, which is what a check calls available."""
+    write_json(tmp_path / "profile.json", {"schema_version": "1", "summary": "Developer"})
+    write_json(tmp_path / "policy-pack.json", {**POLICY_PACK, "closed_rules": closed_site.rules})
+    fields = {"title": "Platform Engineer", "company": "Acme", "location_raw": "Remote"}
+    intake = Intake(tmp_path, FakeStructuredModel(fields), ContentGuard(None, {}),
+                    loop_model=ToolScriptModel(plan=[]))
+    outcome = add_entry(intake, RunEntry(f"{closed_site.url}/open", "A"))
+    assert outcome["state"] == "stored", outcome
+    availability = intake.postings()[outcome["posting_id"]].availability
+    assert (availability.state, availability.set_by) == ("available", "check")
+
+
 def test_a_closed_entry_counts_as_done_while_the_run_goes_on(runs, monkeypatch):
     release = threading.Event()
 

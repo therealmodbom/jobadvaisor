@@ -91,9 +91,10 @@ def find_posting(intake: Intake, url: str, hints: dict[str, str] | None = None, 
 @dataclass(frozen=True)
 class Submission:
     """Posting text from one source, with any field values the source itself supplied.
-    `urls` holds the submitted URL first, then any alternative source used. `closed` is true
-    when the page showed a closed rule's text marker beside the posting text: the posting is
-    then stored with the availability closed, set by a check."""
+    `urls` holds the submitted URL first, then any alternative source used. A `url`
+    submission is stored with an availability set by a check at intake: closed when `closed`
+    (the page showed a closed rule's text marker beside the posting text), else available.
+    Text and PDF submissions are stored never checked."""
 
     text: str
     source_type: Literal["url", "text", "pdf"]
@@ -199,8 +200,10 @@ def _prepare(intake: Intake, submission: Submission,
                                                             intake.model)
     added_at = now or datetime.now(UTC)
     fields = {name: supplied.get(name) or filled.get(name) or UNKNOWN for name in FIELDS}
-    availability = Availability(state="closed", set_at=added_at, set_by="check") \
-        if submission.closed else None
+    # Intake from a link read the posting from a page, which is what a check calls available;
+    # pasted text and a PDF were fetched from nowhere, so they stay never checked.
+    availability = None if submission.source_type != "url" else Availability(
+        state="closed" if submission.closed else "available", set_at=added_at, set_by="check")
     posting = Posting(schema_version="2", text=text, source_type=submission.source_type,
                       urls=submission.urls, added_at=added_at, guard=guard,
                       availability=availability, **fields)

@@ -153,7 +153,8 @@ function LoadedPage({ postingId }: { postingId: string }) {
           </Button>
           <StatusControl id="posting-status" title={posting.title} value={row.status} saving={saving}
                          failed={failed} onStatus={setStatus} />
-          <AvailabilityControl id="posting-availability" value={row.availability} saving={availSaving}
+          <AvailabilityControl id="posting-availability" value={row.availability} linked={posting.urls.length > 0}
+                               saving={availSaving}
                                failed={availFailed} onChange={setAvailability} />
         </div>
         {editing && (

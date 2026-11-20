@@ -65,11 +65,14 @@ export function StatusControl({ id, title, value, saving, failed, onStatus }: {
  * user can set "verfügbar" or "geschlossen"; "nicht geprüft" (`value` null) and "unbekannt" (a
  * check could not tell) are shown but not choosable. The note says when the availability was set
  * and by whom ("laut Prüfung vom …", "von dir gesetzt am …, die nächste Prüfung prüft neu") or that
- * it was never checked. `onChange` sends the choice. `saving` shows the save (the select stays enabled so keyboard focus is not dropped; a
+ * it was never checked. A posting without a link (`linked` false: pasted text or a PDF) is never
+ * checked, so its note promises no check ("ohne Link, wird nicht geprüft", "von dir gesetzt am …").
+ * `onChange` sends the choice. `saving` shows the save (the select stays enabled so keyboard focus is not dropped; a
  * change meanwhile is ignored), `failed` (the choice that did not save) an error with a retry. */
-export function AvailabilityControl({ id, value, saving, failed, onChange }: {
+export function AvailabilityControl({ id, value, linked, saving, failed, onChange }: {
   id: string
   value: Availability | null
+  linked: boolean
   saving: boolean
   failed: AvailabilityChoice | undefined
   onChange: (choice: AvailabilityChoice) => void
@@ -88,9 +91,9 @@ export function AvailabilityControl({ id, value, saving, failed, onChange }: {
         {shown === 'never' && <option value="never" disabled>nicht geprüft</option>}
       </select>
       <span className="text-[13px] text-muted-foreground">
-        {value ? (value.set_by === 'user'
-          ? `von dir gesetzt am ${whenLabel(value.set_at)}, die nächste Prüfung prüft neu`
-          : `laut Prüfung vom ${whenLabel(value.set_at)}`) : 'noch nie geprüft'}
+        {!value ? (linked ? 'noch nie geprüft' : 'ohne Link, wird nicht geprüft')
+          : value.set_by === 'check' ? `laut Prüfung vom ${whenLabel(value.set_at)}`
+            : `von dir gesetzt am ${whenLabel(value.set_at)}${linked ? ', die nächste Prüfung prüft neu' : ''}`}
       </span>
       {saving && <span role="status" className="text-sm text-muted-foreground">wird gespeichert…</span>}
       {failed && (

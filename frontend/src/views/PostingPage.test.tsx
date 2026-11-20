@@ -412,6 +412,16 @@ test('a posting never checked shows "nicht geprüft", only shown, and says it wa
   expect(screen.queryByRole('button', { name: 'Wieder automatisch prüfen' })).toBeNull()
 })
 
+test.each([[null, 'ohne Link, wird nicht geprüft'],
+           [availability('closed', 'user', '2026-11-20T12:40:00+00:00'), 'von dir gesetzt am 20.11.2026, 13:40']])(
+  'a posting without a link (text or PDF) never promises a check: %o', async (value, note) => {
+    stubApi({ 'GET /postings/p1': { body: { ...withAvailability(value), posting: { ...posting, urls: [], source_type: 'text' } } } })
+    render(<PostingPage postingId="p1" />)
+    await screen.findByRole('combobox', { name: 'Verfügbarkeit' })
+    expect(screen.getByText(note)).toBeVisible()
+    expect(screen.queryByText(/Prüfung/)).toBeNull()
+  })
+
 test('a closed posting set by a check says when the check found it', async () => {
   stubApi({ 'GET /postings/p1': { body: withAvailability(availability('closed', 'check')) } })
   render(<PostingPage postingId="p1" />)

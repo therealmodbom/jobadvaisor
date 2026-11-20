@@ -217,7 +217,8 @@ def test_a_failed_link_that_is_not_gone_is_not_closed(closed_api, closed_site):
     assert response.status_code == 422 and response.json()["closed"] is False
 
 
-def test_a_gone_link_found_elsewhere_keeps_both_urls(closed_api, closed_site):
+def test_a_gone_link_found_elsewhere_keeps_both_urls_and_is_available(closed_api, closed_site):
+    """The other source shows the posting, so a check would find it available too."""
     http, root, loop = closed_api
     other = f"{closed_site.url}/alt"
     loop.plan[:] = [("fetch_plain", {"url": other}), ("report_posting", {"url": other})]
@@ -225,7 +226,7 @@ def test_a_gone_link_found_elsewhere_keeps_both_urls(closed_api, closed_site):
     response = http.post("/postings", data={"url": gone})
     assert response.status_code == 201, response.text
     stored = load(root).postings[response.json()["posting_id"]]
-    assert stored.urls == [gone, other] and stored.availability is None
+    assert stored.urls == [gone, other] and stored.availability.state == "available"
 
 
 def test_a_long_page_with_a_text_marker_is_stored_closed_by_the_check(closed_api, closed_site):
@@ -239,8 +240,21 @@ def test_a_long_page_with_a_text_marker_is_stored_closed_by_the_check(closed_api
     assert response.json()["posting"]["availability"]["state"] == "closed"
 
 
-def test_an_open_page_is_stored_without_availability(closed_api, closed_site):
+def test_an_open_page_is_stored_available_as_of_intake_by_the_check(closed_api, closed_site):
+    """Intake read the posting from its page, which is what a check calls available."""
     http, root, _ = closed_api
+    before = datetime.now(UTC)
     response = http.post("/postings", data={"url": f"{closed_site.url}/open"})
     assert response.status_code == 201
-    assert load(root).postings[response.json()["posting_id"]].availability is None
+    availability = load(root).postings[response.json()["posting_id"]].availability
+    assert (availability.state, availability.set_by) == ("available", "check")
+    assert before <= availability.set_at <= datetime.now(UTC)
+
+
+@pytest.mark.parametrize("form", [{"text": TEXT}, {"pdf": minimal_pdf(TEXT)}])
+def test_pasted_text_and_a_pdf_are_stored_never_checked(tmp_path, root, form):
+    """Without a link nothing was fetched, so nothing says the posting is still open."""
+    client = Client(tmp_path, root, FIELDS)
+    response = client.post(**form)
+    assert response.status_code == 201, response.text
+    assert client.stored(response.json()["posting_id"]).availability is None

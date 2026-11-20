@@ -92,6 +92,9 @@ def test_a_fresh_import_counts_each_entry_and_marks_the_stored_postings(api, sit
         ("Offen", "C", "offen", "open"), ("Offen", "A", "Bewerbung raus", "applied"),
         ("Archiv", "B", "Absage", "done")])
     assert not list((root / "labels").glob("*"))  # the list rates nothing
+    # each page was read, which is what a check calls available
+    assert {(p.availability.state, p.availability.set_by) for p in postings} == {
+        ("available", "check")}
 
 
 def test_the_report_lists_the_entries_that_were_not_imported_in_list_order(api, site):

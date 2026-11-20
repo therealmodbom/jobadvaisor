@@ -35,6 +35,17 @@ When the page of a submitted link holds the posting text and a closed rule's pag
 - **WHEN** the user submits a link whose page holds the posting text and a phrase a closed rule's page text marker names for that host
 - **THEN** the posting is stored, closed, and the pool lists it only under „geschlossen“
 
+### Requirement: Posting read from a link stored as available
+When intake of a link stores the posting text it read from a page, and no closed rule's page text marker matches it, intake SHALL store the posting with the availability available, set by a check at the time of intake. This SHALL hold for a single link, several links, an alert mail entry and a list import, also when the text came from another source than the submitted link. A posting added as pasted text or a PDF SHALL be stored never checked.
+
+#### Scenario: Link stored as available
+- **WHEN** the user adds a link from an alert mail and its page holds the posting
+- **THEN** the posting is stored as available, set by a check at the time it was added
+
+#### Scenario: Pasted text never checked
+- **WHEN** the user adds a posting as pasted text
+- **THEN** it is stored never checked
+
 ## MODIFIED Requirements
 
 ### Requirement: Input forms
