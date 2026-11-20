@@ -19,7 +19,7 @@ from langchain_core.tools import tool
 
 from jobadvaisor import pool
 from jobadvaisor.data.loader import DataRepository
-from jobadvaisor.data.models import Score
+from jobadvaisor.data.models import Posting, Score
 from jobadvaisor.data.writer import read_scores
 from jobadvaisor.index import LabelIndex, PostingIndex, embedding_text
 from jobadvaisor.intake.fetch import download_plain
@@ -165,7 +165,8 @@ def agent_tools(context: AgentContext) -> list:
         """Find stored postings whose ID, title, company or the user's rating (a reason chip or
         the note) contains `query`; lists their IDs with the user's own rating (verdict, reason
         chips, note; null while unrated) and the stored pool score with the judge's reasoning
-        (null while the posting has no score)."""
+        (null while the posting has no score). A posting whose page is closed carries
+        `closed: true`; it is no recommendation."""
         wanted = query.casefold()
         found = sorted(posting_id for posting_id, posting in repository.postings.items()
                        if any(wanted in value.casefold()
@@ -185,15 +186,16 @@ def agent_tools(context: AgentContext) -> list:
                 {"reasoning": score.reasoning} if posting else {})
             rows.append({"posting_id": posting_id, "your_rating": rating, "stored_score": kept}
                         | ({"title": posting.title, "company": posting.company} if posting
-                           else {"content": WITHHELD}))
+                           else {"content": WITHHELD})
+                        | _closed(repository.postings[posting_id]))
         return data_block("results", _json({"total": len(found), "postings": rows}))
 
     @tool
     def best_open_postings(limit: int = 5, statuses: list[str] | None = None) -> str:
         """The best-fitting postings of the whole pool, in the pool's ranking (rated positive
         first, then unrated by stored score), each with score, the user's rating, application
-        status and its page address; postings rated negative, excluded or held and the pool's
-        exploration picks are left out. Only open postings unless `statuses` names others
+        status and its page address; postings rated negative, excluded, held or closed and the
+        pool's exploration picks are left out. Only open postings unless `statuses` names others
         ("open", "applied" = beworben, "done" = erledigt). At most 20."""
         ranked = pool.best_open(repository, *scores(), tuple(statuses or ["open"]))
         rows = []
@@ -241,7 +243,7 @@ def agent_tools(context: AgentContext) -> list:
     def find_similar_postings(posting_id: str, k: int = 5) -> str:
         """The stored postings most similar to a stored posting, rated or not, most similar
         first, with the user's verdict (and its strength, when set) where there is one (k at
-        most 20)."""
+        most 20). A closed posting carries `closed: true`."""
         if posting_id not in repository.postings:
             return f"no posting {posting_id}"
         k = max(1, min(k, MAX_LISTED))
@@ -258,7 +260,8 @@ def agent_tools(context: AgentContext) -> list:
                 rows.append({"posting_id": found, "title": posting.title,
                              "company": posting.company,
                              "verdict": label.verdict if label else None}
-                            | _strength(label.strength if label else None))
+                            | _strength(label.strength if label else None)
+                            | _closed(repository.postings[found]))
         return _json(rows[:k])
 
     @tool
@@ -332,6 +335,12 @@ def agent_tools(context: AgentContext) -> list:
 
 def _json(value) -> str:
     return json.dumps(value, ensure_ascii=False, default=str)
+
+
+def _closed(posting: Posting) -> dict:
+    """`{"closed": True}` for a posting whose availability says closed, else `{}`: a search
+    result that is no recommendation says so, and the tools never write availability."""
+    return {"closed": True} if pool.is_closed(posting) else {}
 
 
 def _strength(strength: str | None) -> dict:

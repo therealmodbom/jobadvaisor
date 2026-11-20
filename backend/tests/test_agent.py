@@ -287,6 +287,62 @@ def test_similar_postings_include_unrated_ones_and_leave_out_withheld_ones(harne
     assert next(row for row in rows if row["posting_id"] == "data")["verdict"] == "positive"
 
 
+CLOSED = {"state": "closed", "set_at": "2026-01-05T09:00:00Z", "set_by": "check"}
+
+
+def test_best_open_postings_never_list_a_closed_posting(harness):
+    add_posting(harness.root, "gone", "Platform Engineer 9", schema_version="2",
+                availability=CLOSED)
+    add_posting(harness.root, "gone-applied", "Platform Engineer 8", schema_version="2",
+                status="applied", availability=CLOSED)
+    add_posting(harness.root, "applied", "Backend Engineer 7", schema_version="2",
+                status="applied")
+    for posting_id in ("gone", "gone-applied", "applied", "backend", "data"):
+        stored_score(harness.root, posting_id, 9)
+    model = ToolScriptModel(plan=[("best_open_postings", {"statuses": ["open", "applied"]})])
+    answer(ASK, model, context(harness))
+    listed = {row["posting_id"] for row in json.loads(tool_output(model, "best_open_postings"))}
+    assert listed == {"applied", "backend", "data"}
+
+
+def test_find_postings_marks_a_closed_match_and_only_that(tmp_path, root):
+    add_posting(root, "gone", "Gone Engineer 3", availability=CLOSED)
+    add_posting(root, "gone-raw", "Gone Engineer 4", guard=None, availability=CLOSED)
+    add_posting(root, "live", "Gone Engineer 5")
+    harness = Harness(tmp_path, root)
+    model = ToolScriptModel(plan=[("find_postings", {"query": "gone engineer"})])
+    answer(ASK, model, context(harness, plain=no_fetch))
+    rows = {row["posting_id"]: row for row in
+            results_of(tool_output(model, "find_postings"))["postings"]}
+    assert rows["gone"]["closed"] is True
+    assert rows["gone-raw"]["closed"] is True and rows["gone-raw"]["content"] == WITHHELD
+    assert "closed" not in rows["live"]
+
+
+def test_find_similar_postings_marks_a_closed_match(harness):
+    add_posting(harness.root, "twin", "Backend Engineer 7", company="Acme Solar",
+                availability=CLOSED)
+    model = ToolScriptModel(plan=[("find_similar_postings", {"posting_id": "backend"})])
+    answer(ASK, model, context(harness))
+    rows = {row["posting_id"]: row for row in
+            json.loads(tool_output(model, "find_similar_postings"))}
+    assert rows["twin"]["closed"] is True
+    assert all("closed" not in row for row in (rows["sales"], rows["data"]))
+
+
+def test_no_tool_writes_an_availability_or_starts_a_check(harness):
+    add_posting(harness.root, "gone", "Gone Engineer 3", availability=CLOSED)
+    before = {path.name: path.read_text() for path in (harness.root / "postings").glob("*.json")}
+    model = ToolScriptModel(plan=[("find_postings", {"query": "gone"}), ("best_open_postings", {}),
+                                  ("find_similar_postings", {"posting_id": "gone"}),
+                                  ("check_exclusions", {"posting_id": "gone"})])
+    answer(ASK, model, context(harness))
+    assert not any(word in name for name in AGENT_TOOLS for word in ("availab", "check_avail"))
+    assert "availability" not in "".join(name for name in model.tool_names)
+    assert before == {path.name: path.read_text()
+                      for path in (harness.root / "postings").glob("*.json")}
+
+
 def test_similar_postings_give_the_strength_of_a_rating_only_when_there_is_one(harness):
     write_json(harness.root / "labels/data.json", LABEL | {"strength": "weak"})
     write_json(harness.root / "labels/sales.json", LABEL)
