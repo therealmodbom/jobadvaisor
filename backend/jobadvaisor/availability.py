@@ -14,7 +14,7 @@ import httpx
 
 from jobadvaisor.data.loader import DataRepository, load
 from jobadvaisor.data.models import Availability, PolicyPack, Posting
-from jobadvaisor.data.writer import write_availability
+from jobadvaisor.data.writer import read_posting, write_availability
 from jobadvaisor.intake.company_facts import Throttle
 from jobadvaisor.intake.fetch import (
     TIMEOUT_SECONDS,
@@ -208,7 +208,12 @@ class AvailabilityChecks:
                     was_closed = posting.availability is not None \
                         and posting.availability.state == "closed"
                     if found == "unknown" and was_closed:
-                        stored = True  # left as it is, no write: a failed fetch never reopens it
+                        # no write: a failed fetch never reopens it; counted only while unchanged
+                        try:
+                            stored = read_posting(self._root, posting_id).availability \
+                                == posting.availability
+                        except (ValueError, OSError):  # deleted or no longer valid
+                            stored = False
                     else:
                         try:
                             stored = write_availability(self._root, posting_id, Availability(

@@ -326,8 +326,10 @@ def test_a_value_changed_and_changed_back_during_the_check_survives_it(root):
     assert state["counts"] == {"available": 1, "closed": 0, "unknown": 0} and state["closed"] == []
 
 
-def test_a_hand_closed_posting_whose_link_answers_ends_available_set_by_the_check(root):
-    add_posting(root, "p1", "Engineer 1", urls=[JOB], availability={**BY_USER, "state": "closed"})
+@pytest.mark.parametrize("set_by", ["user", "check"])
+def test_a_closed_posting_whose_link_answers_ends_available_set_by_the_check(root, set_by):
+    add_posting(root, "p1", "Engineer 1", urls=[JOB],
+                availability={**BY_USER, "state": "closed", "set_by": set_by})
     before = datetime.now(UTC)
     state = run(root, Site())
     stored = read_posting(root, "p1").availability
@@ -354,6 +356,31 @@ def test_a_closed_posting_found_unknown_stays_closed_with_its_old_record(root, a
     assert path.read_text() == before  # no write at all
     assert state["counts"] == {"available": 0, "closed": 0, "unknown": 1}
     assert state["closed"] == [] and state["still_closed"] == 0
+
+
+def test_a_closed_posting_found_unknown_but_reopened_during_the_check_counts_nowhere(root):
+    old = {"state": "closed", "set_at": AT, "set_by": "check"}
+    add_posting(root, "p1", "Engineer 1", urls=["https://a.example.org/1"])
+    add_posting(root, "p2", "Engineer 2", urls=["https://b.example.org/2"], availability=old)
+    site = Site({"https://b.example.org/2": reply(429)})
+    site.on_request = lambda url: url.endswith("/1") and update_posting(
+        root, "p2", {"availability": BY_USER})  # the user reopens p2 while the check reaches p1
+    state = run(root, site)
+    assert read_posting(root, "p2").availability.set_by == "user"
+    assert (state["done"], state["counts"]) == (2, {"available": 1, "closed": 0, "unknown": 0})
+    assert state["closed"] == [] and state["still_closed"] == 0
+
+
+def test_a_closed_posting_found_unknown_but_deleted_during_the_check_counts_nowhere(root):
+    old = {"state": "closed", "set_at": AT, "set_by": "check"}
+    add_posting(root, "p1", "Engineer 1", urls=["https://a.example.org/1"])
+    add_posting(root, "p2", "Engineer 2", urls=["https://b.example.org/2"], availability=old)
+    site = Site({"https://b.example.org/2": reply(429)})
+    site.on_request = lambda url: url.endswith("/1") and (
+        root / "postings" / "p2.json").unlink()
+    state = run(root, site)
+    assert not (root / "postings" / "p2.json").exists()
+    assert (state["done"], state["counts"]) == (2, {"available": 1, "closed": 0, "unknown": 0})
 
 
 def test_an_already_closed_posting_found_closed_again_is_counted_but_not_listed(root):
