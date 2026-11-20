@@ -8,7 +8,7 @@ JobAdvAIsor, a local-first AI job search assistant. Its core is a learning job m
 
 The agreed scope, decisions and open assumptions are in [`docs/kickoff-brief.md`](docs/kickoff-brief.md). Read it before planning any change.
 
-**This section and the ones below are self-contained on purpose.** Write everything here for a reader who has only this repository. Never add instructions that depend on an external repository, a machine-specific path, an environment variable outside `.env.example`, or a skill that only exists on one machine.
+**This section and the ones below are self-contained on purpose.** Write everything here for a reader who has only this repository. Never add instructions that depend on an external repository, a machine-specific path, an environment variable outside `env.example`, or a skill that only exists on one machine.
 
 ## Privacy
 
@@ -99,7 +99,7 @@ Open points and deferred work are GitHub Issues in this repository. Labels: `bug
 
 ## .env handling
 
-Never commit a filled `.env`. `.env.example` documents required keys without values.
+Never commit a filled `.env`. `env.example` documents required keys without values.
 
 Secrets (`SECRETS` in `backend/jobadvaisor/settings.py`) come from a gitignored `.env` in the repository root or from the environment; agents never read or print `.env`. On macOS they can live in the Keychain instead, service `jobadvaisor`, account = setting name in lower case with dashes (`llm-api-key`). The app reads them itself; do not export them from a shell profile. Agents never print a Keychain value: check presence with `security find-generic-password -s jobadvaisor -a <account>` without `-w`. `local.env` (gitignored, repository root) holds every non-secret setting (models, URLs, paths, thresholds, `LANGFUSE_PUBLIC_KEY`), and agents may edit it; never put a secret there. Precedence: Keychain, environment, `.env`, `local.env`. Tests never read the Keychain (`tests/conftest.py`). In a worktree, symlink `local.env` (and `.env`, if one exists) from the main checkout.
 

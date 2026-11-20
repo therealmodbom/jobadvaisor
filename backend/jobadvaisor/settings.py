@@ -1,6 +1,6 @@
 """Application settings. Every environment variable the app reads is a field here.
 
-`.env.example` must list exactly these fields, upper-cased; `tests/test_env_example.py` enforces it.
+`env.example` must list exactly these fields, upper-cased; `tests/test_env_example.py` enforces it.
 """
 
 import subprocess

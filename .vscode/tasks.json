@@ -13,7 +13,7 @@
       "label": "link .env and local.env",
       "detail": "In a worktree, symlink the main checkout's local.env (settings) and its .env (secrets without a Keychain), if one exists; never copies or prints them",
       "type": "shell",
-      "command": "main=$(git worktree list --porcelain | awk '/^worktree /{print $2; exit}'); for name in .env local.env; do if [ -e \"$name\" ]; then echo \"$name present\"; elif [ -n \"$main\" ] && [ \"$main\" != \"$(pwd)\" ] && [ -e \"$main/$name\" ]; then ln -sfn \"$main/$name\" \"$name\" && echo \"symlinked $name -> $main/$name\"; elif [ \"$name\" = local.env ]; then echo \"MISSING $name: create it from .env.example (no source file found to link)\"; fi; done",
+      "command": "main=$(git worktree list --porcelain | awk '/^worktree /{print $2; exit}'); for name in .env local.env; do if [ -e \"$name\" ]; then echo \"$name present\"; elif [ -n \"$main\" ] && [ \"$main\" != \"$(pwd)\" ] && [ -e \"$main/$name\" ]; then ln -sfn \"$main/$name\" \"$name\" && echo \"symlinked $name -> $main/$name\"; elif [ \"$name\" = local.env ]; then echo \"MISSING $name: create it from env.example (no source file found to link)\"; fi; done",
       "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": []
     },
