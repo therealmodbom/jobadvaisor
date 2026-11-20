@@ -139,14 +139,15 @@ function usePass(onDone: () => void) {
 }
 
 const HINT_DEFAULT = 'Abbrechen hält nach der aktuellen Anzeige an. Was schon gescort ist, bleibt gespeichert.'
-/** The default hint is shorter on a phone (design: A-Phone), so it keeps its two lines there. */
+/** The default hint is shorter up to `lg` (design: A-Phone): the pass column is narrow there, a phone
+ * width or half the page from 640 px. From `sm` to `lg` the hint has room for three lines. */
 const HINT_DEFAULT_PHONE = 'Abbrechen hält nach der aktuellen Anzeige an. Gescortes bleibt gespeichert.'
 const HINT_STOPPING = 'Wird nach der aktuellen Anzeige beendet.'
 const HINT_STORING = 'Das Speichern lässt sich nicht mehr abbrechen.'
 
 /** The progress of a running pass, below the pass button in the pass column: a head line with the
- * loader, a bar and a hint line, each of fixed height (the hint always has two lines' room), so the
- * block keeps one size in every phase. `progress` null (no report yet) reads like checking: no
+ * loader, a bar and a hint line, each of fixed height (the hint has room for two lines, three from
+ * `sm` to `lg`), so the block keeps one size in every phase. `progress` null (no report yet) reads like checking: no
  * count, empty bar. The bar fills with `done`/`total` while scoring and is full while storing. The
  * hint (`#cancel-why`, the cancel button's description) says what a cancel does, that one was
  * requested (`stopping`), or why storing cannot be cancelled. Only texts and the bar change. */
@@ -163,11 +164,11 @@ function PassProgressBlock({ progress, stopping }: { progress: PassProgress | nu
   const barLabel = counted ? `Scoren: ${counted.done} von ${counted.total}` : storing ? 'Scores speichern' : 'Anzeigen prüfen'
   return (
     <ProgressBlock label="Stand des Scorens" head={head} barLabel={barLabel} value={value} max={max} hintId="cancel-why"
-                   hintClass={cn('h-10 text-muted-foreground', stopping && !storing && 'font-bold text-foreground')}
+                   hintClass={cn('h-10 text-muted-foreground sm:max-lg:h-15', stopping && !storing && 'font-bold text-foreground')}
                    hint={storing ? HINT_STORING : stopping ? HINT_STOPPING : (
                      <>
-                       <span className="sm:hidden">{HINT_DEFAULT_PHONE}</span>
-                       <span className="max-sm:hidden">{HINT_DEFAULT}</span>
+                       <span className="lg:hidden">{HINT_DEFAULT_PHONE}</span>
+                       <span className="max-lg:hidden">{HINT_DEFAULT}</span>
                      </>
                    )} />
   )
