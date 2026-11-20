@@ -117,15 +117,15 @@
 
 ## 3. Frontend
 
-- [ ] 3.1 `api.ts`: types for `availability`, `next_check`, the check state with `cancelled` and `cancel_requested`, the closed intake outcomes and the `PATCH` field. Verify with `npm --prefix frontend run build`.
-- [ ] 3.2 `PoolView.tsx`, layout and pass (D8):
+- [x] 3.1 `api.ts`: types for `availability`, `next_check`, the check state with `cancelled` and `cancel_requested`, the closed intake outcomes and the `PATCH` field. Verify with `npm --prefix frontend run build`.
+- [x] 3.2 `PoolView.tsx`, layout and pass (D8):
   - the pool head in two columns, each action with its status below it;
   - the counter line under the pass button instead of the cost line, and the pass's disabled reason in an info icon;
   - the pass's progress, storing hint and cancel notice in its column;
   - the settings form moved out of the view (3.4).
 
   Verify with `PoolView.test.tsx`: the existing pass tests pass with the new placement; starting or ending a pass leaves the check button where it was. Specs: Pool view, Pass progress below the pass button, Cancel button of a pass, No cancel while storing, Result of a cancelled pass, Pass button, Counter line below the pass button.
-- [ ] 3.3 `PoolView.tsx`, check and filter:
+- [x] 3.3 `PoolView.tsx`, check and filter:
   - the filters, with „Stelle geschlossen“ before „Herkunft“;
   - the mark „Stelle geschlossen“ on a row, and „Bewerbungsstatus“ as the rows' status label;
   - „Verfügbarkeit prüfen“ with its count, disabled state, info icon, „Prüfen abbrechen“, progress, report with three links and the rest behind a toggle, dismiss, and the 409 and lost-check states;
@@ -133,9 +133,9 @@
   - the new controls in the keyboard shortcut exclusion.
 
   Texts follow D8. Verify with `PoolView.test.tsx`, including axe checks of the running, report and disabled states. Specs: Availability check button, Availability check progress and report, Cancel button of a check, Availability check refused or lost, Filter Stelle geschlossen, Closed mark on a row, Labels for application status and availability.
-- [ ] 3.4 `App.tsx`: the settings icon button „Einstellungen“ at the right end of the header, after the backup control, opening the threshold and rate form in a panel anchored to it, closed by Escape, from every view. Verify with `App.test.tsx`: the panel opens from the intake view, saving changes the pool's hint, Escape closes it and focus returns to the button (spec: Settings in the header).
-- [ ] 3.5 `PostingPage.tsx`: under the title one row with „Bearbeiten“, „Bewerbungsstatus“ and „Verfügbarkeit“; the note with its time and setter or „nicht geprüft“; the hand setting; „Wieder automatisch prüfen“ for a hand setting; the old status row removed. The score button stays enabled for a closed posting. Verify with `PostingPage.test.tsx` (specs: Availability on the posting page, Labels for application status and availability).
-- [ ] 3.6 `IntakeView.tsx` and `AlertMailView.tsx`: „Stelle geschlossen“ with its attempts and no text or PDF option, for a single link, among several links and for an alert run entry. Verify with `IntakeView.test.tsx` and `AlertMailView.test.tsx` (spec: Intake view, Several links at once, Alert mail run progress and outcome).
+- [x] 3.4 `App.tsx`: the settings icon button „Einstellungen“ at the right end of the header, after the backup control, opening the threshold and rate form in a panel anchored to it, closed by Escape, from every view. Verify with `App.test.tsx`: the panel opens from the intake view, saving changes the pool's hint, Escape closes it and focus returns to the button (spec: Settings in the header).
+- [x] 3.5 `PostingPage.tsx`: under the title one row with „Bearbeiten“, „Bewerbungsstatus“ and „Verfügbarkeit“; the note with its time and setter or „nicht geprüft“; the hand setting; „Wieder automatisch prüfen“ for a hand setting; the old status row removed. The score button stays enabled for a closed posting. Verify with `PostingPage.test.tsx` (specs: Availability on the posting page, Labels for application status and availability).
+- [x] 3.6 `IntakeView.tsx` and `AlertMailView.tsx`: „Stelle geschlossen“ with its attempts and no text or PDF option, for a single link, among several links and for an alert run entry. Verify with `IntakeView.test.tsx` and `AlertMailView.test.tsx` (spec: Intake view, Several links at once, Alert mail run progress and outcome).
 
 ## 4. End to end and docs
 
