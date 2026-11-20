@@ -64,9 +64,8 @@ export function StatusControl({ id, title, value, saving, failed, onStatus }: {
 /** The availability on the posting page as a select with its note, next to `StatusControl`. The
  * user can set "verfügbar" or "geschlossen"; "nicht geprüft" (`value` null) and "unbekannt" (a
  * check could not tell) are shown but not choosable. The note says when the availability was set
- * and by whom ("laut Prüfung vom …", "von dir gesetzt am …") or that it was never checked; for a
- * hand setting "Wieder automatisch prüfen" removes it (`onChange('check')`). `onChange` sends the
- * choice. `saving` shows the save (the select stays enabled so keyboard focus is not dropped; a
+ * and by whom ("laut Prüfung vom …", "von dir gesetzt am …, die nächste Prüfung prüft neu") or that
+ * it was never checked. `onChange` sends the choice. `saving` shows the save (the select stays enabled so keyboard focus is not dropped; a
  * change meanwhile is ignored), `failed` (the choice that did not save) an error with a retry. */
 export function AvailabilityControl({ id, value, saving, failed, onChange }: {
   id: string
@@ -89,14 +88,10 @@ export function AvailabilityControl({ id, value, saving, failed, onChange }: {
         {shown === 'never' && <option value="never" disabled>nicht geprüft</option>}
       </select>
       <span className="text-[13px] text-muted-foreground">
-        {value ? `${value.set_by === 'user' ? 'von dir gesetzt am' : 'laut Prüfung vom'} ${whenLabel(value.set_at)}` : 'noch nie geprüft'}
+        {value ? (value.set_by === 'user'
+          ? `von dir gesetzt am ${whenLabel(value.set_at)}, die nächste Prüfung prüft neu`
+          : `laut Prüfung vom ${whenLabel(value.set_at)}`) : 'noch nie geprüft'}
       </span>
-      {value?.set_by === 'user' && (
-        <button type="button" onClick={() => change('check')}
-                className="self-start text-sm text-primary underline underline-offset-2">
-          Wieder automatisch prüfen
-        </button>
-      )}
       {saving && <span role="status" className="text-sm text-muted-foreground">wird gespeichert…</span>}
       {failed && (
         <span role="alert" className="flex flex-col items-start gap-1 text-sm text-danger">

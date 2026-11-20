@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils'
 
 const HINT_DEFAULT = 'Abbrechen hält nach der aktuellen Anzeige an. Was schon geprüft ist, bleibt gespeichert.'
 const HINT_STOPPING = 'Wird nach der aktuellen Anzeige beendet. Was schon geprüft ist, bleibt gespeichert.'
-const NOTHING_TO_CHECK = 'Nichts zu prüfen: Jede offene Anzeige ist schon geschlossen, von Hand gesetzt oder hat keinen Link.'
+const NOTHING_TO_CHECK = 'Nichts zu prüfen: Keine offene Anzeige hat einen Link, den die Prüfung abrufen kann.'
 /** The ID of the progress hint, which the cancel button names as its description. */
 const HINT_ID = 'check-why'
 
@@ -76,7 +76,7 @@ function CheckProgress({ check, stopping }: { check: CheckState | null; stopping
                    barLabel={check ? `Prüfung: ${check.done} von ${check.total}` : 'Prüfung wird geladen'}
                    value={check?.done ?? 0} max={check ? total : 1} hintId={HINT_ID}
                    hintClass={cn('min-h-10 text-muted-foreground', stopping && 'font-bold text-foreground')}
-                   hint={stopping ? HINT_STOPPING : `${check ? `${check.counts.closed} geschlossen bisher. ` : ''}${HINT_DEFAULT}`} />
+                   hint={stopping ? HINT_STOPPING : `${check ? `${check.counts.closed - check.still_closed} geschlossen bisher. ` : ''}${HINT_DEFAULT}`} />
   )
 }
 
@@ -89,18 +89,19 @@ const ClosedLink = ({ entry }: { entry: CheckState['closed'][number] }) => (
   </li>
 )
 
-/** The report of an ended check (`done` or `cancelled`): how many postings it found closed, the
- * first three linked and the rest behind a toggle, how many were available and how many stayed
- * unknown. `onDismiss` hides it. */
+/** The report of an ended check (`done` or `cancelled`): how many postings it newly closed (the
+ * ones in `check.closed`), the first three linked and the rest behind a toggle, how many were
+ * available, how many stayed unknown and how many stay closed from before. `onDismiss` hides it. */
 function CheckReport({ check, onDismiss }: { check: CheckState; onDismiss: () => void }) {
   const id = useId()
-  const { available, closed, unknown } = check.counts
+  const { available, unknown } = check.counts
+  const closed = check.counts.closed - check.still_closed
   const [first, rest] = [check.closed.slice(0, 3), check.closed.slice(3)]
   return (
     <section aria-labelledby={id} className="flex flex-col gap-1.5 rounded-xl border bg-card px-4 py-3">
       <div className="flex items-start justify-between gap-2">
         <h2 id={id} className="text-[17px] font-bold">
-          {check.status === 'cancelled' ? 'Prüfung abgebrochen' : 'Prüfung fertig'}: {closed === 1 ? '1 Stelle' : `${closed} Stellen`} geschlossen
+          {check.status === 'cancelled' ? 'Prüfung abgebrochen' : 'Prüfung fertig'}: {closed === 1 ? '1 Stelle' : `${closed} Stellen`} neu geschlossen
         </h2>
         <button type="button" aria-label="Bericht ausblenden" onClick={onDismiss}
                 className="inline-flex size-9 flex-none items-center justify-center rounded-lg hover:bg-muted">
@@ -123,6 +124,7 @@ function CheckReport({ check, onDismiss }: { check: CheckState; onDismiss: () =>
       <p className="text-sm text-muted-foreground">
         {available} verfügbar.
         {unknown > 0 && ` ${unknown === 1 ? '1 blieb' : `${unknown} blieben`} unbekannt, die nächste Prüfung versucht sie erneut.`}
+        {check.still_closed > 0 && ` ${check.still_closed} weiterhin geschlossen.`}
       </p>
     </section>
   )

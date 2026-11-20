@@ -417,7 +417,6 @@ test('a closed posting set by a check says when the check found it', async () =>
   render(<PostingPage postingId="p1" />)
   expect(await screen.findByRole('combobox', { name: 'Verfügbarkeit' })).toHaveDisplayValue('geschlossen')
   expect(screen.getByText('laut Prüfung vom 20.11.2026, 14:05')).toBeVisible()
-  expect(screen.queryByRole('button', { name: 'Wieder automatisch prüfen' })).toBeNull()
 })
 
 test('an unknown result of a check is shown, not choosable', async () => {
@@ -429,12 +428,13 @@ test('an unknown result of a check is shown, not choosable', async () => {
   expect(screen.getByText('laut Prüfung vom 20.11.2026, 14:05')).toBeVisible()
 })
 
-test('a hand setting says so and offers "Wieder automatisch prüfen"', async () => {
+test('a hand setting says so and that the next check checks again, with no button to hand it back', async () => {
   stubApi({ 'GET /postings/p1': { body: withAvailability(availability('available', 'user', '2026-11-20T12:40:00+00:00')) } })
   render(<PostingPage postingId="p1" />)
   expect(await screen.findByRole('combobox', { name: 'Verfügbarkeit' })).toHaveDisplayValue('verfügbar')
-  expect(screen.getByText('von dir gesetzt am 20.11.2026, 13:40')).toBeVisible()
-  expect(screen.getByRole('button', { name: 'Wieder automatisch prüfen' })).toBeEnabled()
+  expect(screen.getByText('von dir gesetzt am 20.11.2026, 13:40, die nächste Prüfung prüft neu')).toBeVisible()
+  expect(screen.queryByRole('button', { name: 'Wieder automatisch prüfen' })).toBeNull()
+  expect(screen.queryByText(/Wieder automatisch prüfen/)).toBeNull()
 })
 
 test('closing by hand sends the PATCH and shows the posting closed, set by hand', async () => {
@@ -443,9 +443,8 @@ test('closing by hand sends the PATCH and shows the posting closed, set by hand'
   render(<PostingPage postingId="p1" />)
   await userEvent.selectOptions(await screen.findByRole('combobox', { name: 'Verfügbarkeit' }), 'geschlossen')
   expect(calls.find((call) => call.method === 'PATCH')?.body).toEqual({ availability: 'closed' })
-  expect(await screen.findByText('von dir gesetzt am 20.11.2026, 14:40')).toBeVisible()
+  expect(await screen.findByText('von dir gesetzt am 20.11.2026, 14:40, die nächste Prüfung prüft neu')).toBeVisible()
   expect(availabilitySelect()).toHaveDisplayValue('geschlossen')
-  expect(screen.getByRole('button', { name: 'Wieder automatisch prüfen' })).toBeVisible()
 })
 
 test('reopening by hand sends available', async () => {
@@ -456,17 +455,6 @@ test('reopening by hand sends available', async () => {
   expect(calls.find((call) => call.method === 'PATCH')?.body).toEqual({ availability: 'available' })
   expect(await screen.findByText(/^von dir gesetzt am/)).toBeVisible()
   expect(availabilitySelect()).toHaveDisplayValue('verfügbar')
-})
-
-test('"Wieder automatisch prüfen" sends check and the page says it was never checked', async () => {
-  const calls = stubApi({ 'GET /postings/p1': { body: withAvailability(availability('closed', 'user')) },
-    'PATCH /postings/p1': { body: { posting_id: 'p1', posting } } })
-  render(<PostingPage postingId="p1" />)
-  await userEvent.click(await screen.findByRole('button', { name: 'Wieder automatisch prüfen' }))
-  expect(calls.find((call) => call.method === 'PATCH')?.body).toEqual({ availability: 'check' })
-  expect(await screen.findByText('noch nie geprüft')).toBeVisible()
-  expect(availabilitySelect()).toHaveDisplayValue('nicht geprüft')
-  expect(screen.queryByRole('button', { name: 'Wieder automatisch prüfen' })).toBeNull()
 })
 
 test('a failed availability change shows an error, keeps the old value and retries', async () => {

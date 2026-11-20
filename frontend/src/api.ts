@@ -95,9 +95,9 @@ export type Availability = {
   set_by: 'check' | 'user'
 }
 
-/** The `availability` value of `PATCH /postings/{id}`: a hand setting, or `check` to remove it so
- * the next check covers the posting again. */
-export type AvailabilityChoice = 'available' | 'closed' | 'check'
+/** The `availability` value of `PATCH /postings/{id}`: a hand setting, which the next check
+ * replaces in turn. */
+export type AvailabilityChoice = 'available' | 'closed'
 
 /** One pool row (`GET /pool` `rows`), in rank order. */
 export type PoolRow = {
@@ -220,8 +220,10 @@ export type PassState = {
 /** `GET /availability/checks/{id}`: an availability check. `done` counts the postings handled and
  * `total` those the check covers. `cancel_requested` is true from a cancel on, also on a check that
  * then ends `done` because the cancel came with its last posting, so the view follows `status`.
- * `counts` tallies what was stored (a posting the user set meanwhile is in none); `closed` lists
- * the postings found closed. `error` is a code, never shown. */
+ * `counts` tallies what was stored (a posting the user set meanwhile is in none; a closed posting
+ * the check could not reach counts `unknown` and stays closed); `still_closed` is how many of
+ * `counts.closed` were closed before the check; `closed` lists only the postings the check newly
+ * closed. `error` is a code, never shown. */
 export type CheckState = {
   check_id: string
   status: 'running' | 'done' | 'cancelled' | 'failed'
@@ -230,6 +232,7 @@ export type CheckState = {
   done: number
   cancel_requested: boolean
   counts: { available: number; closed: number; unknown: number }
+  still_closed: number
   closed: { posting_id: string; title: string; company: string }[]
 }
 

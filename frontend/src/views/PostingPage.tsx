@@ -84,8 +84,8 @@ function LoadedPage({ postingId }: { postingId: string }) {
     }
   }
 
-  /** Set or remove the hand setting of the availability (`PATCH`); the stored posting's
-   * availability (none after "check") replaces the row's. */
+  /** Set the hand setting of the availability (`PATCH`); the stored posting's availability
+   * replaces the row's. */
   async function setAvailability(choice: AvailabilityChoice) {
     setAvailSaving(true)
     setAvailFailed(undefined)

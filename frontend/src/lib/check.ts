@@ -25,7 +25,7 @@ const storedCheck = {
 /** What a started check looks like before its first poll. */
 const started = (check_id: string, total: number): CheckState => ({
   check_id, status: 'running', error: null, total, done: 0, cancel_requested: false,
-  counts: { available: 0, closed: 0, unknown: 0 }, closed: [],
+  counts: { available: 0, closed: 0, unknown: 0 }, still_closed: 0, closed: [],
 })
 
 /** The availability check: starts it, polls it while it runs, and keeps its ID across a reload

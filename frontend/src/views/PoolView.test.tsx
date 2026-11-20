@@ -2129,7 +2129,7 @@ const CHECK_KEY = 'jobadvaisor.pool-check'
 const CHECK_CANCEL = { 'POST /availability/checks/c1/cancel': { status: 202, body: { check_id: 'c1' } } }
 const checkState = (changes: Partial<CheckState> = {}): CheckState => ({
   check_id: 'c1', status: 'running', error: null, total: 8, done: 3, cancel_requested: false,
-  counts: { available: 2, closed: 1, unknown: 0 },
+  counts: { available: 2, closed: 1, unknown: 0 }, still_closed: 0,
   closed: [{ posting_id: 'p1', title: 'Data Analyst (m/w/d)', company: 'Grünwerk Solar' }], ...changes })
 const closedOnes = (count: number) => Array.from({ length: count }, (_, index) => (
   { posting_id: `c${index}`, title: `Geschlossene Stelle ${index + 1}`, company: 'Nordblatt' }))
@@ -2172,7 +2172,7 @@ test('with nothing to check the button is inert and an info icon says why', asyn
   const calls = stubApi({ 'GET /pool': { body: poolWith({ next_check: { total: 0 } }) } })
   render(<PoolView />)
   const button = await screen.findByRole('button', { name: 'Verfügbarkeit prüfen (0)' })
-  const reason = 'Nichts zu prüfen: Jede offene Anzeige ist schon geschlossen, von Hand gesetzt oder hat keinen Link.'
+  const reason = 'Nichts zu prüfen: Keine offene Anzeige hat einen Link, den die Prüfung abrufen kann.'
   expect(button).toHaveAttribute('aria-disabled', 'true')
   expect(button).toHaveAccessibleDescription(reason)
   const icon = screen.getByRole('button', { name: 'Warum ist Prüfen nicht möglich?' })
@@ -2217,7 +2217,7 @@ test('a check that ends reloads the pool and shows its report with the closed po
   await titles()
   expect(calls.filter((call) => call.path === '/pool')).toHaveLength(2)
   const report = within(checkColumn()).getByRole('status')
-  expect(within(report).getByRole('heading', { name: 'Prüfung fertig: 2 Stellen geschlossen' })).toBeVisible()
+  expect(within(report).getByRole('heading', { name: 'Prüfung fertig: 2 Stellen neu geschlossen' })).toBeVisible()
   const links = within(report).getAllByRole('link')
   expect(links.map((link) => link.textContent)).toEqual(['Geschlossene Stelle 1, Nordblatt', 'Geschlossene Stelle 2, Nordblatt'])
   expect(links[0]).toHaveAttribute('href', '#/anzeigen/c0')
@@ -2229,13 +2229,34 @@ test('a check that ends reloads the pool and shows its report with the closed po
 
 test('one closed posting and one unknown read in the singular', async () => {
   await openCheck(finished(1, { counts: { available: 6, closed: 1, unknown: 1 } }))
-  expect(screen.getByRole('heading', { name: 'Prüfung fertig: 1 Stelle geschlossen' })).toBeVisible()
+  expect(screen.getByRole('heading', { name: 'Prüfung fertig: 1 Stelle neu geschlossen' })).toBeVisible()
   expect(within(checkColumn()).getByRole('status')).toHaveTextContent('1 blieb unbekannt, die nächste Prüfung versucht sie erneut.')
+})
+
+test('postings that stay closed are counted in a sentence of their own, not in the head or the list', async () => {
+  await openCheck(finished(3, { counts: { available: 4, closed: 3, unknown: 2 }, still_closed: 2, closed: closedOnes(1) }))
+  const report = within(checkColumn()).getByRole('status')
+  expect(within(report).getByRole('heading', { name: 'Prüfung fertig: 1 Stelle neu geschlossen' })).toBeVisible()
+  expect(within(report).getAllByRole('link')).toHaveLength(1)
+  expect(report).toHaveTextContent('4 verfügbar. 2 blieben unbekannt, die nächste Prüfung versucht sie erneut. 2 weiterhin geschlossen.')
+})
+
+test('only postings that stay closed: no new ones, and the sentence says how many stay', async () => {
+  await openCheck(finished(2, { counts: { available: 6, closed: 2, unknown: 0 }, still_closed: 2, closed: [] }))
+  const report = within(checkColumn()).getByRole('status')
+  expect(within(report).getByRole('heading', { name: 'Prüfung fertig: 0 Stellen neu geschlossen' })).toBeVisible()
+  expect(report).toHaveTextContent('6 verfügbar. 2 weiterhin geschlossen.')
+  expect(within(report).queryByRole('list')).toBeNull()
+})
+
+test('the running hint counts only the newly closed postings', async () => {
+  await openCheck(checkState({ counts: { available: 2, closed: 3, unknown: 0 }, still_closed: 2 }))
+  expect(checkBlock()).toHaveTextContent(`1 geschlossen bisher. ${CHECK_HINT}`)
 })
 
 test('no unknown posting leaves out that sentence', async () => {
   await openCheck(finished(0, { counts: { available: 8, closed: 0, unknown: 0 } }))
-  expect(screen.getByRole('heading', { name: 'Prüfung fertig: 0 Stellen geschlossen' })).toBeVisible()
+  expect(screen.getByRole('heading', { name: 'Prüfung fertig: 0 Stellen neu geschlossen' })).toBeVisible()
   expect(within(checkColumn()).getByRole('status')).toHaveTextContent('8 verfügbar.')
   expect(within(checkColumn()).queryByText(/unbekannt/)).toBeNull()
 })
@@ -2270,7 +2291,7 @@ test('the report survives a reload while the server still knows the check', asyn
   first.unmount()
   vi.unstubAllGlobals()
   await openCheck(finished(2))
-  expect(screen.getByRole('heading', { name: 'Prüfung fertig: 2 Stellen geschlossen' })).toBeVisible()
+  expect(screen.getByRole('heading', { name: 'Prüfung fertig: 2 Stellen neu geschlossen' })).toBeVisible()
 })
 
 test('a reload during a check shows its progress again', async () => {
@@ -2373,14 +2394,14 @@ test('a cancelled check reports what it found and says it was cancelled', async 
   requested = true
   status = 'cancelled'
   await tick()
-  expect(screen.getByRole('heading', { name: 'Prüfung abgebrochen: 2 Stellen geschlossen' })).toBeVisible()
+  expect(screen.getByRole('heading', { name: 'Prüfung abgebrochen: 2 Stellen neu geschlossen' })).toBeVisible()
   expect(within(checkColumn()).getAllByRole('link')).toHaveLength(2)
   expect(screen.getByRole('button', { name: /Verfügbarkeit prüfen \(/ })).toBeEnabled()
 })
 
 test('a check that finished although a cancel came with its last posting is a finished check', async () => {
   await openCheck(finished(2, { cancel_requested: true }))
-  expect(screen.getByRole('heading', { name: 'Prüfung fertig: 2 Stellen geschlossen' })).toBeVisible()
+  expect(screen.getByRole('heading', { name: 'Prüfung fertig: 2 Stellen neu geschlossen' })).toBeVisible()
   expect(screen.queryByText(/abgebrochen/)).toBeNull()
 })
 
