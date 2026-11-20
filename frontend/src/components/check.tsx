@@ -1,6 +1,7 @@
 import { useId, useLayoutEffect, useRef } from 'react'
-import { ListChecks, Square, X } from 'lucide-react'
+import { ListChecks, Square } from 'lucide-react'
 import type { CheckState } from '@/api'
+import { DismissButton } from '@/components/dismiss'
 import { ProgressBlock } from '@/components/progress'
 import { Button } from '@/components/ui/button'
 import { WhyDisabled } from '@/components/why'
@@ -104,12 +105,7 @@ function CheckReport({ check, onDismiss }: { check: CheckState; onDismiss: () =>
         <h2 id={id} className="text-[17px] font-bold">
           {check.status === 'cancelled' ? 'Prüfung abgebrochen' : 'Prüfung fertig'}: {closed === 1 ? '1 Stelle' : `${closed} Stellen`} neu geschlossen
         </h2>
-        {/* The negative margins move the icon into the corner, level with the heading's line,
-            and keep the 36 px hit area. */}
-        <button type="button" aria-label="Bericht ausblenden" onClick={onDismiss}
-                className="-mr-2.5 -my-1.5 inline-flex size-9 flex-none items-center justify-center rounded-lg hover:bg-muted">
-          <X className="size-4" aria-hidden="true" />
-        </button>
+        <DismissButton label="Bericht ausblenden" onDismiss={onDismiss} />
       </div>
       {first.length > 0 && (
         <ul aria-label="Geschlossene Stellen" className="list-disc pl-5 text-[15px]">

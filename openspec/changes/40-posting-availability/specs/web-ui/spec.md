@@ -151,7 +151,11 @@ While a pass stores its scores, the pool view SHALL NOT let the user cancel it, 
 - **THEN** the view says the scores are being stored and that this cannot be cancelled, and a press on the button does nothing
 
 ### Requirement: Result of a cancelled pass
-When a cancelled pass has stopped, the pool view SHALL say below the pass button, where its progress was, that the pass was cancelled and how many postings it scored, and the ranking SHALL show the scores it stored.
+When a cancelled pass has stopped, the pool view SHALL say below the pass button, where its progress was, that the pass was cancelled and how many postings it scored, and the ranking SHALL show the scores it stored. Like the report of a check, this notice SHALL stay, also over a reload, until the user dismisses it or the next pass starts.
+
+#### Scenario: Notice kept until dismissed
+- **WHEN** a pass was cancelled after 4 scores and the user reloads the page
+- **THEN** the notice still says so, and it goes once the user dismisses it
 
 #### Scenario: Cancelled after some scores
 - **WHEN** a pass is cancelled after it scored 30 postings

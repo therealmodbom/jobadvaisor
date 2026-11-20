@@ -3,6 +3,7 @@ import { Check, ChevronDown, ChevronUp, CircleSlash, Compass, ShieldAlert, Squar
 import { DropdownMenu } from 'radix-ui'
 import { api, ApiError, type Counter, type NextPass, type PassProgress, type PassState, type PassVariant, type Pool, type PoolRow, type RatingAnswer, type ScoreAnswer, type Status, type Strength, type Verdict } from '@/api'
 import { CheckButton, CheckStatus } from '@/components/check'
+import { DismissButton } from '@/components/dismiss'
 import { Badge, ChipList, ScoreButton, ScoreProblem, ScoreText, StatusControl } from '@/components/posting'
 import { ProgressBlock } from '@/components/progress'
 import { Legend, ReasonsAndNote, VerdictButtons } from '@/components/rating'
@@ -38,6 +39,28 @@ const storedPass = {
   },
 }
 
+/** How the last pass ended, when it did not finish: the count a cancelled pass stored, or
+ * 'aborted'. Kept across a reload until the notice is dismissed or the next pass starts, like the
+ * check report; storage may be blocked, so every access is guarded. */
+type PassEnd = number | 'aborted'
+const END_KEY = 'jobadvaisor.pool-pass-end'
+const storedEnd = {
+  get: (): PassEnd | null => {
+    try {
+      const value = localStorage.getItem(END_KEY)
+      return value === null ? null : value === 'aborted' ? value : Number(value)
+    } catch {
+      return null
+    }
+  },
+  set: (end: PassEnd | null) => {
+    try {
+      if (end === null) localStorage.removeItem(END_KEY)
+      else localStorage.setItem(END_KEY, String(end))
+    } catch { /* storage blocked: the notice lasts until a reload */ }
+  },
+}
+
 const verdictOf = (row: PoolRow) => row.label?.verdict ?? null
 /** The posting's availability is closed (a check or the user set it; unknown is not closed). */
 const isClosed = (row: PoolRow) => row.availability?.state === 'closed'
@@ -58,15 +81,20 @@ const FILTERS: { id: string; label: string; keep: (row: PoolRow) => boolean }[] 
 /** The scoring pass: starts it, polls it while it runs, remembers its ID across a reload.
  * `onDone` runs when a pass ends with scores to show: done or cancelled. `busy` is true while one
  * runs or waits for an answer. `cancelling` is true from the accepted cancel request on, so a
- * poll that started before it cannot enable the button again. `cancelledScored` is the number a
- * cancelled pass stored (null: none was cancelled, or a later pass started). */
+ * poll that started before it cannot enable the button again. `ended` is how the last pass ended
+ * when it did not finish (`PassEnd`; null: none, dismissed with `dismissEnd`, or a later pass
+ * started). */
 function usePass(onDone: () => void) {
   const [passId, setPassId] = useState<string | null>(storedPass.get)
   const [pass, setPass] = useState<PassState | null>(null)
   const [notice, setNotice] = useState('')
   const [pollFailed, setPollFailed] = useState(false)
   const [cancelling, setCancelling] = useState(false)
-  const [cancelledScored, setCancelledScored] = useState<number | null>(null)
+  const [ended, setEndedState] = useState<PassEnd | null>(storedEnd.get)
+  const setEnded = useCallback((end: PassEnd | null) => {
+    storedEnd.set(end)
+    setEndedState(end)
+  }, [])
   const sending = useRef(false)
   const running = passId !== null && (pass === null || pass.status === 'running')
   const busy = running || pass?.status === 'awaiting_answer'
@@ -81,10 +109,11 @@ function usePass(onDone: () => void) {
           storedPass.set(null)
           setPassId(null)
           setPass(null)
-          if (next.status === 'cancelled') setCancelledScored(next.scored)
+          if (next.status === 'cancelled') setEnded(next.scored)
           onDone()
         } else {
           if (next.status === 'aborted' || next.status === 'failed') storedPass.set(null)
+          if (next.status === 'aborted') setEnded('aborted')
           setPass(next)
         }
       }, (error) => {
@@ -98,7 +127,7 @@ function usePass(onDone: () => void) {
       })
     }, POLL_MS)
     return () => clearInterval(timer)
-  }, [passId, running, pollFailed, onDone])
+  }, [passId, running, pollFailed, onDone, setEnded])
 
   /** Run one pass request; `sending` makes a double click send one. */
   async function send(request: () => Promise<void>, conflict: string, failure: string) {
@@ -120,7 +149,7 @@ function usePass(onDone: () => void) {
     setPass(null)
     setPollFailed(false)
     setCancelling(false)
-    setCancelledScored(null)
+    setEnded(null)
     setPassId(answer.pass_id)
   }, 'Es wird schon gescort. Warte, bis das fertig ist.',
   'Das Scoren konnte nicht gestartet werden. Ist der Server erreichbar?')
@@ -134,8 +163,8 @@ function usePass(onDone: () => void) {
     await api(`/pool/passes/${passId}/cancel`, { method: 'POST' })
     setCancelling(true)
   }, '', 'Das Scoren konnte nicht abgebrochen werden. Versuch es noch einmal.')
-  return { pass, busy, notice, start, answer, cancel, cancelling, cancelledScored, pollFailed,
-           retryPoll: () => setPollFailed(false) }
+  return { pass, busy, notice, start, answer, cancel, cancelling, ended, pollFailed,
+           retryPoll: () => setPollFailed(false), dismissEnd: () => setEnded(null) }
 }
 
 const HINT_DEFAULT = 'Abbrechen hält nach der aktuellen Anzeige an. Was schon gescort ist, bleibt gespeichert.'
@@ -564,7 +593,7 @@ export function PoolView({ active = true, reloadKey = 0 }: { active?: boolean; r
     load()
     clearBusy()
   }, [load, clearBusy])
-  const { pass, busy, notice, start, answer, cancel, cancelling, cancelledScored, pollFailed, retryPoll } = usePass(passDone)
+  const { pass, busy, notice, start, answer, cancel, cancelling, ended, pollFailed, retryPoll, dismissEnd } = usePass(passDone)
   const check = useCheck(load)
 
   async function setStatus(postingId: string, status: Status) {
@@ -722,8 +751,12 @@ export function PoolView({ active = true, reloadKey = 0 }: { active?: boolean; r
               <div role="status" className="flex flex-col gap-3">
                 {working && <span className="sr-only">Das Scoren läuft.</span>}
                 {working && stopping && <span className="sr-only">Das Scoren wird nach der aktuellen Anzeige beendet.</span>}
-                {pass?.status === 'aborted' && <p className="rounded-xl border bg-card px-4 py-3">Das Scoren wurde abgebrochen.</p>}
-                {cancelledScored !== null && <p className="rounded-xl border bg-card px-4 py-3">{cancelledText(cancelledScored)}</p>}
+                {ended !== null && (
+                  <div className="flex items-start justify-between gap-2 rounded-xl border bg-card px-4 py-3">
+                    <p>{ended === 'aborted' ? 'Das Scoren wurde abgebrochen.' : cancelledText(ended)}</p>
+                    <DismissButton label="Meldung ausblenden" onDismiss={dismissEnd} />
+                  </div>
+                )}
               </div>
             </div>
           </div>

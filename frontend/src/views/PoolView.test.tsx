@@ -869,6 +869,27 @@ test('the cancelled notice goes when the next pass starts', async () => {
   expect(screen.queryByText(/Das Scoren wurde abgebrochen/)).toBeNull()
 })
 
+test.each([['cancelled', `${CANCELLED} 30 Anzeigen haben einen neuen Score.`], ['aborted', CANCELLED]] as const)(
+  'the notice of a %s pass stays over a reload until it is dismissed, like the check report', async (status, text) => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    sessionStorage.setItem('jobadvaisor.pool-pass', 'ps1')
+    stubApi({ 'GET /pool': { body: POOL }, 'GET /pool/passes/ps1': { body: pass({ status, scored: 30 }) } })
+    const first = render(<PoolView />)
+    await loaded()
+    await tick()
+    expect(screen.getByText(text)).toBeVisible()
+    first.unmount()
+    const second = render(<PoolView />)
+    await loaded()
+    expect(screen.getByText(text)).toBeVisible()
+    await act(async () => screen.getByRole('button', { name: 'Meldung ausblenden' }).click())
+    expect(screen.queryByText(text)).toBeNull()
+    second.unmount()
+    render(<PoolView />)
+    await loaded()
+    expect(screen.queryByText(text)).toBeNull()
+  })
+
 test('a failed pass shows an error with retry that starts a new pass', async () => {
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
   sessionStorage.setItem('jobadvaisor.pool-pass', 'ps1')

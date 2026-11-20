@@ -477,6 +477,39 @@ def test_both_columns_of_the_pool_head_start_their_status_at_one_height(page, ap
     assert [entry for entry in offsets if abs(entry[2]) >= 1] == []
 
 
+def test_the_cancel_notice_of_a_pass_has_its_dismiss_icon_in_the_corner(page, app_url):
+    """The notice of a cancelled pass, restored from storage, puts its dismiss icon as the check
+    report does: as far from the right border as the text from the left one, level with the text's
+    first line. A press hides it, also for the next reload."""
+    notice = page.get_by_text("Das Scoren wurde abgebrochen. 4 Anzeigen haben einen neuen Score.")
+    card = notice.locator("xpath=..")
+    dismiss = card.get_by_role("button", name="Meldung ausblenden")
+    offsets = []
+    try:
+        page.goto(f"{app_url}/#/pool")
+        page.evaluate("localStorage.setItem('jobadvaisor.pool-pass-end', '4')")
+        page.reload()
+        expect(notice).to_be_visible()
+        for width in ROW_WIDTHS[2:]:
+            page.set_viewport_size({"width": width, "height": 900})
+            box, text, mark = (card.bounding_box(), notice.bounding_box(),
+                               dismiss.locator("svg").bounding_box())
+            line = float(notice.evaluate("el => parseFloat(getComputedStyle(el).lineHeight)"))
+            offsets.append((width, "x right", (box["x"] + box["width"] - mark["x"] - mark["width"])
+                            - (text["x"] - box["x"])))
+            offsets.append((width, "x level", (mark["y"] + mark["height"] / 2)
+                            - (text["y"] + line / 2)))
+        dismiss.click()
+        expect(notice).to_have_count(0)
+        page.reload()
+        expect(page.get_by_role("group", name="Scoren")).to_be_visible()
+        expect(notice).to_have_count(0)
+    finally:  # later tests share the page: desktop width, no stored notice
+        page.evaluate("localStorage.removeItem('jobadvaisor.pool-pass-end')")
+        page.set_viewport_size({"width": 1280, "height": 720})
+    assert [entry for entry in offsets if abs(entry[2]) >= 1] == []
+
+
 def test_focus_stays_in_the_pass_button_area_through_a_start_and_an_end(
         page, app_url, data_root, harness):
     """Real Chromium blurs a focused element that turns `inert` or `disabled`, which jsdom does not,
