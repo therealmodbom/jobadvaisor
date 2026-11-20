@@ -458,13 +458,23 @@ def test_both_columns_of_the_pool_head_start_their_status_at_one_height(page, ap
             page.set_viewport_size({"width": width, "height": 900})
             offsets.append((width, "report", top(report) - top(pass_block)))
             offsets.append((width, "start", top(check_start) - top(pass_cancel)))
+            # The dismiss icon sits in the corner: as far from the right border as the heading
+            # from the left one, and level with the heading's first line.
+            box, title = report.bounding_box(), heading.bounding_box()
+            icon = report.get_by_role("button", name="Bericht ausblenden").locator("svg")
+            mark = icon.bounding_box()
+            offsets.append((width, "x right", (box["x"] + box["width"] - mark["x"] - mark["width"])
+                            - (title["x"] - box["x"])))
+            line = float(heading.evaluate("el => parseFloat(getComputedStyle(el).lineHeight)"))
+            offsets.append((width, "x level", (mark["y"] + mark["height"] / 2)
+                            - (title["y"] + line / 2)))
     finally:  # later tests share the page: desktop width, no stored pass or check
         page.unroute("**/pool/passes/ps-row")
         page.unroute("**/availability/checks/ck-row")
         page.evaluate("sessionStorage.removeItem('jobadvaisor.pool-pass')")
         page.evaluate("localStorage.removeItem('jobadvaisor.pool-check')")
         page.set_viewport_size({"width": 1280, "height": 720})
-    assert all(abs(offset) < 1 for _, _, offset in offsets), offsets
+    assert [entry for entry in offsets if abs(entry[2]) >= 1] == []
 
 
 def test_focus_stays_in_the_pass_button_area_through_a_start_and_an_end(
