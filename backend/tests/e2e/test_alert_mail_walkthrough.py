@@ -1,10 +1,10 @@
 """Browser walkthrough of the alert-mail intake: paste a mail (a synthetic paste event carrying
 `text/html`, as a mail client's copy does), see the pick list with a stored entry marked, add the
-rest, see each outcome including one failed entry, and see the run again after a reload. Real
-app (`create_app` served by uvicorn) over a temporary data repository, the built frontend in
-Chromium, fake models and fake fetchers (no request leaves the machine). The tests share one
-server and run in order, each building on the one before; run them as a set: `pytest -m e2e`
-after `npm --prefix frontend run build`."""
+rest, see each outcome including one closed and one failed entry, and see the run again after a
+reload. Real app (`create_app` served by uvicorn) over a temporary data repository, the built
+frontend in Chromium, fake models and fake fetchers (no request leaves the machine). The tests
+share one server and run in order, each building on the one before; run them as a set:
+`pytest -m e2e` after `npm --prefix frontend run build`."""
 
 import json
 import threading
@@ -34,7 +34,8 @@ MAIL = (MAIL_DIR / "linkedin-digest.html").read_text()
 MAIL_EXPECTED = MAIL_DIR / "linkedin-digest.json"
 JOBS = json.loads(MAIL_EXPECTED.read_text())
 STORED_URL = JOBS[0]["url"]  # the posting stored before the walkthrough starts
-DEAD_URL = JOBS[3]["url"]  # the page that answers 404 on every step
+DEAD_URL = JOBS[3]["url"]  # the page that answers 404 on every step: the posting is closed
+FAILING_URL = JOBS[5]["url"]  # the page that answers 503 on every step: unreadable, not closed
 WAIT = 60_000  # ms; five fake fetches take well under a second
 
 
@@ -54,9 +55,11 @@ def inert_agent(messages):
 def fake_page(url: str) -> FetchedPage:
     """The page behind a fake fetch: a short text of its own per URL (a text under 40 shingles
     is compared by hash, so no two fake postings count as similar). A dead URL raises the
-    ladder's 404."""
+    ladder's 404 (the posting is gone), a failing URL a 503 (the page could not be read)."""
     if url == DEAD_URL:
         raise FetchError("HTTP 404")
+    if url == FAILING_URL:
+        raise FetchError("HTTP 503")
     return FetchedPage(url, f"Wir suchen Verstärkung im Team, Kennung {url.rsplit('/', 1)[-1]}.")
 
 
@@ -169,30 +172,36 @@ def test_the_pasted_mail_lists_its_postings_and_marks_the_stored_one(page, app_u
     expect(page.get_by_role("note")).to_have_count(0)  # nothing left unread
 
 
-def test_the_run_stores_four_and_reports_the_dead_link(page, data_root):
+def test_the_run_stores_three_and_reports_the_closed_and_the_unreadable_link(page, data_root):
     page.get_by_role("button", name="5 Anzeigen hinzufügen").click()
     expect(page.get_by_role("heading", name="5 von 5 erledigt")).to_be_visible(timeout=WAIT)
     rows = page.get_by_role("list", name="Stand je Anzeige").locator("> li")
     expect(rows).to_have_count(5)
-    expect(page.get_by_text("Hinzugefügt", exact=True)).to_have_count(4)
-    expect(page.get_by_role("link", name="Anzeige ansehen")).to_have_count(4)
-    dead = rows.filter(has_text=JOBS[3]["title"])
-    expect(dead).to_contain_text("Nicht gelesen")
-    expect(dead).to_contain_text("Einfacher Abruf: fehlgeschlagen")
-    expect(dead).to_contain_text("HTTP 404")
-    expect(dead.get_by_role("button", name="Text einfügen")).to_be_visible()
-    expect(dead.get_by_role("button", name="PDF hochladen")).to_be_visible()
-    expect(page.get_by_text("4 hinzugefügt, 1 nicht gelesen")).to_be_visible()
+    expect(page.get_by_text("Hinzugefügt", exact=True)).to_have_count(3)
+    expect(page.get_by_role("link", name="Anzeige ansehen")).to_have_count(3)
+    closed = rows.filter(has_text=JOBS[3]["title"])  # the 404: the posting is gone, a result
+    expect(closed).to_contain_text("Stelle geschlossen")
+    expect(closed).to_contain_text("Einfacher Abruf: Stelle geschlossen")
+    expect(closed).to_contain_text("HTTP 404")
+    expect(closed.get_by_role("button")).to_have_count(0)  # no text or PDF option
+    failed = rows.filter(has_text=JOBS[5]["title"])  # the 503: unreadable, a failure
+    expect(failed).to_contain_text("Nicht gelesen")
+    expect(failed).to_contain_text("Einfacher Abruf: fehlgeschlagen")
+    expect(failed).to_contain_text("HTTP 503")
+    expect(failed.get_by_role("button", name="Text einfügen")).to_be_visible()
+    expect(failed.get_by_role("button", name="PDF hochladen")).to_be_visible()
+    expect(page.get_by_text("3 hinzugefügt, 1 geschlossen, 1 nicht gelesen")).to_be_visible()
 
-    expected = {job["url"] for job in JOBS if job["url"] != DEAD_URL}
-    assert stored_urls(data_root) == expected  # the four new ones, canonical, and the old one
+    expected = {job["url"] for job in JOBS if job["url"] not in (DEAD_URL, FAILING_URL)}
+    assert stored_urls(data_root) == expected  # the three new ones, canonical, and the old one
 
 
 def test_the_report_survives_a_reload(page):
     page.reload()  # the intake view opens on its first source, the run is still attached
     source(page, "Alert-Mail").click()
     expect(page.get_by_role("heading", name="5 von 5 erledigt")).to_be_visible()
-    expect(page.get_by_text("Hinzugefügt", exact=True)).to_have_count(4)
+    expect(page.get_by_text("Hinzugefügt", exact=True)).to_have_count(3)
+    expect(page.get_by_text("Stelle geschlossen").first).to_be_visible()
 
 
 def test_a_second_paste_marks_everything_stored(page, app_url):
@@ -201,14 +210,16 @@ def test_a_second_paste_marks_everything_stored(page, app_url):
     page.evaluate(PASTE, [MAIL, "Deine Jobbenachrichtigung"])
     page.get_by_role("button", name="Stellen finden").click()
     expect(page.get_by_role("heading", name="6 Stellen in der Mail gefunden")).to_be_visible()
-    expect(page.get_by_text("Schon gespeichert")).to_have_count(5)  # the old one and the four new
-    expect(page.get_by_role("button", name="1 Anzeige hinzufügen")).to_be_enabled()  # the dead one
+    expect(page.get_by_text("Schon gespeichert")).to_have_count(4)  # the old one and the three new
+    # the closed one and the unreadable one are still not stored
+    expect(page.get_by_role("button", name="2 Anzeigen hinzufügen")).to_be_enabled()
 
 
 def test_a_failed_entry_leads_to_the_text_source(page, app_url):
-    page.get_by_role("button", name="1 Anzeige hinzufügen").click()
-    expect(page.get_by_role("heading", name="1 von 1 erledigt")).to_be_visible(timeout=WAIT)
+    page.get_by_role("button", name="2 Anzeigen hinzufügen").click()
+    expect(page.get_by_role("heading", name="2 von 2 erledigt")).to_be_visible(timeout=WAIT)
     run = page.get_by_role("list", name="Stand je Anzeige")
-    run.get_by_role("button", name="Text einfügen").click()
+    expect(run).to_contain_text("Stelle geschlossen")  # the closed one is done, with no option
+    run.get_by_role("button", name="Text einfügen").click()  # only the unreadable one offers it
     expect(page.get_by_label("Anzeigentext")).to_be_visible()
     expect(source(page, "Text einfügen")).to_have_attribute("aria-pressed", "true")

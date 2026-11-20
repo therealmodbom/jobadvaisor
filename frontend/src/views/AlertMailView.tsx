@@ -1,5 +1,5 @@
 import { useEffect, useId, useState, type ClipboardEvent, type ReactNode } from 'react'
-import { Check, CircleAlert, Clock, Copy, Info, LoaderCircle, Lock, ShieldAlert, ShieldCheck, ShieldOff } from 'lucide-react'
+import { Check, CircleAlert, CircleSlash, Clock, Copy, Info, LoaderCircle, Lock, ShieldAlert, ShieldCheck, ShieldOff } from 'lucide-react'
 import {
   api, ApiError, type AlertEntry, type AlertPreview, type AlertRunEntry, type AlertRunState, type PostingPageData,
 } from '@/api'
@@ -516,12 +516,13 @@ function RunPanel({ entries, status, start, onText, onPdf, onOver }: {
   onPdf: () => void
   onOver: () => void
 }) {
-  const ended = (entry: AlertRunEntry) => ['stored', 'duplicate', 'failed'].includes(entry.state)
+  const ended = (entry: AlertRunEntry) => ['stored', 'duplicate', 'closed', 'failed'].includes(entry.state)
   const finished = entries.filter(ended).length
   const count = (state: AlertRunEntry['state']) => entries.filter((entry) => entry.state === state).length
   const summary = [
     count('stored') > 0 && `${count('stored')} hinzugefügt`,
     count('duplicate') > 0 && `${count('duplicate')} schon gespeichert`,
+    count('closed') > 0 && `${count('closed')} geschlossen`,
     count('failed') > 0 && `${count('failed')} nicht gelesen`,
   ].filter(Boolean).join(', ')
   return (
@@ -625,6 +626,8 @@ function RunRow({ entry, ended, onText, onPdf, onForce }: {
                                             icon={<Check className={ICON} strokeWidth={3} aria-hidden="true" />} />}
         {entry.state === 'duplicate' && <Label text={DUPLICATE_BY[entry.duplicate_by ?? 'url']}
                                                icon={<Copy className={ICON} aria-hidden="true" />} />}
+        {entry.state === 'closed' && <Label tone="text-muted-foreground" text="Stelle geschlossen"
+                                            icon={<CircleSlash className={ICON} aria-hidden="true" />} />}
         {entry.state === 'failed' && <Label tone="text-danger" text="Nicht gelesen"
                                             icon={<CircleAlert className={ICON} aria-hidden="true" />} />}
         {entry.state === 'running' && <Label text="wird abgerufen…"
@@ -669,6 +672,12 @@ function RunRow({ entry, ended, onText, onPdf, onForce }: {
                 </div>
               </div>
             )}
+          </>
+        )}
+        {entry.state === 'closed' && (
+          <>
+            <p className="text-[15px]">Nichts gespeichert. Diese Versuche wurden gemacht:</p>
+            <AttemptList attempts={entry.attempts ?? []} className="text-[15px]" />
           </>
         )}
         {entry.state === 'failed' && (
