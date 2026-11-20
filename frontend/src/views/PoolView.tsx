@@ -102,8 +102,12 @@ function usePass(onDone: () => void) {
   useEffect(() => {
     if (!passId || !running || pollFailed) return
     let failures = 0
+    // A poll still open when this effect ends (the pass ended, a new one started) must not act on
+    // its answer, or a late `cancelled` would bring a dismissed notice back; `useCheck` does the same.
+    let stale = false
     const timer = setInterval(() => {
       api<PassState>(`/pool/passes/${passId}`).then((next) => {
+        if (stale) return
         failures = 0
         if (next.status === 'done' || next.status === 'cancelled') {
           storedPass.set(null)
@@ -116,8 +120,12 @@ function usePass(onDone: () => void) {
           if (next.status === 'aborted') setEnded('aborted')
           setPass(next)
         }
+        // Any status but running ends this poll; a second answer already on its way is stale.
+        if (next.status !== 'running') stale = true
       }, (error) => {
+        if (stale) return
         if (error instanceof ApiError && error.status === 404) {
+          stale = true
           storedPass.set(null)
           setPassId(null)
         } else if (++failures >= POLL_FAILURES) {
@@ -126,7 +134,10 @@ function usePass(onDone: () => void) {
         }
       })
     }, POLL_MS)
-    return () => clearInterval(timer)
+    return () => {
+      stale = true
+      clearInterval(timer)
+    }
   }, [passId, running, pollFailed, onDone, setEnded])
 
   /** Run one pass request; `sending` makes a double click send one. */

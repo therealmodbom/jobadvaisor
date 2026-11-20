@@ -890,6 +890,29 @@ test.each([['cancelled', `${CANCELLED} 30 Anzeigen haben einen neuen Score.`], [
     expect(screen.queryByText(text)).toBeNull()
   })
 
+test('a late answer of a poll that was still open does not bring a dismissed notice back', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  sessionStorage.setItem('jobadvaisor.pool-pass', 'ps1')
+  let release: () => void = () => {}
+  let polls = 0
+  const cancelled = { body: pass({ status: 'cancelled', scored: 30 }) }
+  stubApi({
+    'GET /pool': { body: POOL },
+    // The first poll hangs until released; the second answers at once.
+    'GET /pool/passes/ps1': () => ++polls === 1 ? new Promise((resolve) => { release = () => resolve(cancelled) }) : cancelled,
+  })
+  render(<PoolView />)
+  await loaded()
+  await tick()
+  await tick()
+  const text = `${CANCELLED} 30 Anzeigen haben einen neuen Score.`
+  expect(screen.getByText(text)).toBeVisible()
+  await act(async () => screen.getByRole('button', { name: 'Meldung ausblenden' }).click())
+  await act(async () => release())
+  expect(screen.queryByText(text)).toBeNull()
+  expect(localStorage.getItem('jobadvaisor.pool-pass-end')).toBeNull()
+})
+
 test('a failed pass shows an error with retry that starts a new pass', async () => {
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
   sessionStorage.setItem('jobadvaisor.pool-pass', 'ps1')
