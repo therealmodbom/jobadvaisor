@@ -37,7 +37,7 @@ def _writes(root):
         "write_company": lambda: writer.write_company(root, "acme", COMPANY),
         "write_pool": lambda: writer.write_pool(root, Pool(schema_version="1")),
         "write_guard": lambda: writer.write_guard(root, "p1", GUARD),
-        "write_availability": lambda: writer.write_availability(root, "p1", AVAILABILITY),
+        "write_availability": lambda: writer.write_availability(root, "p1", AVAILABILITY, None),
         "create_posting": lambda: writer.create_posting(
             root, "new", Posting.model_validate(POSTING)),
         "update_posting": lambda: writer.update_posting(root, "p1", {"title": "Changed"}),

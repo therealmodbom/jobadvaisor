@@ -92,7 +92,7 @@ def by_user(state: str = "available") -> dict:
 def test_write_availability_sets_only_the_availability_of_the_posting_on_disk(data_repository):
     path = data_repository / "postings/p1.json"
     before = json.loads(path.read_text())
-    assert write_availability(data_repository, "p1", checked()) is True
+    assert write_availability(data_repository, "p1", checked(), None) is True
     after = json.loads(path.read_text())
     assert after == before | {"availability": {"state": "closed",
                                                "set_at": "2026-03-01T09:00:00Z",
@@ -101,37 +101,54 @@ def test_write_availability_sets_only_the_availability_of_the_posting_on_disk(da
     assert load(data_repository).postings["p1"].availability == checked()
 
 
-def test_write_availability_replaces_an_availability_a_check_set(data_repository):
-    write_availability(data_repository, "p1", checked("unknown"))
-    assert write_availability(data_repository, "p1", checked("available")) is True
+def test_write_availability_replaces_an_availability_equal_to_the_snapshot(data_repository):
+    write_availability(data_repository, "p1", checked("unknown"), None)
+    assert write_availability(data_repository, "p1", checked("available"),
+                              checked("unknown")) is True
     assert read_posting(data_repository, "p1").availability.state == "available"
+
+
+def test_write_availability_replaces_a_hand_setting_that_is_the_snapshot(data_repository):
+    update_posting(data_repository, "p1", {"availability": by_user("closed")})
+    snapshot = read_posting(data_repository, "p1").availability
+    assert write_availability(data_repository, "p1", checked("available"), snapshot) is True
+    assert read_posting(data_repository, "p1").availability == checked("available")
 
 
 def test_a_hand_setting_made_after_the_checks_read_survives_its_write(data_repository):
     to_check = read_posting(data_repository, "p1")  # what the check started from
     assert to_check.availability is None
     update_posting(data_repository, "p1", {"availability": by_user()})  # the user, meanwhile
-    assert write_availability(data_repository, "p1", checked("closed")) is False
+    assert write_availability(data_repository, "p1", checked("closed"),
+                              to_check.availability) is False
     assert read_posting(data_repository, "p1").availability.set_by == "user"
     assert read_posting(data_repository, "p1").availability.state == "available"
 
 
+def test_a_value_set_again_after_the_snapshot_differs_from_it(data_repository):
+    update_posting(data_repository, "p1", {"availability": by_user()})
+    snapshot = read_posting(data_repository, "p1").availability
+    update_posting(data_repository, "p1",
+                   {"availability": by_user() | {"set_at": "2026-03-02T10:00:00Z"}})
+    assert write_availability(data_repository, "p1", checked("closed"), snapshot) is False
+    assert read_posting(data_repository, "p1").availability.set_at.day == 2
+
+
+def test_write_availability_never_writes_unknown_over_closed(data_repository):
+    write_availability(data_repository, "p1", checked("closed"), None)
+    before = (data_repository / "postings/p1.json").read_text()
+    assert write_availability(data_repository, "p1", checked("unknown"), checked("closed")) is False
+    assert (data_repository / "postings/p1.json").read_text() == before
+
+
 def test_write_availability_for_a_missing_posting_writes_nothing(data_repository):
-    assert write_availability(data_repository, "p9", checked()) is False
+    assert write_availability(data_repository, "p9", checked(), None) is False
     assert not (data_repository / "postings/p9.json").exists()
 
 
 def test_write_availability_refuses_an_unsafe_posting_id(data_repository):
     with pytest.raises(ValueError, match="posting ID"):
-        write_availability(data_repository, "../profile", checked())
-
-
-def test_update_posting_removes_the_keys_it_is_told_to_and_keeps_the_rest(data_repository):
-    write_availability(data_repository, "p1", checked())
-    posting = update_posting(data_repository, "p1", {"title": "Renamed"}, remove=["availability"])
-    stored = json.loads((data_repository / "postings/p1.json").read_text())
-    assert "availability" not in stored and stored["title"] == "Renamed"
-    assert stored["schema_version"] == "1" and posting.availability is None
+        write_availability(data_repository, "../profile", checked(), None)
 
 
 def test_write_guard_refuses_an_unsafe_or_unknown_posting(data_repository):

@@ -57,19 +57,15 @@ def _links(posting: Posting, walled: list[str]) -> list[str]:
 
 
 def check_batch(repository: DataRepository) -> list[str]:
-    """The IDs, in ID order, of the postings a check covers: application status open,
-    availability neither closed nor set by the user, and at least one stored link a check can
-    fetch (`_links`: on a public host that is not login-walled), so a pasted or uploaded
-    posting, with no link, or one whose links are all malformed or non-public, is never
-    covered. The
-    API announces this count and a check starts with exactly this batch."""
+    """The IDs, in ID order, of the postings a check covers: application status open and at
+    least one stored link a check can fetch (`_links`: on a public host that is not
+    login-walled), whatever the posting's availability and whoever set it, so a closed posting
+    or a hand setting is checked again. A pasted or uploaded posting, with no link, or one
+    whose links are all malformed or non-public, is never covered. The API announces this count
+    and a check starts with exactly this batch."""
     walled = login_wall_hosts(repository.policy_pack)
-    return sorted(
-        posting_id for posting_id, posting in repository.postings.items()
-        if posting.status == "open" and _links(posting, walled)
-        and not (posting.availability
-                 and (posting.availability.state == "closed"
-                      or posting.availability.set_by == "user")))
+    return sorted(posting_id for posting_id, posting in repository.postings.items()
+                  if posting.status == "open" and _links(posting, walled))
 
 
 def check_posting(posting: Posting, walled: list[str], *, http: httpx.Client | None = None,
@@ -154,7 +150,8 @@ class AvailabilityChecks:
             self._state[check_id] = {
                 "check_id": check_id, "status": "running", "error": None, "total": len(batch),
                 "done": 0, "cancel_requested": False,
-                "counts": {"available": 0, "closed": 0, "unknown": 0}, "closed": []}
+                "counts": {"available": 0, "closed": 0, "unknown": 0}, "still_closed": 0,
+                "closed": []}
         try:
             self._executor.submit(self._run, check_id, batch, repository.policy_pack)
         except Exception:
@@ -181,9 +178,12 @@ class AvailabilityChecks:
         (`running`, `done`, `cancelled`, `failed`), `error` (the exception's type name when the
         check crashed), `total`, `done` (postings checked), `cancel_requested` (true once a
         cancel arrived, while the check runs on to the end of its posting), `counts`
-        (`available`, `closed`, `unknown`) and `closed`, the postings found closed as
-        `{posting_id, title, company}`. A posting whose availability the user set meanwhile,
-        that was deleted, or whose file no longer validates counts as done and in no count."""
+        (`available`, `closed`, `unknown`), `still_closed` (how many of the `closed` count were
+        closed already when the check started) and `closed`, the postings the check newly
+        closed as `{posting_id, title, company}`. A closed posting found unknown stays as it is
+        and counts `unknown`. A posting whose availability changed since the check started (the
+        user set it), that was deleted, or whose file no longer validates counts as done and in
+        no count."""
         with self._lock:
             state = self._state.get(check_id)
             if state is None:
@@ -205,17 +205,25 @@ class AvailabilityChecks:
                             status = "cancelled"
                             break
                     found = check_posting(posting, walled, http=http, throttle=self._throttle)
-                    try:
-                        stored = write_availability(self._root, posting_id, Availability(
-                            state=found, set_at=datetime.now(UTC), set_by="check"))
-                    except ValueError:  # the file no longer validates: skip it, check the rest
-                        stored = False
+                    was_closed = posting.availability is not None \
+                        and posting.availability.state == "closed"
+                    if found == "unknown" and was_closed:
+                        stored = True  # left as it is, no write: a failed fetch never reopens it
+                    else:
+                        try:
+                            stored = write_availability(self._root, posting_id, Availability(
+                                state=found, set_at=datetime.now(UTC), set_by="check"),
+                                posting.availability)  # the snapshot from the start
+                        except ValueError:  # the file no longer validates: skip it, check the rest
+                            stored = False
                     with self._lock:
                         state = self._state[check_id]
                         state["done"] += 1
-                        if stored:  # False: set by the user meanwhile, deleted or invalid
+                        if stored:  # False: changed since the start, deleted or invalid
                             state["counts"][found] += 1
-                            if found == "closed":
+                            if found == "closed" and was_closed:
+                                state["still_closed"] += 1
+                            elif found == "closed":
                                 state["closed"].append({"posting_id": posting_id,
                                                         "title": posting.title,
                                                         "company": posting.company})

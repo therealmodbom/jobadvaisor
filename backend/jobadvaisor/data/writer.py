@@ -10,7 +10,7 @@ import os
 import re
 import tempfile
 import threading
-from collections.abc import Callable, Collection
+from collections.abc import Callable
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -234,33 +234,36 @@ def read_posting(root: Path, posting_id: str) -> Posting:
 
 
 @_gated
-def update_posting(root: Path, posting_id: str, updates: dict[str, object],
-                   remove: Collection[str] = ()) -> Posting:
+def update_posting(root: Path, posting_id: str, updates: dict[str, object]) -> Posting:
     """Replace the top-level keys in `updates` (JSON values) of `postings/<posting_id>.json`
-    under `root` in one write and drop the keys in `remove`, keeping every other key as the
-    file on disk holds it, and return the updated posting. Writing a version 2 field (`status`,
-    `origin`) sets `schema_version` to `"2"`; `availability` keeps the version. Raises like
-    `write_guard`."""
+    under `root` in one write, keeping every other key as the file on disk holds it, and
+    return the updated posting. Writing a version 2 field (`status`, `origin`) sets
+    `schema_version` to `"2"`; `availability` keeps the version. Raises like `write_guard`."""
     if updates.keys() & {"status", "origin"}:
         updates = updates | {"schema_version": "2"}
-    return _update_json(_posting_path(root, posting_id), updates, Posting, remove)
+    return _update_json(_posting_path(root, posting_id), updates, Posting)
 
 
 @_gated
-def write_availability(root: Path, posting_id: str, availability: Availability) -> bool:
+def write_availability(root: Path, posting_id: str, availability: Availability,
+                       expected: Availability | None) -> bool:
     """Set the `availability` of `postings/<posting_id>.json` under `root`, as a check does;
     returns whether it wrote.
 
-    The file is re-read under the write gate, so a hand setting the user made after the check
-    read the posting (`set_by: user`) is never overwritten, and a posting deleted meanwhile is
-    not recreated; both return `False` and write nothing. Every other key and the schema
-    version stay as the file holds them. Raises `ValueError` for an unsafe posting ID or an
-    invalid result, like `write_guard`."""
+    `expected` is the availability the check saw when it started (`None`: never checked). The
+    file is re-read under the write gate and nothing is written, with `False` returned, when
+    its availability no longer equals `expected` as a whole record (state, time and setter),
+    so a value the user set meanwhile survives, also one changed and changed back; when the
+    posting was deleted meanwhile; or when `availability` is `unknown` and the posting is
+    closed, so a failed fetch never reopens it. Every other key and the schema version stay as
+    the file holds them. Raises `ValueError` for an unsafe posting ID or an invalid result,
+    like `write_guard`."""
     path = root / "postings" / f"{_safe_id(posting_id)}.json"
     if not path.is_file():
         return False
     current = read_posting(root, posting_id).availability
-    if current is not None and current.set_by == "user":
+    if current != expected or (
+            availability.state == "unknown" and current is not None and current.state == "closed"):
         return False
     update_posting(root, posting_id, {"availability": availability.model_dump(mode="json")})
     return True
@@ -285,14 +288,11 @@ def write_import_mapping(root: Path, mapping: ImportMapping) -> PolicyPack:
 
 
 @_gated
-def _update_json[T: BaseModel](path: Path, updates: dict[str, object], model: type[T],
-                               remove: Collection[str] = ()) -> T:
-    """Merge `updates` into the JSON object at `path` after dropping the keys in `remove`,
-    validate it as `model`, write it by rename and return it. Read and write run under the
-    write gate, so two updates of one file (an import's origin mark and a status `PATCH`) never
-    drop each other's keys."""
-    data = {key: value for key, value in json.loads(path.read_text()).items()
-            if key not in remove} | updates
+def _update_json[T: BaseModel](path: Path, updates: dict[str, object], model: type[T]) -> T:
+    """Merge `updates` into the JSON object at `path`, validate it as `model`, write it by
+    rename and return it. Read and write run under the write gate, so two updates of one file
+    (an import's origin mark and a status `PATCH`) never drop each other's keys."""
+    data = json.loads(path.read_text()) | updates
     text = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
     entity = model.model_validate_json(text, strict=True)
     temporary = path.with_name(f".{path.name}.tmp")

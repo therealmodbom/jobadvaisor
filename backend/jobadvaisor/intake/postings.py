@@ -247,15 +247,15 @@ class NotFlaggedError(ValueError):
 
 def amend_posting(root: Path, posting_id: str, corrections: dict[str, str], release: bool,
                   now: datetime | None = None, *,
-                  availability: Literal["available", "closed", "check"] | None = None) -> Posting:
+                  availability: Literal["available", "closed"] | None = None) -> Posting:
     """Store the user's corrections of title, company or location and, with `release`, release
     a flagged posting by setting `guard.released_at`, in one write; returns the posting.
     `availability` is the user's hand setting: `"available"` or `"closed"` replaces whatever
-    is stored (set by the user at `now`), `"check"` removes it so the posting counts as never
-    checked. Raises `NotFlaggedError` for a release of an unflagged posting, `ValueError` for an
-    unknown posting."""
+    is stored (set by the user at `now`); the next check replaces it in turn. Raises
+    `NotFlaggedError` for a release of an unflagged posting, `ValueError` for an unknown
+    posting."""
     updates: dict[str, object] = dict(corrections)
-    if availability and availability != "check":
+    if availability:
         updates["availability"] = Availability(
             state=availability, set_at=now or datetime.now(UTC), set_by="user"
         ).model_dump(mode="json")
@@ -265,5 +265,4 @@ def amend_posting(root: Path, posting_id: str, corrections: dict[str, str], rele
             raise NotFlaggedError(f"posting {posting_id} is not flagged by the content guard")
         updates["guard"] = guard.model_copy(update={"released_at": now or datetime.now(UTC)}) \
             .model_dump(mode="json", exclude_none=True)
-    return update_posting(root, posting_id, updates,
-                          remove=["availability"] if availability == "check" else ())
+    return update_posting(root, posting_id, updates)

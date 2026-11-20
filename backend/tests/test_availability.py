@@ -205,7 +205,7 @@ def test_requests_to_one_host_are_spaced():
 
 # --- check_batch: which postings a check covers
 
-def test_the_batch_leaves_out_what_a_check_does_not_cover(tmp_path):
+def test_the_batch_covers_open_postings_with_a_link_whatever_their_availability(tmp_path):
     root = tmp_path
     write_json(root / "profile.json", {"schema_version": "1", "summary": "Developer"})
     write_json(root / "policy-pack.json", POLICY_PACK)
@@ -222,7 +222,8 @@ def test_the_batch_leaves_out_what_a_check_does_not_cover(tmp_path):
     add_posting(root, "walled", "Engineer 8", urls=["https://www.xing.com/jobs/1"])
     add_posting(root, "walled-and-open", "Engineer 9",
                 urls=["https://www.xing.com/jobs/2", OTHER])
-    assert check_batch(load(root)) == ["by-check", "never-checked", "walled-and-open"]
+    assert check_batch(load(root)) == [
+        "by-check", "by-user", "closed", "never-checked", "walled-and-open"]
 
 
 # --- AvailabilityChecks: the run and its report
@@ -307,6 +308,70 @@ def test_a_hand_setting_made_during_the_check_survives_it(root):
     assert state["closed"] == []
 
 
+def test_a_value_changed_and_changed_back_during_the_check_survives_it(root):
+    add_posting(root, "p1", "Engineer 1", urls=["https://a.example.org/1"])
+    add_posting(root, "p2", "Engineer 2", urls=["https://b.example.org/2"], availability=BY_USER)
+    again = {**BY_USER, "set_at": "2026-05-01T09:00:00Z"}
+
+    def act(url):
+        if url.endswith("/1"):  # the same state set again is still not what the check saw
+            update_posting(root, "p2", {"availability": {**BY_USER, "state": "closed"}})
+            update_posting(root, "p2", {"availability": again})
+    site = Site({"https://b.example.org/2": reply(404)})
+    site.on_request = act
+    state = run(root, site)
+    stored = read_posting(root, "p2").availability
+    assert (stored.state, stored.set_by, stored.set_at.day, stored.set_at.month) == (
+        "available", "user", 1, 5)
+    assert state["counts"] == {"available": 1, "closed": 0, "unknown": 0} and state["closed"] == []
+
+
+def test_a_hand_closed_posting_whose_link_answers_ends_available_set_by_the_check(root):
+    add_posting(root, "p1", "Engineer 1", urls=[JOB], availability={**BY_USER, "state": "closed"})
+    before = datetime.now(UTC)
+    state = run(root, Site())
+    stored = read_posting(root, "p1").availability
+    assert (stored.state, stored.set_by) == ("available", "check") and before <= stored.set_at
+    assert state["counts"] == {"available": 1, "closed": 0, "unknown": 0}
+
+
+def test_a_hand_available_posting_whose_link_answers_404_ends_closed_and_is_listed(root):
+    add_posting(root, "p1", "Engineer 1", urls=[JOB], availability=BY_USER)
+    state = run(root, Site({JOB: reply(404)}))
+    stored = read_posting(root, "p1").availability
+    assert (stored.state, stored.set_by) == ("closed", "check")
+    assert [c["posting_id"] for c in state["closed"]] == ["p1"]
+    assert (state["counts"]["closed"], state["still_closed"]) == (1, 0)
+
+
+@pytest.mark.parametrize("answer", [reply(429), httpx.ReadTimeout("slow")])
+def test_a_closed_posting_found_unknown_stays_closed_with_its_old_record(root, answer):
+    old = {"state": "closed", "set_at": AT, "set_by": "user"}
+    add_posting(root, "p1", "Engineer 1", urls=[JOB], availability=old)
+    path = root / "postings" / "p1.json"
+    before = path.read_text()
+    state = run(root, Site({JOB: answer}))
+    assert path.read_text() == before  # no write at all
+    assert state["counts"] == {"available": 0, "closed": 0, "unknown": 1}
+    assert state["closed"] == [] and state["still_closed"] == 0
+
+
+def test_an_already_closed_posting_found_closed_again_is_counted_but_not_listed(root):
+    old = {"state": "closed", "set_at": AT, "set_by": "check"}
+    add_posting(root, "p1", "Engineer 1", urls=["https://a.example.org/1"], availability=old)
+    add_posting(root, "p2", "Engineer 2", urls=["https://b.example.org/2"],
+                availability={**old, "set_by": "user"})
+    add_posting(root, "p3", "Engineer 3", urls=["https://c.example.org/3"])
+    before = datetime.now(UTC)
+    state = run(root, Site({f"https://{h}.example.org/{n}": reply(404)
+                            for n, h in enumerate("abc", 1)}))
+    assert state["counts"] == {"available": 0, "closed": 3, "unknown": 0}
+    assert [c["posting_id"] for c in state["closed"]] == ["p3"]
+    assert state["still_closed"] == 2
+    renewed = read_posting(root, "p2").availability  # a fresh record by the check
+    assert (renewed.state, renewed.set_by) == ("closed", "check") and before <= renewed.set_at
+
+
 def test_a_posting_deleted_during_the_check_is_not_brought_back(root):
     add_posting(root, "p1", "Engineer 1", urls=["https://a.example.org/1"])
     add_posting(root, "p2", "Engineer 2", urls=["https://b.example.org/2"])
@@ -346,10 +411,10 @@ def test_a_posting_that_no_longer_validates_is_skipped_and_the_check_goes_on(roo
     add_posting(root, "p2", "Engineer 2", urls=["https://b.example.org/2"])
     real = availability_module.write_availability
 
-    def write(root_, posting_id, availability):
+    def write(root_, posting_id, availability, expected):
         if posting_id == "p1":
             raise ValueError("p1.json does not validate")
-        return real(root_, posting_id, availability)
+        return real(root_, posting_id, availability, expected)
     monkeypatch.setattr(availability_module, "write_availability", write)
     state = run(root, Site())
     assert (state["status"], state["error"]) == ("done", None)

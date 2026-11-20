@@ -173,9 +173,9 @@ class PoolSettingsBody(BaseModel):
 
 class PostingPatch(BaseModel):
     """`PATCH /postings/{id}` body: corrected fields, the application `status`, the hand setting
-    `availability` (`"available"` or `"closed"`, or `"check"` to remove the hand setting; any
-    other value, `"unknown"` included, is a 422) and/or `"release": true` for a posting the
-    content guard flagged. At least one is required."""
+    `availability` (`"available"` or `"closed"`; any other value, `"unknown"` and `"check"`
+    included, is a 422) and/or `"release": true` for a posting the content guard flagged. At
+    least one is required."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -183,7 +183,7 @@ class PostingPatch(BaseModel):
     company: str | None = Field(None, min_length=1)
     location_raw: str | None = Field(None, min_length=1)
     status: Literal["open", "applied", "done"] | None = None
-    availability: Literal["available", "closed", "check"] | None = None
+    availability: Literal["available", "closed"] | None = None
     release: Literal[True] | None = None
 
     @model_validator(mode="after")
@@ -726,11 +726,11 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
 
     @app.patch("/postings/{posting_id}")
     def amend(posting_id: str, body: PostingPatch) -> dict:
-        """Correct title, company or location, set the application `status`, set or remove the
-        hand setting `availability` and/or release a flagged posting; answers the stored posting
+        """Correct title, company or location, set the application `status`, set the hand
+        setting `availability` and/or release a flagged posting; answers the stored posting
         (a `status` makes it schema version 2). A hand setting replaces any availability, one a
-        check set included, and keeps the version; `"check"` removes it. 404 for an unknown
-        posting, 409 for releasing one the content guard did not flag."""
+        check set included, and keeps the version; the next check replaces it in turn. 404 for
+        an unknown posting, 409 for releasing one the content guard did not flag."""
         try:
             read_posting(intake.root, posting_id)
         except ValueError:

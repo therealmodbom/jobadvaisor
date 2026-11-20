@@ -114,7 +114,7 @@
   - a posting closed on disk after the batch was taken, before `score` reaches it, gets no judge call and no new score, and counts as done. Specs: A pass leaves closed postings out, No exploration mark on a closed posting, Ratings of closed postings still count, Ranking by fit.
 - [x] 2.6 Cancel a check (D5, D6): `AvailabilityChecks.cancel` sets `cancel_requested`, the worker stops before the next posting and ends `cancelled`; `POST /availability/checks/{id}/cancel` (202, 404, 409). Verify with tests: a cancel after some postings fetches no further posting, keeps the written results and reports their counts; a cancel of an ended check answers 409; an unknown ID 404 (spec: Cancel a check).
 - [x] 2.5 Agent tools (D7): `find_postings` and `find_similar_postings` mark `closed: true`, and no tool writes availability. Verify with `test_agent.py` (spec: Closed postings are no recommendation, Search results mark a closed posting, No silent data changes).
-- [ ] 2.7 Every posting is checked again (D5, D6; replaces the hand-setting gate of 1.4 and the closed/hand-set exclusion of 2.2):
+- [x] 2.7 Every posting is checked again (D5, D6; replaces the hand-setting gate of 1.4 and the closed/hand-set exclusion of 2.2):
   - `check_batch` covers open postings with a fetchable link whatever their availability, and the batch keeps each posting's availability at the start;
   - `write_availability(..., expected)` writes only when the stored availability still equals the snapshot, and never writes `unknown` over closed;
   - the report's `closed` list holds only postings whose snapshot was not closed;

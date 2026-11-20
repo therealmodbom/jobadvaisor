@@ -635,18 +635,8 @@ def test_a_hand_setting_leaves_the_application_status_alone(api, root):
     assert (stored.status, stored.availability.state) == ("applied", "closed")
 
 
-def test_check_removes_the_hand_setting_so_the_posting_counts_as_never_checked(api, root):
-    patch_availability(api, "closed")
-    response = patch_availability(api, "check")
-    assert response.status_code == 200, response.text
-    assert read_posting(root, "p1").availability is None
-    assert "availability" not in json.loads((root / "postings/p1.json").read_text())
-    assert response.json()["posting"]["availability"] is None
-    assert pool_row(api, "p1")["availability"] is None
-
-
 def test_a_hand_setting_of_unknown_or_anything_else_is_a_422(api, root):
-    for value in ("unknown", "open", ""):
+    for value in ("unknown", "open", "", "check"):  # "check" no longer removes a setting
         response = patch_availability(api, value)
         assert response.status_code == 422, value
     assert api.client.patch("/postings/p1", json={"availability": None}).status_code == 422
@@ -701,7 +691,7 @@ def test_a_check_started_through_the_api_reports_and_stores_its_findings(tmp_pat
     assert [c["posting_id"] for c in state["closed"]] == ["gone"]
     assert pool_row(api, "gone")["availability"]["state"] == "closed"
     assert pool_row(api, "open")["availability"]["set_by"] == "check"
-    assert api.client.get("/pool").json()["next_check"] == {"total": 1}  # closed: not again
+    assert api.client.get("/pool").json()["next_check"] == {"total": 2}  # closed: again
 
 
 def test_a_second_check_is_refused_naming_the_running_one(tmp_path, root):
@@ -749,14 +739,11 @@ def test_an_unknown_check_is_not_found(api):
     assert response.json() == {"error": "not found", "detail": "no availability check nope"}
 
 
-def test_a_hand_setting_returned_to_the_check_is_covered_by_it_again(api, root):
+def test_a_hand_setting_does_not_take_a_posting_out_of_the_next_check(api, root):
     add_posting(root, "linked", "Engineer 9", urls=["https://a.example.org/1"])
     patch_availability(api, "closed", "linked")
-    assert "linked" not in check_batch(load_repository(root))
+    assert "linked" in check_batch(load_repository(root))
     patch_availability(api, "available", "linked")
-    assert "linked" not in check_batch(load_repository(root))  # a hand setting is left alone
-    assert api.client.get("/pool").json()["next_check"] == {"total": 0}
-    assert patch_availability(api, "check", "linked").status_code == 200
     assert "linked" in check_batch(load_repository(root))
     assert api.client.get("/pool").json()["next_check"] == {"total": 1}
 
