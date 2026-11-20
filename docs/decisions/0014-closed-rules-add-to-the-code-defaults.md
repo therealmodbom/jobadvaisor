@@ -12,7 +12,7 @@ The repository already has one list of this shape: `login_wall_hosts`. Its defau
 
 ## Decision
 
-The default closed rules live in the code. The policy pack's `closed_rules` add to them and never replace them. The effective rule set is the defaults followed by the policy pack's rules.
+The default closed rules live in the code. The policy pack's `closed_rules` add to them and never replace them.
 
 ## Alternatives considered
 

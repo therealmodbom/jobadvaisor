@@ -3,22 +3,32 @@
 ## ADDED Requirements
 
 ### Requirement: Closed postings are no recommendation
-The agent's list of best-fitting postings SHALL leave out closed postings, whatever application statuses it is asked for.
+The tool that lists the best-fitting postings SHALL leave out closed postings, whatever application statuses it is asked for.
 
-#### Scenario: Which to apply to
-- **WHEN** the top-scored open posting is closed and the agent lists the best-fitting postings
-- **THEN** the list does not hold the closed posting
+#### Scenario: Top-scored posting closed
+- **WHEN** the top-scored open posting is closed and the tool lists the best-fitting postings
+- **THEN** its result does not hold the closed posting
 
-### Requirement: Agent tools name a closed posting
-Wherever an agent tool returns a stored posting, its result SHALL say whether the posting is closed, so the agent can tell the user.
+### Requirement: Search results mark a closed posting
+The tools that search the stored postings and find similar ones SHALL mark each closed posting in their result.
 
 #### Scenario: Search finds a closed posting
-- **WHEN** the agent searches the stored postings and one match is closed
+- **WHEN** the search tool's matches include a closed posting
 - **THEN** the tool's result marks that match as closed
 
-### Requirement: Agent sets no availability
-No agent tool SHALL change a posting's availability or start a check of availability.
+## MODIFIED Requirements
 
-#### Scenario: Tool set
+### Requirement: No silent data changes
+The agent SHALL NOT create, change or delete labels, policy rules, profile data, application statuses or availabilities on its own, and SHALL NOT start a check of availability. Changes to user data happen only through the rating flow, the pool and the posting page.
+
+#### Scenario: Request to relabel
+- **WHEN** the user asks the agent to mark a posting as positive
+- **THEN** the agent points to the rating flow and stores no label itself
+
+#### Scenario: Request to mark as applied
+- **WHEN** the user asks the agent to mark a posting "beworben"
+- **THEN** the agent points to the pool and stores no status itself
+
+#### Scenario: No tool writes an availability
 - **WHEN** the agent's tools are listed
 - **THEN** none of them writes an availability or starts a check
