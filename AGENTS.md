@@ -8,7 +8,7 @@ JobAdvAIsor, a local-first AI job search assistant. Its core is a learning job m
 
 The agreed scope, decisions and open assumptions are in [`docs/kickoff-brief.md`](docs/kickoff-brief.md). Read it before planning any change.
 
-**This section and the ones below are self-contained on purpose.** Write everything here for a reader who has only this repository. Never add instructions that depend on an external repository, a machine-specific path, an environment variable outside `.env.example`, or a skill that only exists on one machine.
+**This section and the ones below are self-contained on purpose.** Write everything here for a reader who has only this repository. Never add instructions that depend on an external repository, a machine-specific path, an environment variable outside `env.example`, or a skill that only exists on one machine.
 
 ## Privacy
 
@@ -75,7 +75,7 @@ Install first: `uv sync --directory backend`, `uv run --directory backend playwr
 All new work goes through `openspec/changes/<change-id>/` (`proposal.md`, `design.md`, spec deltas under `specs/`, `tasks.md`). `openspec/specs/` (`openspec list --specs`) is the baseline every change modifies.
 
 - **Explore first, only when the kickoff needs it:** `openspec-propose` has its own ambiguity gate and grounding (reads `openspec/config.yaml`, inspects code and specs). Run `openspec-explore` first only when the request cannot answer propose's scope, behavior and "done" questions, and no existing artifact (a brief, a scoped issue) can serve as input.
-- **Planning:** the native `openspec-propose` skill (`/opsx:propose` in Claude Code, `/opsx-propose` in Cursor, `$openspec-propose` in Codex). Do not plan new changes with Superpowers' `brainstorming`/`writing-plans`.
+- **Planning:** the native `openspec-propose` skill (`/opsx:propose` in Claude Code, `/opsx-propose` in Cursor and OpenCode, `$openspec-propose` in Codex). Do not plan new changes with Superpowers' `brainstorming`/`writing-plans`.
 - **Execution:** Superpowers' `executing-plans`/`subagent-driven-development`, reading the change's `tasks.md`. TDD per task, a worktree per branch, review checkpoints. Do not use `openspec-apply-change`, since it enforces none of these. Superpowers is a public plugin, not part of this repository: install it from [obra/superpowers](https://github.com/obra/superpowers) per its README. Without it, work through `tasks.md` by hand under the same rules: one task at a time, a failing test before the code, a worktree per branch, and a review before the next task.
 - **Spec review:** the change folder stays the review artefact. After every edit to a delta spec, run `openspec-sync-specs` (`/opsx:sync`) so the baseline spec in the PR already shows the target diff. Never paste a hand-made diff into a PR description or comment.
 - **Archive:** `openspec archive <change-id> --yes` is the last action of a completed change, run on the branch of the change's last PR before it merges (tick the open tasks first), so code, baseline specs and archive land together. Skipping it leaves `openspec/specs/` stale for the next change. When several open changes touch one capability, archive them in the order they merge. The archive moves the change one directory deeper, so every relative link from its files to a destination outside the change (usually the ADR link in `design.md`) needs one more `../`; links between the change's own files keep their paths. Check that each link resolves before pushing the archive commit.
@@ -99,7 +99,7 @@ Open points and deferred work are GitHub Issues in this repository. Labels: `bug
 
 ## .env handling
 
-Never commit a filled `.env`. `.env.example` documents required keys without values.
+Never commit a filled `.env`. `env.example` documents required keys without values.
 
 Secrets (`SECRETS` in `backend/jobadvaisor/settings.py`) come from a gitignored `.env` in the repository root or from the environment; agents never read or print `.env`. On macOS they can live in the Keychain instead, service `jobadvaisor`, account = setting name in lower case with dashes (`llm-api-key`). The app reads them itself; do not export them from a shell profile. Agents never print a Keychain value: check presence with `security find-generic-password -s jobadvaisor -a <account>` without `-w`. `local.env` (gitignored, repository root) holds every non-secret setting (models, URLs, paths, thresholds, `LANGFUSE_PUBLIC_KEY`), and agents may edit it; never put a secret there. Precedence: Keychain, environment, `.env`, `local.env`. Tests never read the Keychain (`tests/conftest.py`). In a worktree, symlink `local.env` (and `.env`, if one exists) from the main checkout.
 
