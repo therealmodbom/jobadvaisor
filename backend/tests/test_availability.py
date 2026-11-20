@@ -137,6 +137,15 @@ def test_a_gone_link_beside_a_live_one_is_available():
     assert check_posting(posting(JOB, OTHER), [], http=site.client) == "available"
 
 
+@pytest.mark.parametrize("private", [
+    "http://localhost:8710/pool", "http://127.0.0.1/job", "http://10.0.0.5/job", "file:///etc/hosts"])
+def test_a_link_to_a_non_public_host_is_never_requested_and_leaves_the_posting_unknown(private):
+    site = Site()
+    assert check_posting(posting(private), [], http=site.client) == "unknown"
+    assert check_posting(posting(private, JOB), [], http=site.client) == "available"
+    assert site.seen == [JOB]
+
+
 def test_a_gone_link_beside_an_unreachable_one_is_unknown():
     site = Site({JOB: reply(404), OTHER: httpx.ReadTimeout("slow")})
     assert check_posting(posting(JOB, OTHER), [], http=site.client) == "unknown"

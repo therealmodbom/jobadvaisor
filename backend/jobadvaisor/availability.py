@@ -31,6 +31,7 @@ from jobadvaisor.intake.ladder import (
     is_login_walled,
     login_wall_hosts,
 )
+from jobadvaisor.intake.links import public_link
 
 HOST_SPACING_SECONDS = 3  # between two requests to one host; the spike still met 429s at 3 s
 
@@ -76,10 +77,14 @@ def check_posting(posting: Posting, walled: list[str], *, http: httpx.Client | N
     posting available, whatever the page holds. It is closed when every fetched link answered
     404 or 410, redirected to a closed rule's redirect marker or showed a text marker. Anything
     else, a 429, another HTTP error, a timeout, a failed connection or a refused redirect,
-    leaves it unknown, and so does a posting with no link to fetch. Never raises. The caller
+    leaves it unknown, and so does a posting with no link to fetch. A link that is not on a
+    public host (`public_link`: localhost, a private or loopback address, a non-http scheme)
+    is never requested and counts like an unreachable one. Never raises. The caller
     sets the closed rules (`closed_rules_of`); `http` replaces the client in tests."""
     links, gone = _links(posting, walled), 0
     for url in links:
+        if not public_link(url):  # stored links are not validated: never reach a local service
+            continue
         if throttle:
             throttle.wait((urlsplit(url).hostname or "").lower())
         token = guarded_link.set(url)
