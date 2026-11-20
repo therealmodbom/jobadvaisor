@@ -213,7 +213,8 @@ class Origin(Entity):
 class Availability(Entity):
     """Whether a posting is still open for applications: `state` is `available`, `closed` or
     `unknown` (the last check could not tell), `set_at` when it was set and `set_by` whether a
-    `check` or the `user` set it. A check never overwrites one set by the user."""
+    `check` or the `user` set it. The next check replaces a hand setting, except one the user set
+    while that check runs; an `unknown` result never reopens a closed posting."""
 
     state: Literal["available", "closed", "unknown"]
     set_at: AwareDatetime
