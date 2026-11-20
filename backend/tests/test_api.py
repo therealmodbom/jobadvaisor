@@ -720,6 +720,29 @@ def test_a_second_check_is_refused_naming_the_running_one(tmp_path, root):
     assert settled_check(api, first)["status"] == "done"
 
 
+def test_a_check_is_cancelled_through_the_api_and_an_ended_or_unknown_one_is_refused(tmp_path,
+                                                                                      root):
+    add_posting(root, "a", "Engineer 8", urls=["https://a.example.org/1"])
+    add_posting(root, "b", "Engineer 9", urls=["https://b.example.org/2"])
+    release, entered = threading.Event(), threading.Event()
+    site = Site()
+    site.on_request = lambda url: (entered.set(), release.wait(30))
+    api = checked_api(tmp_path, root, site)
+    check_id = api.client.post("/availability/checks").json()["check_id"]
+    assert entered.wait(10)
+    cancelled = api.client.post(f"/availability/checks/{check_id}/cancel")
+    assert cancelled.status_code == 202 and cancelled.json() == {"check_id": check_id}
+    assert api.client.get(f"/availability/checks/{check_id}").json()["cancel_requested"] is True
+    release.set()
+    state = settled_check(api, check_id)
+    assert (state["status"], state["done"], state["total"]) == ("cancelled", 1, 2)
+    ended = api.client.post(f"/availability/checks/{check_id}/cancel")
+    assert ended.status_code == 409 and ended.json()["error"] == "check not running"
+    unknown = api.client.post("/availability/checks/nope/cancel")
+    assert unknown.status_code == 404
+    assert unknown.json() == {"error": "not found", "detail": "no availability check nope"}
+
+
 def test_an_unknown_check_is_not_found(api):
     response = api.client.get("/availability/checks/nope")
     assert response.status_code == 404

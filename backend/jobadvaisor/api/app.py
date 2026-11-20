@@ -25,7 +25,12 @@ from pydantic import (
 from starlette.exceptions import HTTPException
 
 from jobadvaisor.agent import AgentContext, Reply, answer
-from jobadvaisor.availability import AvailabilityChecks, CheckBusyError, check_batch
+from jobadvaisor.availability import (
+    AvailabilityChecks,
+    CheckBusyError,
+    CheckStateError,
+    check_batch,
+)
 from jobadvaisor.data.backup import (
     Backup,
     BackupRefused,
@@ -690,10 +695,24 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
     @app.get("/availability/checks/{check_id}")
     def read_availability_check(check_id: str) -> dict:
         """A check's state (`AvailabilityChecks.read`): `{check_id, status, error, total, done,
-        counts: {available, closed, unknown}, closed: [{posting_id, title, company}]}`. 404 for an
+        cancel_requested, counts: {available, closed, unknown}, closed: [{posting_id, title,
+        company}]}`; `status` is running, done, cancelled or failed. 404 for an
         unknown check (state is in memory, a restart forgets it)."""
         return checks.read(check_id) or problem(404, "not found",
                                                 f"no availability check {check_id}")
+
+    @app.post("/availability/checks/{check_id}/cancel", status_code=202)
+    def cancel_availability_check(check_id: str) -> dict:
+        """Ask the running check to stop after the posting it works on; answers `{check_id}` at
+        once and the check reports `cancel_requested` until it has ended `cancelled`. 404
+        `not found` for an unknown check, 409 `check not running` for one that has ended."""
+        try:
+            checks.cancel(check_id)
+        except KeyError:
+            return problem(404, "not found", f"no availability check {check_id}")
+        except CheckStateError as error:
+            return problem(409, "check not running", str(error))
+        return {"check_id": check_id}
 
     def stored_answer(posting_id: str, posting: Posting, duplicate_by: str | None,
                       attempts: list | None) -> JSONResponse:

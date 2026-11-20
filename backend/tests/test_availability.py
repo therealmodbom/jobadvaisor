@@ -16,6 +16,7 @@ from jobadvaisor.availability import (
     HOST_SPACING_SECONDS,
     AvailabilityChecks,
     CheckBusyError,
+    CheckStateError,
     check_batch,
     check_posting,
 )
@@ -326,3 +327,38 @@ def test_a_crash_fails_the_check_and_frees_the_next(root, monkeypatch):
     assert (state["status"], state["error"]) == ("failed", "KeyError")
     monkeypatch.undo()
     assert finished(checks, checks.start())["status"] == "done"
+
+
+def test_a_cancel_stops_after_the_posting_in_flight_and_keeps_its_results(root):
+    for number, host in enumerate("abc", 1):
+        add_posting(root, f"p{number}", f"Engineer {number}",
+                    urls=[f"https://{host}.example.org/{number}"])
+    release, entered = threading.Event(), threading.Event()
+    site = Site({"https://a.example.org/1": reply(404)})
+    site.on_request = lambda url: (entered.set(), release.wait(30))
+    checks = AvailabilityChecks(root, http=site.client, throttle=Clock().throttle())
+    check_id = checks.start()
+    assert entered.wait(10)
+    checks.cancel(check_id)
+    assert checks.read(check_id)["cancel_requested"] is True
+    release.set()
+    state = finished(checks, check_id)
+    assert state["status"] == "cancelled" and state["error"] is None
+    assert (state["total"], state["done"]) == (3, 1)
+    assert state["counts"] == {"available": 0, "closed": 1, "unknown": 0}
+    assert [c["posting_id"] for c in state["closed"]] == ["p1"]
+    assert site.seen == ["https://a.example.org/1"]  # no further posting was fetched
+    assert read_posting(root, "p1").availability.state == "closed"
+    assert read_posting(root, "p2").availability is None
+    assert finished(checks, checks.start())["status"] == "done"  # the cancelled check freed it
+
+
+def test_cancelling_an_ended_or_unknown_check_is_refused(root):
+    add_posting(root, "p1", "Engineer 1", urls=[JOB])
+    checks = AvailabilityChecks(root, http=Site().client, throttle=Clock().throttle())
+    check_id = checks.start()
+    assert finished(checks, check_id)["status"] == "done"
+    with pytest.raises(CheckStateError):
+        checks.cancel(check_id)
+    with pytest.raises(KeyError):
+        checks.cancel("nope")

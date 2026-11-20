@@ -43,6 +43,10 @@ class CheckBusyError(Exception):
         super().__init__(f"availability check {check_id} is still computing")
 
 
+class CheckStateError(Exception):
+    """The check is not running, so it takes no cancel; the message says why."""
+
+
 def _links(posting: Posting, walled: list[str]) -> list[str]:
     """The posting's stored links that are not on a login-walled host: the ones a check fetches."""
     return [url for url in posting.urls if not is_login_walled(url, walled)]
@@ -139,7 +143,8 @@ class AvailabilityChecks:
             self._computing = check_id
             self._state[check_id] = {
                 "check_id": check_id, "status": "running", "error": None, "total": len(batch),
-                "done": 0, "counts": {"available": 0, "closed": 0, "unknown": 0}, "closed": []}
+                "done": 0, "cancel_requested": False,
+                "counts": {"available": 0, "closed": 0, "unknown": 0}, "closed": []}
         try:
             self._executor.submit(self._run, check_id, batch, repository.policy_pack)
         except Exception:
@@ -149,12 +154,26 @@ class AvailabilityChecks:
             raise
         return check_id
 
+    def cancel(self, check_id: str) -> None:
+        """Ask the running check to stop; returns at once. The worker reads the request before
+        each posting, so the posting it works on is finished and stored, then the check ends
+        `cancelled` with the counts so far. A cancel arriving after the last posting is read
+        ends a `done` check. Raises `KeyError` for an unknown ID and `CheckStateError` for a
+        check that has ended."""
+        with self._lock:
+            state = self._state[check_id]
+            if state["status"] != "running":
+                raise CheckStateError(f"check {check_id} is {state['status']}, not running")
+            state["cancel_requested"] = True
+
     def read(self, check_id: str) -> dict | None:
         """A copy of the check's state, or `None` for an unknown ID: `check_id`, `status`
-        (`running`, `done`, `failed`), `error` (the exception's type name when the check
-        crashed), `total`, `done` (postings checked), `counts` (`available`, `closed`,
-        `unknown`) and `closed`, the postings found closed as `{posting_id, title, company}`.
-        A posting whose availability the user set meanwhile counts as done and in no count."""
+        (`running`, `done`, `cancelled`, `failed`), `error` (the exception's type name when the
+        check crashed), `total`, `done` (postings checked), `cancel_requested` (true once a
+        cancel arrived, while the check runs on to the end of its posting), `counts`
+        (`available`, `closed`, `unknown`) and `closed`, the postings found closed as
+        `{posting_id, title, company}`. A posting whose availability the user set meanwhile
+        counts as done and in no count."""
         with self._lock:
             state = self._state.get(check_id)
             if state is None:
@@ -171,6 +190,10 @@ class AvailabilityChecks:
             walled = login_wall_hosts(policy_pack)
             with closed_rules_of(policy_pack):  # set here: a context variable stays in its thread
                 for posting_id, posting in batch:
+                    with self._lock:
+                        if self._state[check_id]["cancel_requested"]:
+                            status = "cancelled"
+                            break
                     found = check_posting(posting, walled, http=http, throttle=self._throttle)
                     stored = write_availability(self._root, posting_id, Availability(
                         state=found, set_at=datetime.now(UTC), set_by="check"))
