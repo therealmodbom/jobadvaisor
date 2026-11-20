@@ -33,7 +33,7 @@ See `proposal.md` → Why. The code this change builds on:
 
 ### D2 Closed rules: defaults in code, the policy pack adds
 
-`ClosedRule {host, redirect_marker?, text_marker?}`, with exactly one marker and `host` matching `HOST_PATTERN`. A validation error names `closed_rules[<index>]`. `DEFAULT_CLOSED_RULES` sits beside `DEFAULT_LOGIN_WALL_HOSTS` and holds LinkedIn's `trk=expired_jd_redirect`. `closed_rules(policy_pack)` returns the defaults and the policy pack's rules. Why the policy pack's rules add to the defaults instead of replacing them: [ADR 0014](../../../docs/decisions/0014-closed-rules-add-to-the-code-defaults.md). The docstrings of `login_wall_hosts` and `closed_rules` say which one replaces and which one adds.
+`ClosedRule {host, redirect_marker?, text_marker?}`, with exactly one marker and `host` matching `HOST_PATTERN`. A validation error names `closed_rules[<index>]`. `DEFAULT_CLOSED_RULES` sits beside `DEFAULT_LOGIN_WALL_HOSTS` and holds LinkedIn's `trk=expired_jd_redirect`. `closed_rules(policy_pack)` returns the defaults and the policy pack's rules. Why the policy pack's rules add to the defaults instead of replacing them: [ADR 0014](../../../../docs/decisions/0014-closed-rules-add-to-the-code-defaults.md). The docstrings of `login_wall_hosts` and `closed_rules` say which one replaces and which one adds.
 
 - A rule's host matches itself and its subdomains, as `is_login_walled` does.
 - A redirect marker is matched as a substring of a hop's full address.
