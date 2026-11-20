@@ -81,10 +81,20 @@ def fetch_rendered(url: str) -> Page:
     return page_from_html(*download_rendered(url))
 
 
+def url_host(url: str) -> str:
+    """`url`'s host in lower case, or `""` when it has none or does not parse (a stored link
+    is not validated, so `http://[bad` must not raise)."""
+    try:
+        return (urlsplit(url).hostname or "").lower()
+    except ValueError:
+        return ""
+
+
 def host_matches(url: str, host: str) -> bool:
-    """Whether `url`'s host is `host` or a subdomain of it."""
-    actual = (urlsplit(url).hostname or "").lower()
-    return actual == host or actual.endswith("." + host)
+    """Whether `url`'s host is `host` or a subdomain of it; never for a link that does not
+    parse."""
+    actual = url_host(url)
+    return bool(actual) and (actual == host or actual.endswith("." + host))
 
 
 def closed_redirect(address: str, rules: list[ClosedRule] | None = None) -> bool:

@@ -304,6 +304,17 @@ def test_the_policy_packs_closed_rules_reach_the_worker_thread(root):
     assert state["counts"] == {"available": 0, "closed": 1, "unknown": 0}
 
 
+def test_a_malformed_link_leaves_its_posting_unknown_and_the_others_are_checked(root):
+    add_posting(root, "bad", "Engineer 1", urls=["http://[bad"])
+    add_posting(root, "good", "Engineer 2", urls=[JOB])
+    assert check_batch(load(root)) == ["bad", "good"]
+    site = Site()
+    state = run(root, site)
+    assert state["status"] == "done"
+    assert state["counts"] == {"available": 1, "closed": 0, "unknown": 1}
+    assert site.seen == [JOB]
+
+
 def test_a_second_start_is_refused_while_the_first_computes(root):
     add_posting(root, "p1", "Engineer 1", urls=[JOB])
     release, entered = threading.Event(), threading.Event()

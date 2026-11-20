@@ -9,7 +9,6 @@ from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
-from urllib.parse import urlsplit
 
 import httpx
 
@@ -24,6 +23,7 @@ from jobadvaisor.intake.fetch import (
     closed_by_text,
     download_plain,
     guarded_link,
+    url_host,
 )
 from jobadvaisor.intake.ladder import (
     GONE_OUTCOMES,
@@ -86,7 +86,7 @@ def check_posting(posting: Posting, walled: list[str], *, http: httpx.Client | N
         if not public_link(url):  # stored links are not validated: never reach a local service
             continue
         if throttle:
-            throttle.wait((urlsplit(url).hostname or "").lower())
+            throttle.wait(url_host(url))
         token = guarded_link.set(url)
         try:
             final_url, html = download_plain(url, http, retry=False)
@@ -108,7 +108,7 @@ def _round_robin(postings: list[tuple[str, Posting]], walled: list[str]
     appearance, so other hosts go on while one host's spacing runs."""
     queues: dict[str, deque] = {}
     for item in postings:
-        host = (urlsplit(_links(item[1], walled)[0]).hostname or "").lower()
+        host = url_host(_links(item[1], walled)[0])
         queues.setdefault(host, deque()).append(item)
     order = []
     while queues:
