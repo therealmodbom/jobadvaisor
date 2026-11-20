@@ -3,13 +3,21 @@ rendered fetch, in that order. Hosts behind a login wall are never fetched."""
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from urllib.parse import urlsplit
 
-from jobadvaisor.data.models import PolicyPack
+from jobadvaisor.data.models import ClosedRule, PolicyPack
 from jobadvaisor.intake.bundesagentur import fetch_bundesagentur, reference_number
-from jobadvaisor.intake.fetch import FetchError, Page, fetch_plain, fetch_rendered
+from jobadvaisor.intake.fetch import (
+    DEFAULT_CLOSED_RULES,
+    FetchError,
+    Page,
+    fetch_plain,
+    fetch_rendered,
+    host_matches,
+)
 
 DEFAULT_LOGIN_WALL_HOSTS = ["xing.com"]  # linkedin.com serves a guest view, cut in `fetch`
+# `DEFAULT_CLOSED_RULES` (LinkedIn's redirect marker) lives in `fetch`, which reads it as the
+# default of its `closed_rules` context variable; `closed_rules` below adds the policy pack's.
 
 
 @dataclass(frozen=True)
@@ -45,10 +53,16 @@ def login_wall_hosts(policy_pack: PolicyPack) -> list[str]:
     return list(DEFAULT_LOGIN_WALL_HOSTS if configured is None else configured)
 
 
+def closed_rules(policy_pack: PolicyPack) -> list[ClosedRule]:
+    """`DEFAULT_CLOSED_RULES` followed by the policy pack's `closed_rules`. Unlike
+    `login_wall_hosts`, the policy pack's rules add to the defaults and never replace them
+    (ADR 0014). The result is what a caller sets as the `fetch.closed_rules` context variable."""
+    return [*DEFAULT_CLOSED_RULES, *(policy_pack.closed_rules or [])]
+
+
 def is_login_walled(url: str, hosts: list[str]) -> bool:
     """Whether `url`'s host is one of `hosts` or a subdomain of one."""
-    host = (urlsplit(url).hostname or "").lower()
-    return any(host == listed or host.endswith("." + listed) for listed in hosts)
+    return any(host_matches(url, listed) for listed in hosts)
 
 
 def fetch_posting(url: str, walled_hosts: list[str], *,

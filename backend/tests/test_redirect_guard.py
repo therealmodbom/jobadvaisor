@@ -7,7 +7,16 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import httpx
 import pytest
 
-from jobadvaisor.intake.fetch import FetchError, download_plain, download_rendered, guarded_link
+from jobadvaisor.data.models import ClosedRule
+from jobadvaisor.intake.fetch import (
+    CLOSED_REDIRECT,
+    FetchError,
+    closed_rules,
+    download_plain,
+    download_rendered,
+    guarded_link,
+)
+from jobadvaisor.intake.ladder import fetch_posting
 
 PAGE = "<html><body><main>" + "Eine Stelle. " * 60 + "</main></body></html>"
 
@@ -69,6 +78,50 @@ def test_other_fetches_follow_redirects_as_before(guard):
     assert final == target and seen == [START, target]
 
 
+EXPIRED = "https://www.linkedin.com/jobs/view/1"
+SEARCH_PAGE = "https://www.linkedin.com/jobs/search?trk=expired_jd_redirect"
+
+
+@pytest.mark.parametrize("guard", [None, EXPIRED])
+def test_a_redirect_to_a_closed_marker_is_never_requested(guard):
+    seen = []
+    client = mock_client({EXPIRED: httpx.Response(302, headers={"Location": SEARCH_PAGE})}, seen)
+    with guarded(guard), pytest.raises(FetchError) as error:
+        download_plain(EXPIRED, client)
+    assert str(error.value) == CLOSED_REDIRECT
+    assert seen == [EXPIRED]
+
+
+def test_a_closed_marker_wins_over_the_refusal_of_a_personal_parameter():
+    seen = []
+    target = "https://www.linkedin.com/jobs/search?trk=expired_jd_redirect&sid=TOKEN-1"
+    client = mock_client({EXPIRED: httpx.Response(302, headers={"Location": target})}, seen)
+    with guarded(EXPIRED), pytest.raises(FetchError) as error:
+        download_plain(EXPIRED, client)
+    assert str(error.value) == CLOSED_REDIRECT and seen == [EXPIRED]
+
+
+def test_a_marker_on_another_host_does_not_close_the_redirect():
+    seen = []
+    target = "https://jobs.example.org/search?trk=expired_jd_redirect"
+    client = mock_client({START: httpx.Response(302, headers={"Location": target})}, seen)
+    final, _ = download_plain(START, client)
+    assert final == target and seen == [START, target]
+
+
+def test_the_policy_packs_marker_is_read_from_the_context_variable():
+    seen = []
+    token = closed_rules.set([ClosedRule(host="example.org", redirect_marker="/gone")])
+    client = mock_client({START: httpx.Response(
+        302, headers={"Location": "https://jobs.example.org/gone"})}, seen)
+    try:
+        with pytest.raises(FetchError) as error:
+            download_plain(START, client)
+    finally:
+        closed_rules.reset(token)
+    assert str(error.value) == CLOSED_REDIRECT and seen == [START]
+
+
 @pytest.fixture
 def redirecting_site(monkeypatch):
     """A local server: `/start` answers 302 to `/target?sid=TOKEN-1`, `/clean` 302 to
@@ -81,7 +134,8 @@ def redirecting_site(monkeypatch):
         def do_GET(self):
             log.append(self.path)
             targets = {"/start": "/target?sid=TOKEN-1", "/clean": "/page/", "/chain": "/start",
-                       "/metadata": "http://169.254.169.254/latest"}
+                       "/metadata": "http://169.254.169.254/latest",
+                       "/expired": "/search?trk=gone"}
             if self.path in targets:
                 self.send_response(302)
                 self.send_header("Location", targets[self.path])
@@ -133,3 +187,34 @@ def test_rendered_fetch_without_the_guard_follows_redirects(redirecting_site):
     base, log = redirecting_site
     final, _ = download_rendered(f"{base}/start")
     assert final == f"{base}/target?sid=TOKEN-1"
+
+
+@pytest.fixture
+def gone_marker():
+    """A closed rule for the loopback server: a redirect to an address with `trk=gone`."""
+    token = closed_rules.set([ClosedRule(host="127.0.0.1", redirect_marker="trk=gone")])
+    yield
+    closed_rules.reset(token)
+
+
+@pytest.mark.parametrize("guard", [False, True])
+def test_rendered_redirect_to_a_closed_marker_is_never_requested(
+        redirecting_site, gone_marker, guard):
+    base, log = redirecting_site
+    with guarded(f"{base}/expired" if guard else None), pytest.raises(FetchError) as error:
+        download_rendered(f"{base}/expired")
+    assert str(error.value) == CLOSED_REDIRECT
+    assert log == ["/expired"]
+
+
+def test_a_429_then_a_rendered_redirect_to_a_closed_marker_is_closed(
+        redirecting_site, gone_marker):
+    """Without the route check, Chromium would follow the redirect and render the search page."""
+    base, log = redirecting_site
+
+    def rate_limited(url):
+        raise FetchError("HTTP 429")
+    result = fetch_posting(f"{base}/expired", [], plain=rate_limited)
+    assert result.page is None
+    assert [attempt.outcome for attempt in result.attempts] == ["HTTP 429", CLOSED_REDIRECT]
+    assert log == ["/expired"]
