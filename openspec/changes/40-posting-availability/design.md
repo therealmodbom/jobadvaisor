@@ -106,6 +106,10 @@ New module `availability.py`:
 - `rank` keeps closed rows, since the posting page and the rating answer look rows up in it.
   - `_explore` gets only the open, not-closed rows of the unrated scored group. Closed rows are appended after the picks, as rows of another status are today, and each row appears once.
   - `pass_batch` leaves closed postings out. That carries through to `next_pass` and the pass's own batch in `triage/graph.py`.
+  - A check or a hand setting can close a posting after the pass took its batch, since neither waits for the other.
+    - The `score` node therefore re-reads the posting file (`read_posting`) right before each judge call. It skips a posting that is closed by then and counts it as done in the progress, without a score.
+    - That is one file read per posting, next to a model call.
+    - Rejected: refusing a check while a pass runs, which would make the two wait on each other after all.
   - `best_open` leaves closed rows out.
 - `counter` and the judge's rated examples are untouched, so a closed posting's rating keeps counting.
 - `find_postings` and `find_similar_postings` add `closed: true` to a closed match. `best_open_postings` cannot return one. `research_company` returns a stored posting as research material, not as a match to choose, and stays unchanged. No tool writes availability.

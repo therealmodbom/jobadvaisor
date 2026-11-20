@@ -109,7 +109,9 @@
   - it is not in `best_open`;
   - its rating still counts in `counter`.
 
-  Also verify with a graph test in `test_triage_graph.py` that the pass's batch skips it. Specs: A pass leaves closed postings out, No exploration mark on a closed posting, Ratings of closed postings still count, Ranking by fit.
+  Also verify with graph tests in `test_triage_graph.py`:
+  - the pass's batch skips a closed posting;
+  - a posting closed on disk after the batch was taken, before `score` reaches it, gets no judge call and no new score, and counts as done. Specs: A pass leaves closed postings out, No exploration mark on a closed posting, Ratings of closed postings still count, Ranking by fit.
 - [ ] 2.5 Agent tools (D7): `find_postings` and `find_similar_postings` mark `closed: true`, and no tool writes availability. Verify with `test_agent.py` (spec: Closed postings are no recommendation, Search results mark a closed posting, No silent data changes).
 
 ## 3. Frontend

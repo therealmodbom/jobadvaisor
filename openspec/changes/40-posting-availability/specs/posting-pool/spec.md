@@ -119,7 +119,7 @@ The user SHALL be able to score a closed posting on request, like any posting th
 - **THEN** it receives a score and reasoning, stored with the posting, and it stays closed
 
 ### Requirement: A pass leaves closed postings out
-A scoring pass of either variant SHALL NOT score a closed posting, and the number a pass announces SHALL NOT count it.
+A scoring pass of either variant SHALL NOT score a closed posting, and the number a pass announces SHALL NOT count it. A posting closed while the pass runs, before the pass reaches it, SHALL NOT be scored either.
 
 #### Scenario: Unscored closed posting
 - **WHEN** a closed posting has no score and the user starts „Anzeigen ohne Score scoren“
@@ -128,6 +128,10 @@ A scoring pass of either variant SHALL NOT score a closed posting, and the numbe
 #### Scenario: Rescore everything
 - **WHEN** a closed posting has a score and the user starts „Alle Anzeigen neu scoren“
 - **THEN** the pass does not score it, and its stored score stays as it was
+
+#### Scenario: Closed during a pass
+- **WHEN** a pass runs, and a check or the user closes a posting in the pass's batch before the pass reaches it
+- **THEN** the pass does not score that posting, counts it as done, and goes on with the next
 
 ### Requirement: No exploration mark on a closed posting
 The exploration mark SHALL NOT pick a closed posting.
