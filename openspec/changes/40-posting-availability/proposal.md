@@ -4,7 +4,7 @@
 
 On `main` a posting has an application status (`open`, `applied`, `done`), but nothing says whether the employer still accepts applications. The pool, the ranking, the agent's recommendations and the scoring pass treat every stored posting as live.
 
-A probe of a real pool on 2026-11-20 found about a third of its links gone. Most answered HTTP 404 or 410. A smaller share were LinkedIn links that redirected to a search page instead of the posting. The user has to open each posting by hand to find out, and each pass pays a judge call for postings nobody can apply to any more (#40 (Track whether a posting is still open)).
+A probe of a real pool on 2026-11-20 found about a third of its links gone. Most answered HTTP 404 or 410. A smaller share were LinkedIn links that redirected to a search page instead of the posting. The user has to open each posting by hand to find out, and each pass pays a judge call for postings nobody can apply to any more ([#40 (Track whether a posting is still open)](https://github.com/therealmodbom/jobadvaisor/issues/40)).
 
 Intake has the same blind spot. Today a LinkedIn link whose posting expired is stored as a posting. The plain fetch follows the redirect, and the search page "similar jobs" becomes the posting text: about 10,000 characters with no posting in them. From a job-alert mail the same link fails with "redirect with personal parameters", because the redirect target carries `trk=expired_jd_redirect`.
 
@@ -77,7 +77,7 @@ None.
 
 - A scheduled check in the background. It becomes a follow-up issue. This change has only the check the user starts.
 - A UI editor for the policy pack's own closed rules. It becomes a follow-up issue. This change reads them from the policy pack.
-- Deleting closed postings (#113 (Delete a posting permanently from the web app)).
+- Deleting closed postings ([#113 (Delete a posting permanently from the web app)](https://github.com/therealmodbom/jobadvaisor/issues/113)).
 - A second round inside one check for postings that answered 429. The next check the user starts picks them up.
 - Checking postings with status „beworben“ or „erledigt“, postings already closed, and postings without a link.
 - Rendering pages in a browser for the check. It uses the plain fetch only.

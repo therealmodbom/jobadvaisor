@@ -89,7 +89,7 @@ New module `availability.py`:
   - one check at a time (`CheckBusyError(check_id)`);
   - a `ThreadPoolExecutor` of one;
   - state in memory: `{check_id, status: running|done|failed, total, done, counts: {available, closed, unknown}, closed: [{posting_id, title, company}], error}`.
-- **Write by a check:** `write_availability(root, posting_id, availability)` is gated. It re-reads the file under `write_gate` and writes nothing when the file's availability is `set_by: user`, or when the posting no longer exists (#113 (Delete a posting permanently from the web app)). A hand setting made while the check runs therefore survives.
+- **Write by a check:** `write_availability(root, posting_id, availability)` is gated. It re-reads the file under `write_gate` and writes nothing when the file's availability is `set_by: user`, or when the posting no longer exists ([#113 (Delete a posting permanently from the web app)](https://github.com/therealmodbom/jobadvaisor/issues/113)). A hand setting made while the check runs therefore survives.
 - **Write by the user:** `PATCH /postings/{id}` writes unconditionally through `update_posting`, so one hand setting can replace another.
 
 ### D6 API
@@ -126,7 +126,7 @@ New module `availability.py`:
 - [LinkedIn changes its redirect marker] → Postings then stay available, so nothing is closed wrongly. A new default rule fixes it, or the user adds a rule to the policy pack.
 - [Rate limits leave many postings unknown] → They stay in the pool, the next check tries them again, and the report names the count.
 - [A context variable set in one thread is not seen in another] → It is set in the thread that fetches, as `guarded_link` is in the alert run.
-- [#113 (Delete a posting permanently from the web app) changes the same files and modifies some of the same requirements: posting-pool „Filters“, possibly „Ranking by fit“ and „Scoring pass on request“, and the web-ui pool view] → Whichever branch merges second merges `origin/main`, keeps both sides of each modified requirement, and archives after the other change.
+- [[#113 (Delete a posting permanently from the web app)](https://github.com/therealmodbom/jobadvaisor/issues/113) changes the same files and modifies some of the same requirements: posting-pool „Filters“, possibly „Ranking by fit“ and „Scoring pass on request“, and the web-ui pool view] → Whichever branch merges second merges `origin/main`, keeps both sides of each modified requirement, and archives after the other change.
 
 ## Migration Plan
 
