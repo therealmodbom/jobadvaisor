@@ -75,6 +75,7 @@ function CheckProgress({ check, stopping }: { check: CheckState | null; stopping
                    head={check ? `Verfügbarkeit: ${check.done} von ${check.total} geprüft` : 'Verfügbarkeit: Stand wird geladen…'}
                    barLabel={check ? `Prüfung: ${check.done} von ${check.total}` : 'Prüfung wird geladen'}
                    value={check?.done ?? 0} max={check ? total : 1} hintId={HINT_ID}
+                   headClass="min-h-6"
                    hintClass={cn('min-h-10 text-muted-foreground', stopping && 'font-bold text-foreground')}
                    hint={stopping ? HINT_STOPPING : `${check ? `${check.counts.closed - check.still_closed} geschlossen bisher. ` : ''}${HINT_DEFAULT}`} />
   )

@@ -5,10 +5,11 @@ import { cn } from '@/lib/utils'
 /** The progress of a running pass or check, in the column of its button: a head line with the
  * loader (`head`), a bar at `value` of `max` named `barLabel`, and a hint line (`hint`, with
  * `hintId`, so a cancel button can point at it as its description). `label` names the region.
- * The head has one line's height at least (a longer head wraps instead of spilling out of its box,
- * as the check's does in a half-width column), the bar a fixed one, and `hintClass` sets the hint's
- * height and tone, so a block keeps its size while only texts and the bar change. */
-export function ProgressBlock({ label, head, barLabel, value, max, hintId, hint, hintClass }: {
+ * `headClass` sets the head's height (a longer head wraps instead of spilling out of its box; the
+ * pass fixes it to the lines the head can take, the check lets it grow), the bar has a fixed one,
+ * and `hintClass` sets the hint's height and tone, so a block keeps its size while only texts and
+ * the bar change. */
+export function ProgressBlock({ label, head, barLabel, value, max, hintId, hint, hintClass, headClass }: {
   label: string
   head: string
   barLabel: string
@@ -17,10 +18,11 @@ export function ProgressBlock({ label, head, barLabel, value, max, hintId, hint,
   hintId: string
   hint: ReactNode
   hintClass: string
+  headClass: string
 }) {
   return (
     <section aria-label={label} className="flex w-full min-w-0 flex-col gap-1.5">
-      <div className="flex min-h-6 items-center gap-2">
+      <div className={cn('flex items-center gap-2', headClass)}>
         <LoaderCircle className="size-[18px] flex-none motion-safe:animate-spin" aria-hidden="true" />
         <strong>{head}</strong>
       </div>

@@ -146,8 +146,9 @@ const HINT_STOPPING = 'Wird nach der aktuellen Anzeige beendet.'
 const HINT_STORING = 'Das Speichern lässt sich nicht mehr abbrechen.'
 
 /** The progress of a running pass, below the pass button in the pass column: a head line with the
- * loader, a bar and a hint line, each of fixed height (the hint has room for two lines, three from
- * `sm` to `lg`), so the block keeps one size in every phase. `progress` null (no report yet) reads like checking: no
+ * loader, a bar and a hint line, each of fixed height (the head has room for two lines below `lg`,
+ * one from it; the hint two lines, three from `sm` to `lg`), so the block keeps one size in every
+ * phase at every width. `progress` null (no report yet) reads like checking: no
  * count, empty bar. The bar fills with `done`/`total` while scoring and is full while storing. The
  * hint (`#cancel-why`, the cancel button's description) says what a cancel does, that one was
  * requested (`stopping`), or why storing cannot be cancelled. Only texts and the bar change. */
@@ -164,6 +165,7 @@ function PassProgressBlock({ progress, stopping }: { progress: PassProgress | nu
   const barLabel = counted ? `Scoren: ${counted.done} von ${counted.total}` : storing ? 'Scores speichern' : 'Anzeigen prüfen'
   return (
     <ProgressBlock label="Stand des Scorens" head={head} barLabel={barLabel} value={value} max={max} hintId="cancel-why"
+                   headClass="h-12 lg:h-6"
                    hintClass={cn('h-10 text-muted-foreground sm:max-lg:h-15', stopping && !storing && 'font-bold text-foreground')}
                    hint={storing ? HINT_STORING : stopping ? HINT_STOPPING : (
                      <>
