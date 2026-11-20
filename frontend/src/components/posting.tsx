@@ -1,9 +1,9 @@
 import { useId, useState, type FormEvent, type ReactNode } from 'react'
 import { Check, ExternalLink, Info, LoaderCircle } from 'lucide-react'
-import { api, type PoolRow, type Posting, type ReasonChip, type Status } from '@/api'
+import { api, type Availability, type AvailabilityChoice, type PoolRow, type Posting, type ReasonChip, type Status } from '@/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { categoryNames, STATUSES } from '@/lib/german'
+import { categoryNames, STATUSES, whenLabel } from '@/lib/german'
 import type { ScoreCall } from '@/lib/score'
 import { cn } from '@/lib/utils'
 
@@ -55,6 +55,53 @@ export function StatusControl({ id, title, value, saving, failed, onStatus }: {
         <span role="alert" className="flex flex-col items-start gap-1 text-sm text-danger">
           Der Bewerbungsstatus wurde nicht gespeichert.
           <Button type="button" variant="outline" size="sm" onClick={() => onStatus(failed)}>Erneut versuchen</Button>
+        </span>
+      )}
+    </div>
+  )
+}
+
+/** The availability on the posting page as a select with its note, next to `StatusControl`. The
+ * user can set "verfügbar" or "geschlossen"; "nicht geprüft" (`value` null) and "unbekannt" (a
+ * check could not tell) are shown but not choosable. The note says when the availability was set
+ * and by whom ("laut Prüfung vom …", "von dir gesetzt am …") or that it was never checked; for a
+ * hand setting "Wieder automatisch prüfen" removes it (`onChange('check')`). `onChange` sends the
+ * choice. `saving` shows the save (the select stays enabled so keyboard focus is not dropped; a
+ * change meanwhile is ignored), `failed` (the choice that did not save) an error with a retry. */
+export function AvailabilityControl({ id, value, saving, failed, onChange }: {
+  id: string
+  value: Availability | null
+  saving: boolean
+  failed: AvailabilityChoice | undefined
+  onChange: (choice: AvailabilityChoice) => void
+}) {
+  const shown = value?.state ?? 'never'
+  const change = (choice: AvailabilityChoice) => { if (!saving) onChange(choice) }
+  return (
+    <div className="flex flex-col gap-1">
+      <label htmlFor={id} className="text-sm font-bold">Verfügbarkeit</label>
+      <select id={id} value={shown} aria-busy={saving}
+              onChange={(event) => change(event.target.value as AvailabilityChoice)}
+              className="min-h-11 rounded-lg border border-input bg-background px-2.5 text-[15px]">
+        <option value="available">verfügbar</option>
+        <option value="closed">geschlossen</option>
+        {shown === 'unknown' && <option value="unknown" disabled>unbekannt</option>}
+        {shown === 'never' && <option value="never" disabled>nicht geprüft</option>}
+      </select>
+      <span className="text-[13px] text-muted-foreground">
+        {value ? `${value.set_by === 'user' ? 'von dir gesetzt am' : 'laut Prüfung vom'} ${whenLabel(value.set_at)}` : 'noch nie geprüft'}
+      </span>
+      {value?.set_by === 'user' && (
+        <button type="button" onClick={() => change('check')}
+                className="self-start text-sm text-primary underline underline-offset-2">
+          Wieder automatisch prüfen
+        </button>
+      )}
+      {saving && <span role="status" className="text-sm text-muted-foreground">wird gespeichert…</span>}
+      {failed && (
+        <span role="alert" className="flex flex-col items-start gap-1 text-sm text-danger">
+          Die Verfügbarkeit wurde nicht gespeichert.
+          <Button type="button" variant="outline" size="sm" onClick={() => onChange(failed)}>Erneut versuchen</Button>
         </span>
       )}
     </div>

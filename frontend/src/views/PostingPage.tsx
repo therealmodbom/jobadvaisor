@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api, ApiError, type Posting, type PostingPageData, type ScoreAnswer, type Status } from '@/api'
-import { Badge, OriginalLink, PostingFields, ScoreButton, ScoreProblem, ScoreText, StatusControl } from '@/components/posting'
+import { api, ApiError, type AvailabilityChoice, type Posting, type PostingPageData, type ScoreAnswer, type Status } from '@/api'
+import { AvailabilityControl, Badge, OriginalLink, PostingFields, ScoreButton, ScoreProblem, ScoreText, StatusControl } from '@/components/posting'
 import { Button } from '@/components/ui/button'
 import { ReasonsAndNote, VerdictButtons } from '@/components/rating'
 import { addedLabel } from '@/lib/german'
@@ -28,6 +28,8 @@ function LoadedPage({ postingId }: { postingId: string }) {
   const [error, setError] = useState<'missing' | 'failed' | null>(null)
   const [saving, setSaving] = useState(false)
   const [failed, setFailed] = useState<Status | undefined>()
+  const [availSaving, setAvailSaving] = useState(false)
+  const [availFailed, setAvailFailed] = useState<AvailabilityChoice | undefined>()
   const [editing, setEditing] = useState(false)
   const editToggle = useRef<HTMLButtonElement>(null)
   const rating = useRating((answer) => setData((current) => current && { ...current, row: answer.row }))
@@ -82,6 +84,23 @@ function LoadedPage({ postingId }: { postingId: string }) {
     }
   }
 
+  /** Set or remove the hand setting of the availability (`PATCH`); the stored posting's
+   * availability (none after "check") replaces the row's. */
+  async function setAvailability(choice: AvailabilityChoice) {
+    setAvailSaving(true)
+    setAvailFailed(undefined)
+    try {
+      const answer = await api<{ posting: Posting }>(`/postings/${encodeURIComponent(postingId)}`,
+                                                    { method: 'PATCH', json: { availability: choice } })
+      setData((current) => current && { ...current, posting: answer.posting,
+        row: { ...current.row, availability: answer.posting.availability ?? null } })
+    } catch {
+      setAvailFailed(choice)
+    } finally {
+      setAvailSaving(false)
+    }
+  }
+
   function closeEditor() {
     setEditing(false)
     editToggle.current?.focus()
@@ -125,10 +144,18 @@ function LoadedPage({ postingId }: { postingId: string }) {
           <h1 className="text-3xl leading-tight font-bold tracking-tight">{posting.title}</h1>
           <p className="text-muted-foreground">{posting.company}, {posting.location_raw}</p>
         </div>
-        <Button ref={editToggle} type="button" variant="outline" size="sm" aria-expanded={editing}
-                onClick={() => setEditing(!editing)}>
-          Bearbeiten
-        </Button>
+        {/* One row: "Bearbeiten", the application status and the availability. The edit button sits
+            level with the selects (mt-6 is the height of their label). */}
+        <div className="flex flex-wrap items-start gap-x-6 gap-y-3">
+          <Button ref={editToggle} type="button" variant="outline" size="sm" aria-expanded={editing}
+                  onClick={() => setEditing(!editing)} className="mt-6">
+            Bearbeiten
+          </Button>
+          <StatusControl id="posting-status" title={posting.title} value={row.status} saving={saving}
+                         failed={failed} onStatus={setStatus} />
+          <AvailabilityControl id="posting-availability" value={row.availability} saving={availSaving}
+                               failed={availFailed} onChange={setAvailability} />
+        </div>
         {editing && (
           <PostingFields postingId={postingId} posting={posting} onSaved={corrected}>
             <Button type="button" variant="outline" onClick={closeEditor}>Abbrechen</Button>
@@ -182,15 +209,13 @@ function LoadedPage({ postingId }: { postingId: string }) {
         <ReasonsAndNote row={row} chips={data.reason_chips} rating={rating} highlight={!!rating.view(row).verdict} />
       </section>
 
-      <div className="flex flex-wrap items-start gap-x-8 gap-y-3">
-        <StatusControl id="posting-status" title={posting.title} value={row.status} saving={saving}
-                       failed={failed} onStatus={setStatus} />
-        {row.origin && (
+      {row.origin && (
+        <div>
           <Badge className="bg-muted text-foreground">
             Importiert aus {row.origin.table}{row.origin.fit && `, Einschätzung: ${row.origin.fit}`}{row.origin.status && `, Status: ${row.origin.status}`}
           </Badge>
-        )}
-      </div>
+        </div>
+      )}
 
       <section aria-labelledby="text-title">
         <h2 id="text-title" className="mb-2 text-lg font-bold">Anzeigentext</h2>
