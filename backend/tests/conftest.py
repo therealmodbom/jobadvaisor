@@ -3,6 +3,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import threading
 import time
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -37,6 +38,20 @@ def no_company_lookup_over_the_network(monkeypatch):
     """Intake looks company facts up on linkedin.com or the employer's site; no test may reach
     them. `test_company_intake.py` puts a fake-served lookup in its place."""
     monkeypatch.setattr("jobadvaisor.intake.postings.look_up", lambda *args, **kwargs: None)
+
+
+@pytest.fixture(autouse=True)
+def no_chroma_system_outlives_its_test():
+    """Chroma keeps one Rust system (a runtime with its own threads) per directory for the life
+    of the process; a test that opens a `LabelIndex` on its `tmp_path` leaves it behind. Across
+    the whole suite they pile up until creating the next client hangs, so stop them all after
+    each test."""
+    yield
+    shared = sys.modules.get("chromadb.api.shared_system_client")
+    if shared is not None:
+        for system in shared.SharedSystemClient._identifier_to_system.values():
+            system.stop()
+        shared.SharedSystemClient.clear_system_cache()
 
 
 @pytest.fixture(autouse=True)

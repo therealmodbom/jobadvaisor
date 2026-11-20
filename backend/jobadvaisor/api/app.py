@@ -25,6 +25,7 @@ from pydantic import (
 from starlette.exceptions import HTTPException
 
 from jobadvaisor.agent import AgentContext, Reply, answer
+from jobadvaisor.availability import AvailabilityChecks, CheckBusyError, check_batch
 from jobadvaisor.data.backup import (
     Backup,
     BackupRefused,
@@ -251,10 +252,12 @@ VERSION_FILE = REPOSITORY_ROOT / "VERSION"
 def create_app(runs: Runs | None = None, intake: Intake | None = None,
                agent: Agent | None = None, frontend: Path = FRONTEND_BUILD,
                imports: Imports | None = None, backup: Backup | None = None,
-               alert_runs: AlertRuns | None = None) -> FastAPI:
-    """The app over `runs`, `intake`, `agent` (conversation → reply), `imports`, `backup` and
-    `alert_runs`, by default those of the configured data repository (imports and alert runs
-    over `intake`, the backup of `intake.root` with that repository's state directory); the default
+               alert_runs: AlertRuns | None = None,
+               checks: AvailabilityChecks | None = None) -> FastAPI:
+    """The app over `runs`, `intake`, `agent` (conversation → reply), `imports`, `backup`,
+    `alert_runs` and `checks`, by default those of the configured data repository (imports and
+    alert runs over `intake`, the backup of `intake.root` with that repository's state directory,
+    the availability checks of `intake.root`); the default
     agent is built on its first message. The built frontend in `frontend` is served at `/`
     after the API routes, so they take precedence; without a build (no `index.html`) the API
     runs alone."""
@@ -263,6 +266,7 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
         runs, intake = runs or configured_runs(settings), intake or configured_intake(settings)
     imports = imports or Imports(intake)
     alert_runs = alert_runs or AlertRuns(intake)
+    checks = checks or AvailabilityChecks(intake.root)
     mail_record = state_path(settings, intake.root) / "alert-mails.jsonl"
     backup = backup or Backup(intake.root, state_path(settings, intake.root))
     if agent is None:
@@ -348,7 +352,8 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
     @app.get("/pool")
     def read_pool_view() -> dict:
         """The posting pool: `rows` of every status in rank order, the correction `counter`,
-        `settings`, `next_pass`, the policy pack's `reason_chips` and `screening` (a content-guard
+        `settings`, `next_pass`, `next_check` (`{total}`: the postings a check would cover), the
+        policy pack's `reason_chips` and `screening` (a content-guard
         classifier is configured). A corrupt score file shows
         as `score_problem` on its row; a data repository that does not load answers 500."""
         repository, scores, problems, pool = pool_state(intake.root)
@@ -356,6 +361,7 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
                 "counter": counter(repository, scores, pool),
                 "settings": pool.settings.model_dump(),
                 "next_pass": next_pass(repository, scores, pool),
+                "next_check": {"total": len(check_batch(repository))},
                 "reason_chips": reason_chips(repository),
                 "screening": intake.guard.classifier is not None}
 
@@ -668,6 +674,26 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
         [{url, title, state, posting_id?, duplicate_by?, attempts?, reason?}]}`. 404 for an
         unknown run (state is in memory, a restart forgets it)."""
         return alert_runs.read(run_id) or problem(404, "not found", f"no alert run {run_id}")
+
+    @app.post("/availability/checks", status_code=202)
+    def start_availability_check() -> dict:
+        """Check the open postings' links in the background (`check_batch`); answers
+        `{check_id, total}` at once. 409 `{error: "check in progress", detail, check_id}` while a
+        check computes, so the client can follow it."""
+        try:
+            check_id = checks.start()
+        except CheckBusyError as error:
+            return JSONResponse({"error": "check in progress", "detail": str(error),
+                                 "check_id": error.check_id}, status_code=409)
+        return {"check_id": check_id, "total": checks.read(check_id)["total"]}
+
+    @app.get("/availability/checks/{check_id}")
+    def read_availability_check(check_id: str) -> dict:
+        """A check's state (`AvailabilityChecks.read`): `{check_id, status, error, total, done,
+        counts: {available, closed, unknown}, closed: [{posting_id, title, company}]}`. 404 for an
+        unknown check (state is in memory, a restart forgets it)."""
+        return checks.read(check_id) or problem(404, "not found",
+                                                f"no availability check {check_id}")
 
     def stored_answer(posting_id: str, posting: Posting, duplicate_by: str | None,
                       attempts: list | None) -> JSONResponse:
