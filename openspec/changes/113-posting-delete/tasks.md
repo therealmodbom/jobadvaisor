@@ -34,7 +34,7 @@
   - a check started while `AvailabilityChecks.exclusive` is held waits, and its batch leaves out a posting deleted inside the block;
   - a failed load in `start` frees the claim;
   - `running()` names the running check and returns `None` otherwise.
-- [ ] 1.5 Skip a deleted posting in the `score` node (D3). Verify in `test_triage_graph.py`: a pass pauses over unscreened postings, one posting of its batch is deleted, and the pass continues. Then there is no judge call and no score file for it, no `failed` result, and the total drops by one (spec: A paused pass skips a deleted posting).
+- [x] 1.5 Skip a deleted posting in the `score` node (D3). Verify in `test_triage_graph.py`: a pass pauses over unscreened postings, one posting of its batch is deleted, and the pass continues. Then there is no judge call and no score file for it, no `failed` result, and the total drops by one (spec: A paused pass skips a deleted posting).
 - [ ] 1.6 Add `DELETE /postings/{id}` and `delete_blocked` on `GET /postings/{id}` (D4). Verify in `test_api.py`:
   - 204, then `GET /postings/{id}` answers 404 and `GET /pool` no longer lists the posting;
   - the counter no longer counts the deleted posting's rating;
