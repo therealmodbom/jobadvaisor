@@ -2700,6 +2700,39 @@ test('deleting the selected row moves the selection to the next row', async () =
   expect(document.getElementById('note-p2')).toBeNull()
 })
 
+test('the next row is the neighbour in the order as it is when the delete answers, not at the click', async () => {
+  let deleted = false
+  let finish: (reply: { status: number }) => void = () => {}
+  stubApi({ 'GET /pool': afterDelete('p3', () => deleted),
+            'DELETE /postings/p3': () => new Promise((resolve) => { finish = (reply) => { deleted = true; resolve(reply) } }) })
+  render(<PoolView />)
+  await titles()
+  await userEvent.click(screen.getByRole('heading', { name: 'Datenjournalist (m/w/d)' }).closest('li')!)
+  await userEvent.click(trash('Datenjournalist (m/w/d)'))
+  await userEvent.click(await screen.findByRole('button', { name: 'Endgültig löschen' }))
+  // The order changes while the request runs: by score, the row after p3 is p4, not n1.
+  fireEvent.change(document.getElementById('pool-sort')!, { target: { value: 'score-desc' } })
+  finish({ status: 204 })
+  await vi.waitFor(() => expect(screen.queryByRole('heading', { name: 'Datenjournalist (m/w/d)' })).toBeNull())
+  await vi.waitFor(() => expect(document.getElementById('note-p4')).not.toBeNull())
+  expect(document.getElementById('note-n1')).toBeNull()
+})
+
+test('events inside the delete dialog do not select the row that holds it', async () => {
+  stubApi({ 'GET /pool': { body: POOL } })
+  render(<PoolView />)
+  await titles()
+  await userEvent.click(trash('Datenjournalist (m/w/d)'))
+  const dialog = await screen.findByRole('alertdialog')
+  expect(document.getElementById('note-p3')).not.toBeNull()
+  // Another row takes the selection (the modal blocks the mouse, not the event).
+  fireEvent.click(screen.getByRole('heading', { name: 'Data Engineer (m/w/d)', hidden: true }).closest('li')!)
+  expect(document.getElementById('note-p2')).not.toBeNull()
+  fireEvent.click(within(dialog).getByText(/wird endgültig gelöscht/))
+  expect(document.getElementById('note-p2')).not.toBeNull()
+  expect(document.getElementById('note-p3')).toBeNull()
+})
+
 test('with the delete dialog open the shortcut keys rate nothing', async () => {
   const calls = stubApi({ 'GET /pool': { body: POOL } })
   render(<PoolView />)

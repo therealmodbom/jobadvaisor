@@ -242,6 +242,34 @@ test('a double press sends one request', async () => {
   expect(confirm()).toHaveAttribute('aria-disabled', 'true')
 })
 
+test('while the request runs Escape and "Abbrechen" keep the dialog open, and the outcome closes it', async () => {
+  let finish: (reply: { status: number }) => void = () => {}
+  const calls = stubApi({ 'DELETE /postings/d1': () => new Promise((resolve) => { finish = resolve }) })
+  const { onDeleted } = await openDialog()
+  await userEvent.click(confirm())
+  await userEvent.keyboard('{Escape}')
+  const cancel = screen.getByRole('button', { name: 'Abbrechen' })
+  expect(cancel).toHaveAttribute('aria-disabled', 'true')
+  await userEvent.click(cancel)
+  expect(screen.getByRole('alertdialog')).toBeVisible()
+  expect(onDeleted).not.toHaveBeenCalled()
+  finish({ status: 204 })
+  await waitFor(() => expect(onDeleted).toHaveBeenCalledOnce())
+  expect(screen.queryByRole('alertdialog')).toBeNull()
+  expect(calls.filter((call) => call.method === 'DELETE')).toHaveLength(1)
+})
+
+test('a failure while Escape was pressed shows in the still open dialog', async () => {
+  let finish: (reply: { status: number; body: unknown }) => void = () => {}
+  stubApi({ 'DELETE /postings/d1': () => new Promise((resolve) => { finish = resolve }) })
+  await openDialog()
+  await userEvent.click(confirm())
+  await userEvent.keyboard('{Escape}')
+  finish({ status: 500, body: { error: 'internal error', detail: 'x' } })
+  expect(await screen.findByRole('alert')).toHaveTextContent(RETRY)
+  expect(screen.getByRole('alertdialog')).toBeVisible()
+})
+
 test.each([
   ['scoring in progress', REASON_SCORING],
   ['check in progress', REASON_CHECK],

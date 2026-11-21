@@ -443,11 +443,15 @@ function Row({ row, chips, rating, selected, onSelect, onLevel, saving, failed, 
 }) {
   const now = rating.view(row)
   const pressed = useRef(false)
+  /** The event came from inside the row's own DOM. React also bubbles events of the delete dialog,
+   * a portal outside the row, through the row; those must not select it. */
+  const inRow = (event: { currentTarget: Element; target: EventTarget }) => event.currentTarget.contains(event.target as Node)
   // The press's own focus event fires in the same task, so a zero timeout clears a press that never focused.
   const press = () => { pressed.current = true; setTimeout(() => { pressed.current = false }) }
   return (
     <li id={`row-${row.posting_id}`} tabIndex={-1} onPointerDown={press}
-        onFocusCapture={() => { if (!pressed.current) onSelect() }} onClick={onSelect}
+        onFocusCapture={(event) => { if (!pressed.current && inRow(event)) onSelect() }}
+        onClick={(event) => { if (inRow(event)) onSelect() }}
         className={cn('flex flex-wrap items-start gap-x-6 gap-y-3 rounded-xl border bg-card px-5 py-4 shadow-card',
           selected && 'outline-2 outline-offset-2 outline-ring')}>
       <div className="min-w-0 flex-[3_1_280px]">
@@ -651,6 +655,11 @@ export function PoolView({ active = true, reloadKey = 0 }: { active?: boolean; r
   const unrated = (row: PoolRow) => row.status === 'open' && rating.view(row).verdict === null
   const current = shown.some((row) => row.posting_id === selected) ? selected : nextUnrated(shown, undefined, unrated) ?? shown[0]?.posting_id
 
+  /** The shown rows and the selected ID of the newest render, for `deleted`, which runs after a request. */
+  const latestView = useRef({ shown, current })
+  useEffect(() => {
+    latestView.current = { shown, current }
+  })
   /** What refuses a delete now, in the server's order: a running check, else the view's pass
    * (running or waiting for its answer). */
   const deleteBlocked: DeleteBlock | null = check.running ? 'check' : busy ? 'scoring' : null
@@ -658,6 +667,8 @@ export function PoolView({ active = true, reloadKey = 0 }: { active?: boolean; r
    * to the next row (the previous one at the end) when `id` was selected, and the pool reloads for
    * the counter and the pass and check figures. Filters and sort stay. */
   function deleted(id: string) {
+    // The request took a while, so read the rows and the selection as they are now, not as of the click.
+    const { shown, current } = latestView.current
     if (id === current) {
       const at = shown.findIndex((row) => row.posting_id === id)
       setSelected((shown[at + 1] ?? shown[at - 1])?.posting_id ?? null)

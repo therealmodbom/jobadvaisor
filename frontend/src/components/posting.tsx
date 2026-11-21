@@ -135,7 +135,7 @@ function levelText(label: Label | null): string | null {
 
 /** The modal that confirms a delete of `row`, opened by `children`, the trigger button (focus
  * returns to it on close). It names title and company, and the rating level when there is one.
- * "Abbrechen" has the focus on open; Escape closes it without a request. "Endgültig löschen" sends
+ * "Abbrechen" has the focus on open; Escape closes it without a request, but not while one runs. "Endgültig löschen" sends
  * one `DELETE` however often it is pressed. A 409 shows the matching reason in the dialog, which
  * stays open; any other failure says so and the button stays usable; a 404 (already gone) counts
  * as deleted. After a delete the dialog closes and `onDeleted` runs. */
@@ -174,7 +174,13 @@ export function DeleteDialog({ row, onDeleted, children }: {
   }
 
   return (
-    <AlertDialog.Root open={open} onOpenChange={(next) => { setOpen(next); if (!next) setProblem(null) }}>
+    // While the request runs the dialog cannot be closed (Escape, "Abbrechen", a click outside), so the
+    // user sees how it ended.
+    <AlertDialog.Root open={open} onOpenChange={(next) => {
+      if (!next && guard.current) return
+      setOpen(next)
+      if (!next) setProblem(null)
+    }}>
       <AlertDialog.Trigger asChild>{children}</AlertDialog.Trigger>
       <AlertDialog.Portal>
         <AlertDialog.Overlay className="fixed inset-0 z-50 bg-foreground/40" />
@@ -194,7 +200,10 @@ export function DeleteDialog({ row, onDeleted, children }: {
           </AlertDialog.Description>
           {problem && <p role="alert" className="text-danger">{problem}</p>}
           <div className="flex flex-wrap justify-end gap-2">
-            <AlertDialog.Cancel asChild><Button type="button" variant="outline">Abbrechen</Button></AlertDialog.Cancel>
+            <AlertDialog.Cancel asChild>
+              <Button type="button" variant="outline" aria-disabled={sending || undefined}
+                      className={cn(sending && 'cursor-not-allowed opacity-50')}>Abbrechen</Button>
+            </AlertDialog.Cancel>
             <Button type="button" variant="destructive" aria-disabled={sending || undefined}
                     className={cn(sending && 'cursor-not-allowed opacity-50')} onClick={() => void remove()}>
               <Trash2 aria-hidden="true" />Endgültig löschen
