@@ -607,7 +607,7 @@ A hand setting SHALL NOT take a posting out of later checks. The next check that
 - **THEN** the posting stays available, set by the user, and the next check covers it again
 
 ### Requirement: Delete a posting
-The user SHALL be able to delete a stored posting permanently. A delete SHALL remove the posting, its rating, its score and its hand-settled feature values from the data repository, with no trash step. Deleting a posting that does not exist SHALL answer „not found“ and change nothing. A rating or an edit of a posting deleted meanwhile SHALL answer „not found“, never a server error.
+The user SHALL be able to delete a stored posting permanently. A delete SHALL remove the posting, its rating, its score and its hand-settled feature values from the data repository, with no trash step. Deleting a posting that does not exist SHALL answer „not found“ and change nothing. A page read, a rating, an edit or a single score of a posting deleted meanwhile SHALL answer „not found“, never a server error.
 
 #### Scenario: Delete a rated posting
 - **WHEN** the user deletes a posting that has a rating and a score

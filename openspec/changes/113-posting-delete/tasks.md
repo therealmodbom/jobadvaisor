@@ -22,10 +22,10 @@
   - while another thread holds `write_gate`, `load` and `read_scores` block until it is released;
   - `merge_extraction_labels` still works inside the gate;
   - the whole default `pytest` suite still passes.
-- [ ] 1.3 Add `PostingNotFound` in `_posting_path`, a 404 handler for it in `create_app`, and run `amend_posting` under `write_gate` (D1, Writes keyed by the ID). Verify in `test_api.py` by deleting the posting file between the existence check and the write (a monkeypatched `read_posting` that deletes, then returns):
-  - `PATCH /postings/{id}` with a title, a status, an availability and a release each answer 404;
-  - `PUT /postings/{id}/rating` answers 404;
-  - no file is written (spec: Delete a posting → Edit after a delete).
+- [ ] 1.3 Run `GET /postings/{id}`, `PUT …/rating`, `PATCH /postings/{id}` and the answer part of `POST …/score` each in one `write_gate` section, with the 404 check at its start (D1, A request on one posting). Verify in `test_api.py`:
+  - a `DELETE` started from another thread while one of these requests holds the gate waits until the request has answered;
+  - a request arriving after the delete answers 404 for each of the four, with no file written;
+  - `POST …/score` answers 404 when the posting is deleted between `runs.score` and the answer (spec: Delete a posting → Edit after a delete).
 - [ ] 1.4 Add `Runs.exclusive(name)`, `AvailabilityChecks.exclusive()` and `AvailabilityChecks.running()`, and make `start` claim before it loads its batch (D2). Verify with unit tests:
   - `Runs.exclusive` raises `RunBusyError` while a pass or a single score computes;
   - a pass started while `Runs.exclusive` holds the slot raises `RunBusyError`;

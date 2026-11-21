@@ -55,14 +55,24 @@ Rejected: running `load` after the delete to verify it, as `merge_extraction_lab
 - `pool_state` (`api/app.py`) holds it across its `load`, `read_scores` and `read_pool`, so one request sees one state.
 - The gate is reentrant, so `merge_extraction_labels`, which loads inside it, keeps working.
 
-**Writes keyed by the ID see it gone, not broken.** A request that checks the posting and then writes can lose it to a delete in between. Examples are `PATCH /postings/{id}` (`read_posting`, then `amend_posting`) and `PUT /postings/{id}/rating` (a load, then `write_label`). Today both raise a bare `ValueError` from `_posting_path`, and the request answers 500.
+**A request on one posting runs under the gate from check to answer.** Every endpoint addressed to one posting follows the same sequence: it checks that the posting exists, it may write, and it builds its answer from a fresh `pool_state` and `next(row …)`. A delete that falls between two of these steps breaks the next one:
 
-- `_posting_path` raises `PostingNotFound`, a `ValueError` subclass, for a missing file. Every write keyed by an ID (`write_label`, `write_score`, `update_posting`, `write_guard`) passes it on.
-- `create_app` maps `PostingNotFound` to 404 `not found` in one exception handler, so no endpoint needs its own catch.
-- `amend_posting` reads the guard and writes the update in one section under `write_gate`, so its `read_posting` for a release cannot meet a half-done delete. The gate is reentrant, so the nested `update_posting` takes it again.
-- Intake writes (an import's origin mark on a stored duplicate) fail that one entry with the same error, as `Risks` says.
+- the existence check passes, then `read_posting` or `_posting_path` raises `FileNotFoundError` or `ValueError`;
+- the write lands, then the row is gone and `next` raises `StopIteration`.
 
-Rejected: a catch per endpoint. The next endpoint that writes by ID would miss it, and the handler costs one place.
+Each of these answers 500. So each such handler runs its whole sequence inside one `with write_gate:` section, and a missing posting at the start answers 404:
+
+- `GET /postings/{id}`;
+- `PUT /postings/{id}/rating`;
+- `PATCH /postings/{id}`;
+- `DELETE /postings/{id}` (D4).
+
+`POST /postings/{id}/score` holds the scoring slot while it judges, so no delete can run then (D2). It must not hold the gate during the model call, which would stall every read for seconds. It therefore takes the gate only after `runs.score` returns: it builds the answer inside, and answers 404 if the posting is gone by then.
+
+- **Lock order:** `DELETE` takes the checks' lock, then the run slot, then `write_gate`. Nothing takes the gate and then waits for the checks' lock or the run slot. The check's worker and the pass only take the gate inside single writes, and `start` frees its lock before it loads.
+- Each section is short: one pool load and at most one file write.
+
+Rejected: an exception per failure (`PostingNotFound` mapped to 404, a catch for `StopIteration`). Each step that can lose the posting would need its own translation, and the third patch of this kind still missed the response step. One gate section per request closes all of them at once.
 
 Rejected: a loader that tolerates the race by skipping a file that vanished between glob and read and by checking orphans against the stems seen at the start. Each reader that combines files (`load`, `read_scores`, `pool_state`) would need its own version of that care. The gate is one mechanism for all of them.
 
@@ -123,7 +133,7 @@ The look follows the Design artifact https://claude.ai/artifact/TauRa8AUApTexoFi
 - [Reads now wait for `write_gate`, also while a backup holds it from `git add` to the end of `git commit`, and concurrent reads queue behind each other] → The backup's commit and each write take milliseconds to about a second. The app serves one user. A slow backup shows as a slower pool load, not as an error.
 - [A pass paused in another tab resumes after a delete] → D3 skips the posting. Its progress total drops by one, as for a ruling.
 - [A stale posting page sends a delete after a pass started] → 409, and the dialog says why (spec „Delete refused or failed“).
-- [An import or alert run writes to a posting deleted at the same moment] → `update_posting` raises `PostingNotFound`, and that one entry fails. This is rare and not worth a lock across intake.
+- [An import or alert run writes to a posting deleted at the same moment] → `update_posting` raises for the missing file, and that one entry fails. This is rare and not worth a lock across intake.
 - [#40's archive and this change both touch `posting-pool` and `web-ui`] → This change only adds requirements, so a merge keeps both sides without editing a shared requirement.
 
 ## Migration Plan

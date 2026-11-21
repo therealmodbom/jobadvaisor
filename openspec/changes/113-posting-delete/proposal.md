@@ -53,7 +53,7 @@ None.
   - `triage/graph.py`: the `score` node skips a posting whose file is gone.
   - `triage/runs.py` and `availability.py`: a delete excludes a pass, a single score and a check, and a check claims its slot before it takes its batch.
   - `data/loader.py`: `write_gate` moves here. `load`, `read_scores` and `pool_state` read under it, so no read sees half a delete.
-  - `data/writer.py` and `api/app.py`: a write keyed by the ID of a posting deleted meanwhile raises `PostingNotFound`, which answers 404.
+  - `api/app.py`: each request on one posting runs from its check to its answer under `write_gate`, so a delete can never fall in between.
 - Frontend:
   - `api.ts`, plus a new trash button and confirmation component;
   - `views/PoolView.tsx`: the row button, the reload after a delete, and the shortcut guard for `[role="alertdialog"]`;
