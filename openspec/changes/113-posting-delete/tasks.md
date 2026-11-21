@@ -12,7 +12,7 @@
 
 ## 1. Backend
 
-- [ ] 1.1 Add `delete_posting(root, posting_id)` to `data/writer.py` (D1), gated. Verify with tests in `test_label_writer.py`:
+- [x] 1.1 Add `delete_posting(root, posting_id)` to `data/writer.py` (D1), gated. Verify with tests in `test_label_writer.py`:
   - posting, label, score and extraction-label entry are gone, and every other posting's records and entries stay;
   - `load` succeeds afterwards;
   - a posting without a label, a score or an extraction-label entry deletes cleanly;

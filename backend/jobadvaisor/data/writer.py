@@ -15,7 +15,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from jobadvaisor.data.loader import DataRepositoryError, _load_file, load
+from jobadvaisor.data.loader import EXTRACTION_LABELS_FILE, DataRepositoryError, _load_file, load
 from jobadvaisor.data.models import (
     POSTING_ID_PATTERN,
     Availability,
@@ -108,6 +108,29 @@ def merge_extraction_labels(root: Path, additions: dict[str, dict]) -> Extractio
             path.write_bytes(previous)
         raise
     return merged
+
+
+@_gated
+def delete_posting(root: Path, posting_id: str) -> None:
+    """Remove every record of the posting under `root`: its label and score (if any), its key in
+    `extraction-labels.json` (if any; the other entries and `min_accuracy` stay, written by
+    rename like `merge_extraction_labels`), and last `postings/<posting_id>.json`. A crash
+    between the steps leaves records whose posting still exists, so the repository still loads
+    and a second delete finishes. No trash and no load afterwards (`design.md` D1). Raises
+    `ValueError` for an unsafe ID, `KeyError` for a posting that does not exist, and
+    `DataRepositoryError` for an unreadable `extraction-labels.json` (nothing removed yet)."""
+    path = root / "postings" / f"{_safe_id(posting_id)}.json"
+    if not path.is_file():
+        raise KeyError(posting_id)
+    labels_path = root / EXTRACTION_LABELS_FILE
+    current = _read_entity(root, EXTRACTION_LABELS_FILE, ExtractionLabels)
+    for directory in ("labels", "scores"):
+        (root / directory / f"{posting_id}.json").unlink(missing_ok=True)
+    if current is not None and posting_id in current.labels:
+        _replace(labels_path, current.model_copy(update={
+            "labels": {key: values for key, values in current.labels.items()
+                       if key != posting_id}}))
+    path.unlink()
 
 
 @_gated
