@@ -6,6 +6,7 @@ so no part of an invalid file is ever used.
 
 import json
 import re
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -26,6 +27,12 @@ from jobadvaisor.tools.extraction import feature_set
 
 EXTRACTION_LABELS_FILE = Path("extraction-labels.json")
 _BOUND_ERRORS = {"greater_than", "greater_than_equal", "less_than", "less_than_equal"}
+
+# ponytail: process-local, reentrant (write functions call each other, `load` runs inside them);
+# one app process only, a file lock if several ever write the data. Every public write holds it
+# (`data/writer.py`), the backup holds it from `git add` to the end of `git commit`, and `load`
+# and `read_scores` hold it while they read, so a reader never sees half a multi-file delete.
+write_gate = threading.RLock()
 
 
 class DataRepositoryError(Exception):
@@ -63,8 +70,14 @@ def load(location: Path | None) -> DataRepository:
     without its posting. The optional `extraction-labels.json` loads into `extraction_labels`
     (`None` when absent); a label for a missing posting or for a feature the extractor does not
     extract (the defaults plus the policy pack's features) is a problem. Optional
-    `companies/*.json` load into `companies`.
+    `companies/*.json` load into `companies`. Reads under `write_gate`, so the result never
+    shows a write or a delete half done.
     """
+    with write_gate:
+        return _load(location)
+
+
+def _load(location: Path | None) -> DataRepository:
     if location is None:
         raise DataRepositoryError(["DATA_REPOSITORY is not set"])
     if not location.is_dir():

@@ -18,7 +18,7 @@
   - a posting without a label, a score or an extraction-label entry deletes cleanly;
   - an unknown ID raises `KeyError`, and an unsafe ID raises `ValueError`;
   - a backup's `commit_message` over the removed paths names 1 rating, 1 score and 1 posting (spec: Deletion leaves the repository valid).
-- [ ] 1.2 Move `write_gate` to `data/loader.py`, and take it in `load`, in `read_scores` and across `pool_state` (D1, Readers see a delete whole). Verify with tests:
+- [x] 1.2 Move `write_gate` to `data/loader.py`, and take it in `load`, in `read_scores` and across `pool_state` (D1, Readers see a delete whole). Verify with tests:
   - while another thread holds `write_gate`, `load` and `read_scores` block until it is released;
   - `merge_extraction_labels` still works inside the gate;
   - the whole default `pytest` suite still passes.

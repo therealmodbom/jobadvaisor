@@ -38,7 +38,7 @@ from jobadvaisor.data.backup import (
     BackupRunning,
     BackupUnavailable,
 )
-from jobadvaisor.data.loader import DataRepository, DataRepositoryError, load
+from jobadvaisor.data.loader import DataRepository, DataRepositoryError, load, write_gate
 from jobadvaisor.data.models import (
     HOST_PATTERN,
     ImportMapping,
@@ -823,9 +823,11 @@ def configured_runs(settings: Settings) -> Runs:
 def pool_state(root: Path) -> tuple[DataRepository, dict[str, Score], dict[str, str], Pool]:
     """The data repository at `root` as it is now, its readable scores, the problems of the
     unreadable score files (by posting ID) and `pool.json`. Raises `DataRepositoryError` when
-    the repository or `pool.json` does not load; a bad score file never raises."""
-    scores, problems = read_scores(root)
-    return load(root), scores, problems, read_pool(root)
+    the repository or `pool.json` does not load; a bad score file never raises. The three
+    reads run under `write_gate`, so a delete shows in all of them or in none."""
+    with write_gate:
+        scores, problems = read_scores(root)
+        return load(root), scores, problems, read_pool(root)
 
 
 def reason_chips(repository: DataRepository) -> list[dict]:

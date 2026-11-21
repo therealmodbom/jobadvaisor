@@ -9,13 +9,18 @@ import json
 import os
 import re
 import tempfile
-import threading
 from collections.abc import Callable
 from pathlib import Path
 
 from pydantic import BaseModel
 
-from jobadvaisor.data.loader import EXTRACTION_LABELS_FILE, DataRepositoryError, _load_file, load
+from jobadvaisor.data.loader import (
+    EXTRACTION_LABELS_FILE,
+    DataRepositoryError,
+    _load_file,
+    load,
+    write_gate,
+)
 from jobadvaisor.data.models import (
     POSTING_ID_PATTERN,
     Availability,
@@ -32,11 +37,6 @@ from jobadvaisor.data.models import (
     Posting,
     Score,
 )
-
-# ponytail: process-local, reentrant (write functions call each other); one app process only,
-# a file lock if several ever write the data
-write_gate = threading.RLock()
-
 
 def _gated[**P, R](function: Callable[P, R]) -> Callable[P, R]:
     """Run `function` while holding `write_gate`."""
@@ -204,19 +204,21 @@ def read_scores(root: Path) -> tuple[dict[str, Score], dict[str, str]]:
     """Every readable `scores/*.json` under `root` by posting ID, and the problems by posting ID
     (one line naming the file and why) for unreadable, invalid or unsupported-version files.
     Files whose stem is no safe posting ID are skipped; a missing directory gives two empty
-    dicts. Never raises for a bad score file."""
+    dicts. Never raises for a bad score file. Reads under `write_gate`, so a delete is seen
+    whole or not at all."""
     scores: dict[str, Score] = {}
     problems: dict[str, str] = {}
-    for path in sorted((root / "scores").glob("*.json")):
-        if not re.fullmatch(POSTING_ID_PATTERN, path.stem):
-            continue
-        try:
-            score = read_score(root, path.stem)
-        except DataRepositoryError as error:
-            problems[path.stem] = "; ".join(error.problems)
-        else:
-            if score is not None:
-                scores[path.stem] = score
+    with write_gate:
+        for path in sorted((root / "scores").glob("*.json")):
+            if not re.fullmatch(POSTING_ID_PATTERN, path.stem):
+                continue
+            try:
+                score = read_score(root, path.stem)
+            except DataRepositoryError as error:
+                problems[path.stem] = "; ".join(error.problems)
+            else:
+                if score is not None:
+                    scores[path.stem] = score
     return scores, problems
 
 
