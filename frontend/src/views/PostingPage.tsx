@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { ReasonsAndNote, VerdictButtons } from '@/components/rating'
 import { addedLabel } from '@/lib/german'
 import { strayPaste, useRating } from '@/lib/rating'
+import { POLL_MS } from '@/lib/run'
 import { useScore } from '@/lib/score'
 import { cn } from '@/lib/utils'
 import { ErrorWithRetry, Loading } from '@/components/states'
@@ -17,7 +18,7 @@ const BackLink = () => <a href="#/pool" className="self-start text-primary under
  * location (`PostingFields`), the rating (verdict, reason chips and note, stored
  * at once by `PUT .../rating` with saving and retry), the application status
  * (`PATCH`, with saving and retry), the trash button (a confirmed delete returns to `#/pool`;
- * disabled by `delete_blocked`, as the page loaded), the import origin and the full text. Shows loading, a 404
+ * disabled by `delete_blocked`, which is re-read every `POLL_MS` until it clears), the import origin and the full text. Shows loading, a 404
  * message or a retryable error, and starts afresh when `postingId` changes. */
 export function PostingPage({ postingId }: { postingId: string }) {
   return <LoadedPage key={postingId} postingId={postingId} />
@@ -50,6 +51,20 @@ function LoadedPage({ postingId }: { postingId: string }) {
   /** A score from the button replaces the page's data (the counter and next-pass figures are the pool's). */
   const score = useScore(({ row, posting, score, examples, checkable, reason_chips, screening, delete_blocked }: ScoreAnswer) =>
     setData({ row, posting, score, examples, checkable, reason_chips, screening, delete_blocked }), load)
+
+  /** While a pass or check blocks the delete, re-read the page and take only `delete_blocked`
+   * from the answer (an open edit form and the rating stay as they are); a failed read waits
+   * for the next tick. Stops once the block is gone or the page unmounts. */
+  const blocked = data?.delete_blocked ?? null
+  useEffect(() => {
+    if (blocked === null) return
+    const timer = setInterval(() => {
+      api<PostingPageData>(`/postings/${encodeURIComponent(postingId)}`).then((next) => {
+        setData((current) => current && { ...current, delete_blocked: next.delete_blocked })
+      }, () => {})
+    }, POLL_MS)
+    return () => clearInterval(timer)
+  }, [blocked, postingId])
 
   const title = data?.posting.title
   useEffect(() => {

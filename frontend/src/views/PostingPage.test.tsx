@@ -1,13 +1,17 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, expect, test, vi } from 'vitest'
 import type { PostingPageData, RatingBody } from '@/api'
+import { POLL_MS } from '@/lib/run'
 import { axe } from '@/test-axe'
 import { pending, stubApi } from '@/test-api'
 import { label, POOL, ratingAnswer, row } from '@/test-fixtures'
 import { PostingPage } from './PostingPage'
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+  vi.useRealTimers()
+  vi.unstubAllGlobals()
+})
 
 const posting = { title: 'Data Analyst (m/w/d)', company: 'Grünwerk Solar', location_raw: 'Kiel',
   source_type: 'url' as const, urls: ['https://example.com/job', 'https://other.example/x'],
@@ -581,6 +585,22 @@ test('a score answer brings the page\'s delete_blocked along', async () => {
   expect(trash()).toBeDisabled()
   await userEvent.click(screen.getByRole('button', { name: 'Neu berechnen' }))
   await waitFor(() => expect(trash()).toBeEnabled())
+})
+
+test('a blocked trash button re-reads the page and enables itself once the run is over, then stops polling', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  let blocked: PostingPageData['delete_blocked'] = 'check'
+  const calls = stubApi({ 'GET /postings/p1': () => ({ body: page({ delete_blocked: blocked }) }) })
+  render(<PostingPage postingId="p1" />)
+  await screen.findByRole('heading', { level: 1 })
+  expect(trash()).toBeDisabled()
+  expect(trash()).toHaveAccessibleDescription(REASON_CHECK)
+  blocked = null
+  await act(() => vi.advanceTimersByTimeAsync(POLL_MS))
+  expect(trash()).toBeEnabled()
+  const reads = calls.filter((call) => call.path === '/postings/p1').length
+  await act(() => vi.advanceTimersByTimeAsync(POLL_MS * 5))
+  expect(calls.filter((call) => call.path === '/postings/p1')).toHaveLength(reads)
 })
 
 test('the page with the trash button, disabled and with its dialog open, has no axe violations', async () => {
