@@ -64,7 +64,7 @@
   - after a confirmed delete the row is gone and the filters stay;
   - with the dialog open, „1“ rates nothing;
   - during a pass and during a check the button is disabled with the matching reason.
-- [ ] 2.3 Put the button into the posting page's head row after `AvailabilityControl`, and give „Bearbeiten“ the default height. Disable the button from `delete_blocked`. Return to `#/pool` after a delete. Verify in `PostingPage.test.tsx`:
+- [x] 2.3 Put the button into the posting page's head row after `AvailabilityControl`, and give „Bearbeiten“ the default height. Disable the button from `delete_blocked`. Return to `#/pool` after a delete. Verify in `PostingPage.test.tsx`:
   - delete, then the hash is `#/pool`;
   - `delete_blocked: "check"` disables the button with the check reason;
   - „Bearbeiten“, both selects and the trash button have the same height class.

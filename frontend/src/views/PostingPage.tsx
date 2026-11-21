@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, ApiError, type AvailabilityChoice, type Posting, type PostingPageData, type ScoreAnswer, type Status } from '@/api'
-import { AvailabilityControl, Badge, OriginalLink, PostingFields, ScoreButton, ScoreProblem, ScoreText, StatusControl } from '@/components/posting'
+import { AvailabilityControl, Badge, DeleteButton, OriginalLink, PostingFields, ScoreButton, ScoreProblem, ScoreText, StatusControl } from '@/components/posting'
 import { Button } from '@/components/ui/button'
 import { ReasonsAndNote, VerdictButtons } from '@/components/rating'
 import { addedLabel } from '@/lib/german'
@@ -16,7 +16,8 @@ const BackLink = () => <a href="#/pool" className="self-start text-primary under
  * compared examples (links to their pages), "Bearbeiten" for correcting title, company and
  * location (`PostingFields`), the rating (verdict, reason chips and note, stored
  * at once by `PUT .../rating` with saving and retry), the application status
- * (`PATCH`, with saving and retry), the import origin and the full text. Shows loading, a 404
+ * (`PATCH`, with saving and retry), the trash button (a confirmed delete returns to `#/pool`;
+ * disabled by `delete_blocked`, as the page loaded), the import origin and the full text. Shows loading, a 404
  * message or a retryable error, and starts afresh when `postingId` changes. */
 export function PostingPage({ postingId }: { postingId: string }) {
   return <LoadedPage key={postingId} postingId={postingId} />
@@ -144,10 +145,11 @@ function LoadedPage({ postingId }: { postingId: string }) {
           <h1 className="text-3xl leading-tight font-bold tracking-tight">{posting.title}</h1>
           <p className="text-muted-foreground">{posting.company}, {posting.location_raw}</p>
         </div>
-        {/* One row: "Bearbeiten", the application status and the availability. The edit button sits
-            level with the selects (mt-6 is the height of their label). */}
+        {/* One row: "Bearbeiten", the application status, the availability and the trash button, all
+            44 px high. The edit and the trash button sit level with the selects (mt-6 is the height
+            of their label). */}
         <div className="flex flex-wrap items-start gap-x-6 gap-y-3">
-          <Button ref={editToggle} type="button" variant="outline" size="sm" aria-expanded={editing}
+          <Button ref={editToggle} type="button" variant="outline" aria-expanded={editing}
                   onClick={() => setEditing(!editing)} className="mt-6">
             Bearbeiten
           </Button>
@@ -157,6 +159,8 @@ function LoadedPage({ postingId }: { postingId: string }) {
                                open={row.status === 'open'}
                                saving={availSaving}
                                failed={availFailed} onChange={setAvailability} />
+          <DeleteButton row={row} blocked={data.delete_blocked} className="mt-6"
+                        onDeleted={() => { window.location.hash = '#/pool' }} />
         </div>
         {editing && (
           <PostingFields postingId={postingId} posting={posting} onSaved={corrected}>
