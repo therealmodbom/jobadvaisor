@@ -16,11 +16,12 @@ from test_triage_graph import (
     judge_by_title,
 )
 
+from jobadvaisor.api import app as app_module
 from jobadvaisor.api.app import configured_intake, configured_runs, create_app
 from jobadvaisor.availability import AvailabilityChecks, check_batch
 from jobadvaisor.data.loader import DataRepositoryError
 from jobadvaisor.data.loader import load as load_repository
-from jobadvaisor.data.writer import read_pool, read_posting, read_score
+from jobadvaisor.data.writer import delete_posting, read_pool, read_posting, read_score
 from jobadvaisor.intake.ladder import LadderResult
 from jobadvaisor.intake.postings import Intake
 from jobadvaisor.settings import Settings
@@ -510,6 +511,218 @@ def test_a_posting_deleted_during_the_request_is_404(api, monkeypatch):
 
     monkeypatch.setattr(api.runs, "score", gone)
     assert post_score(api, "p2").status_code == 404
+
+
+def start_delete(api: Api, posting_id: str) -> tuple[threading.Thread, list]:
+    """Delete `posting_id` in a thread; the list gets its answer's status code."""
+    answers: list = []
+    thread = threading.Thread(
+        target=lambda: answers.append(api.client.delete(f"/postings/{posting_id}").status_code))
+    thread.start()
+    return thread, answers
+
+
+REQUESTS = {
+    "page": ("rank", lambda api: api.client.get("/postings/p2")),
+    "rating": ("rank", lambda api: api.client.put("/postings/p2/rating",
+                                                   json={"verdict": "positive"})),
+    "patch": ("amend_posting", lambda api: api.client.patch("/postings/p2",
+                                                            json={"title": "Renamed"})),
+    "score": ("rank", lambda api: post_score(api, "p2")),
+}
+
+
+@pytest.mark.parametrize("name", REQUESTS)
+def test_a_delete_waits_until_a_request_on_the_posting_has_answered(api, root, monkeypatch, name):
+    """The request holds the write gate from its 404 check to its answer, so the delete that
+    arrives in between neither breaks it (a 500) nor changes what it answers."""
+    target, request = REQUESTS[name]
+    entered, release = threading.Event(), threading.Event()
+    real = getattr(app_module, target)
+
+    def hold_once(*args, **kwargs):
+        if not entered.is_set():
+            entered.set()
+            assert release.wait(10), "the request was never released"
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(app_module, target, hold_once)
+    answers: list = []
+    running = threading.Thread(target=lambda: answers.append(request(api)))
+    running.start()
+    assert entered.wait(10), "the request never reached its answer"
+    deleting, deleted = start_delete(api, "p2")
+    deleting.join(0.3)
+    assert deleting.is_alive() and (root / "postings/p2.json").exists()  # the delete waits
+    release.set()
+    running.join(10)
+    deleting.join(10)
+    assert answers[0].status_code == 200, answers[0].text
+    assert deleted == [204] and not (root / "postings/p2.json").exists()
+
+
+def test_every_request_on_a_deleted_posting_is_404_and_writes_no_file(api, root):
+    assert api.client.delete("/postings/p2").status_code == 204
+    for answer in (api.client.get("/postings/p2"),
+                   api.client.put("/postings/p2/rating", json={"verdict": "positive"}),
+                   api.client.patch("/postings/p2", json={"availability": "closed"}),
+                   api.client.patch("/postings/p2", json={"title": "Renamed"}),
+                   post_score(api, "p2")):
+        assert answer.status_code == 404 and answer.json()["error"] == "not found"
+    assert not any((root / name / "p2.json").exists() for name in ("postings", "labels", "scores"))
+    assert [path.name for path in (root / "postings").glob(".*")] == []  # no temporary file
+
+
+def test_a_posting_deleted_between_the_judge_and_the_answer_is_404(api, root, monkeypatch):
+    score = api.runs.score
+
+    def score_then_delete(posting_id):
+        stored = score(posting_id)  # the slot is released here, the answer is still to come
+        delete_posting(root, posting_id)
+        return stored
+
+    monkeypatch.setattr(api.runs, "score", score_then_delete)
+    response = post_score(api, "p2")
+    assert response.status_code == 404 and response.json()["error"] == "not found"
+    assert not (root / "scores/p2.json").exists()
+
+
+def test_a_delete_answers_204_and_the_posting_is_gone_from_page_pool_and_counter(api, root):
+    write_json(root / "labels/p1.json", LABEL)
+    write_json(root / "labels/p2.json", LABEL)
+    api.settled(api.start())
+    before = api.client.get("/pool").json()
+    assert before["counter"]["rated"] == 2 and read_score(root, "p1") is not None
+    deleted = api.client.delete("/postings/p1")
+    assert deleted.status_code == 204 and deleted.content == b""
+    assert api.client.get("/postings/p1").status_code == 404
+    pool = api.client.get("/pool").json()
+    assert "p1" not in [row["posting_id"] for row in pool["rows"]]
+    assert pool["counter"]["rated"] == 1
+    assert pool["next_pass"]["all"] == before["next_pass"]["all"] - 1
+    assert not any((root / name / "p1.json").exists() for name in ("postings", "labels", "scores"))
+    assert set(load_repository(root).postings) == {"p2", "p3", "p4", "p5", "sales"}
+
+
+def test_a_score_keeps_naming_a_deleted_example_and_the_page_leaves_it_out(api, root):
+    write_json(root / "labels/p1.json", LABEL)
+    api.settled(api.start())
+    stored = read_score(root, "p5")
+    assert stored.example_ids == ["p1"]
+    assert api.client.delete("/postings/p1").status_code == 204
+    assert read_score(root, "p5") == stored  # the record of the past score is untouched
+    page = api.client.get("/postings/p5").json()
+    assert page["score"]["example_ids"] == ["p1"] and page["examples"] == []
+
+
+def test_a_pass_after_a_delete_shows_the_judge_no_deleted_example(api, root):
+    write_json(root / "labels/p1.json", LABEL)
+    assert api.client.delete("/postings/p1").status_code == 204
+    api.settled(api.start())
+    assert read_score(root, "p5").example_ids == []
+    assert "Engineer 1" not in "\n".join(api.harness.judge.calls)
+
+
+def test_a_second_delete_and_an_unknown_or_unsafe_id_answer_404(api):
+    assert api.client.delete("/postings/p1").status_code == 204
+    for posting_id in ("p1", "nope", "Bad_ID", "..%2Fx"):
+        response = api.client.delete(f"/postings/{posting_id}")
+        assert response.status_code == 404, posting_id
+        assert response.json()["error"] == "not found" and set(response.json()) == {
+            "error", "detail"}
+
+
+def test_a_delete_during_a_single_score_is_409_scoring_in_progress_and_changes_nothing(api, root):
+    api.gate.clear()
+    answers = []
+    single = threading.Thread(target=lambda: answers.append(post_score(api, "p2").status_code))
+    single.start()
+    assert api.entered.wait(10)
+    refused = api.client.delete("/postings/p3")
+    assert refused.status_code == 409 and refused.json()["error"] == "scoring in progress"
+    assert refused.json()["detail"] == "score:p2"
+    assert (root / "postings/p3.json").exists()
+    assert api.client.get("/postings/p3").json()["delete_blocked"] == "scoring"
+    api.gate.set()
+    single.join(10)
+    assert answers == [200]
+    assert api.client.get("/postings/p3").json()["delete_blocked"] is None
+    assert api.client.delete("/postings/p3").status_code == 204
+
+
+def test_a_delete_during_a_pass_is_409_naming_the_pass(api, root):
+    api.gate.clear()
+    pass_id = api.start()
+    assert api.entered.wait(10)
+    refused = api.client.delete("/postings/p3")
+    assert refused.status_code == 409 and refused.json()["error"] == "scoring in progress"
+    assert refused.json()["detail"] == pass_id and (root / "postings/p3.json").exists()
+    api.gate.set()
+    api.settled(pass_id)
+
+
+def test_a_delete_during_a_check_is_409_check_in_progress_and_changes_nothing(tmp_path, root):
+    add_posting(root, "linked", "Engineer 9", urls=["https://a.example.org/1"])
+    release, entered = threading.Event(), threading.Event()
+    site = Site()
+    site.on_request = lambda url: (entered.set(), release.wait(30))
+    api = checked_api(tmp_path, root, site)
+    check_id = api.client.post("/availability/checks").json()["check_id"]
+    assert entered.wait(10)
+    refused = api.client.delete("/postings/p3")
+    assert refused.status_code == 409 and refused.json()["error"] == "check in progress"
+    assert refused.json()["detail"] == check_id and (root / "postings/p3.json").exists()
+    assert api.client.get("/postings/p3").json()["delete_blocked"] == "check"
+    release.set()
+    assert settled_check(api, check_id)["status"] == "done"
+    assert api.client.get("/postings/p3").json()["delete_blocked"] is None
+    assert api.client.delete("/postings/p3").status_code == 204
+
+
+def test_a_delete_refused_for_a_check_leaves_the_run_slot_free(tmp_path, root):
+    add_posting(root, "linked", "Engineer 9", urls=["https://a.example.org/1"])
+    release, entered = threading.Event(), threading.Event()
+    site = Site()
+    site.on_request = lambda url: (entered.set(), release.wait(30))
+    api = checked_api(tmp_path, root, site)
+    api.client.post("/availability/checks")
+    assert entered.wait(10)
+    assert api.client.delete("/postings/p3").status_code == 409
+    assert post_score(api, "p2").status_code == 200  # the slot was not left claimed
+    release.set()
+
+
+def test_delete_blocked_is_null_on_the_posting_page_of_an_idle_app(api):
+    assert api.client.get("/postings/p1").json()["delete_blocked"] is None
+    assert post_score(api, "p2").json()["delete_blocked"] is None
+
+
+def test_a_check_and_a_delete_started_together_never_deadlock_with_a_reading_request(
+        tmp_path, root):
+    """Page reads, a check start and deletes race; none may wait for another forever."""
+    add_posting(root, "linked", "Engineer 9", urls=["https://a.example.org/1"])
+    api = checked_api(tmp_path, root, Site())
+    errors: list = []
+
+    def hammer(call):
+        try:
+            for _ in range(15):
+                call()
+        except Exception as error:  # noqa: BLE001 - reported below
+            errors.append(error)
+
+    threads = [threading.Thread(target=hammer, args=(call,)) for call in (
+        lambda: api.client.get("/postings/p1"),
+        lambda: api.client.post("/availability/checks"),
+        lambda: api.client.put("/postings/p1/rating", json={"verdict": "positive"}),
+        lambda: api.client.delete("/postings/nope"),
+        lambda: api.client.get("/pool"))]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(30)
+    assert not any(thread.is_alive() for thread in threads), "a request never answered"
+    assert not errors
 
 
 def test_scoring_during_a_pass_is_409_scoring_in_progress_and_a_pass_during_scoring_too(api):

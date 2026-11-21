@@ -120,8 +120,18 @@ def test_a_single_score_during_exclusive_is_busy_and_the_slot_is_free_after_it(g
     assert gated.runs.score("p1").score == 1
 
 
+def test_running_names_the_run_that_holds_the_slot_and_is_none_otherwise(gated):
+    assert gated.runs.running() is None
+    thread = gated.hold_a_single_score()
+    assert gated.runs.running() == "score:p1"
+    gated.release(thread)
+    assert gated.runs.running() is None
+    with gated.runs.exclusive("delete:p2"):
+        assert gated.runs.running() == "delete:p2"
+
+
 def test_the_slot_is_free_again_after_an_exception_inside_exclusive(gated):
-    with pytest.raises(ZeroDivisionError):
+    with pytest.raises(RuntimeError):
         with gated.runs.exclusive("delete:p2"):
-            1 / 0
+            raise RuntimeError("the block fails")
     assert gated.runs.score("p1").score == 1

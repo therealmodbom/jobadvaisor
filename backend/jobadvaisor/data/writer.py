@@ -38,6 +38,7 @@ from jobadvaisor.data.models import (
     Score,
 )
 
+
 def _gated[**P, R](function: Callable[P, R]) -> Callable[P, R]:
     """Run `function` while holding `write_gate`."""
     @functools.wraps(function)

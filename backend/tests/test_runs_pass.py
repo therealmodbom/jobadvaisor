@@ -119,9 +119,9 @@ def test_a_pass_started_while_exclusive_holds_the_slot_is_busy(blocking):
 
 
 def test_the_slot_is_free_again_after_an_exception_inside_exclusive(blocking):
-    with pytest.raises(ZeroDivisionError):
+    with pytest.raises(RuntimeError):
         with blocking.runs.exclusive("delete:p1"):
-            1 / 0
+            raise RuntimeError("the block fails")
     blocking.gate.set()
     assert blocking.runs.start()
     blocking.settle()

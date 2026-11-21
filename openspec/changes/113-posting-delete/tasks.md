@@ -22,7 +22,7 @@
   - while another thread holds `write_gate`, `load` and `read_scores` block until it is released;
   - `merge_extraction_labels` still works inside the gate;
   - the whole default `pytest` suite still passes.
-- [ ] 1.3 Run `GET /postings/{id}`, `PUT …/rating`, `PATCH /postings/{id}` and the answer part of `POST …/score` each in one `write_gate` section, with the 404 check at its start (D1, A request on one posting). Verify in `test_api.py`:
+- [x] 1.3 Run `GET /postings/{id}`, `PUT …/rating`, `PATCH /postings/{id}` and the answer part of `POST …/score` each in one `write_gate` section, with the 404 check at its start (D1, A request on one posting). Verify in `test_api.py`:
   - a `DELETE` started from another thread while one of these requests holds the gate waits until the request has answered;
   - a request arriving after the delete answers 404 for each of the four, with no file written;
   - `POST …/score` answers 404 when the posting is deleted between `runs.score` and the answer (spec: Delete a posting → Edit after a delete).
@@ -35,7 +35,7 @@
   - a failed load in `start` frees the claim;
   - `running()` names the running check and returns `None` otherwise.
 - [x] 1.5 Skip a deleted posting in the `score` node (D3). Verify in `test_triage_graph.py`: a pass pauses over unscreened postings, one posting of its batch is deleted, and the pass continues. Then there is no judge call and no score file for it, no `failed` result, and the total drops by one (spec: A paused pass skips a deleted posting).
-- [ ] 1.6 Add `DELETE /postings/{id}` and `delete_blocked` on `GET /postings/{id}` (D4). Verify in `test_api.py`:
+- [x] 1.6 Add `DELETE /postings/{id}` and `delete_blocked` on `GET /postings/{id}` (D4). Verify in `test_api.py`:
   - 204, then `GET /postings/{id}` answers 404 and `GET /pool` no longer lists the posting;
   - the counter no longer counts the deleted posting's rating;
   - a second `DELETE` answers 404;
@@ -43,7 +43,7 @@
   - while a single score holds the slot, 409 `scoring in progress`;
   - while a check runs, 409 `check in progress`;
   - `delete_blocked` reads `"scoring"`, `"check"` and `null` in those three states.
-- [ ] 1.7 Cover what follows a delete with regression tests (spec: Delete a posting, A deleted posting is no duplicate, Scores keep naming a deleted example):
+- [x] 1.7 Cover what follows a delete with regression tests (spec: Delete a posting, A deleted posting is no duplicate, Scores keep naming a deleted example):
   - `test_intake_duplicates.py`: after a delete, the same link is no duplicate, and `POST /postings` stores a new posting;
   - a rated posting deleted, then `LabelIndex.sync` and `PostingIndex.sync`: neither returns its ID any more;
   - another posting's score that names the deleted one keeps it in `example_ids`, and its `GET /postings/{id}` `examples` leaves it out.

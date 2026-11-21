@@ -129,6 +129,12 @@ class Runs:
         finally:
             self._release(run_id)
 
+    def running(self) -> str | None:
+        """The ID of the run that holds the slot now (a pass, `score:<posting ID>` or a name
+        given to `exclusive`), or `None`. A pass paused over its question holds no slot."""
+        with self._lock:
+            return next(iter(self._computing), None)
+
     @contextmanager
     def exclusive(self, name: str) -> Iterator[None]:
         """Hold the one slot as `name` for the block, so no pass or single score computes or

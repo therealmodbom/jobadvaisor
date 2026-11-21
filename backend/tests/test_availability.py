@@ -589,9 +589,9 @@ def test_a_check_started_inside_exclusive_waits_and_leaves_out_a_posting_deleted
 
 def test_the_lock_is_free_again_after_an_exception_inside_exclusive(root):
     checks = AvailabilityChecks(root, http=Site().client, throttle=Clock().throttle())
-    with pytest.raises(ZeroDivisionError):
+    with pytest.raises(RuntimeError):
         with checks.exclusive():
-            1 / 0
+            raise RuntimeError("the block fails")
     assert finished(checks, checks.start())["status"] == "done"
 
 
