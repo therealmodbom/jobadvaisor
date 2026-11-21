@@ -44,7 +44,7 @@ See `proposal.md` → Why. The code this change builds on:
 3. It drops the key from `extraction-labels.json`, written by rename like `merge_extraction_labels`.
 4. It removes `postings/<id>.json` last.
 
-A crash between steps leaves records whose posting still exists, so the repository still loads and a second delete finishes the job. There is no trash. Why: [ADR 0015](../../../docs/decisions/0015-hard-delete-with-git-history-as-the-way-back.md).
+A crash between steps leaves records whose posting still exists, so the repository still loads and a second delete finishes the job. There is no trash. Why: [ADR 0015](../../../../docs/decisions/0015-hard-delete-with-git-history-as-the-way-back.md).
 
 Rejected: running `load` after the delete to verify it, as `merge_extraction_labels` does. A delete only removes records keyed by the ID, which cannot make another file invalid. A full load per delete would cost the time of a pool load for nothing.
 
