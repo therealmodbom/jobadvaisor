@@ -8,7 +8,7 @@ See `proposal.md` → Why. The code this change builds on:
   - `load` (`data/loader.py`) fails the whole repository for a label without its posting and for an extraction-label entry without its posting. A delete must therefore remove all of them, or the next load fails.
   - `pool.json` and the company records hold no posting IDs.
   - Other scores name rated postings in `example_ids`. `GET /postings/{id}` already lists only examples that still exist (`api/app.py`, `posting_page`).
-- **Writes and backups.** Every public write in `data/writer.py` holds `write_gate`. The backup holds the same gate from `git add -A` to the end of `git commit` (ADR 0010), so it commits removals too, and `commit_message` counts them by kind like any other change. `_posting_path` and `_safe_id` check an ID against `POSTING_ID_PATTERN`.
+- **Writes and backups.** Every public write in `data/writer.py` holds `write_gate`, and each swaps a single file by rename. Reads (`load`, `read_scores`) do not take the gate. The backup holds the same gate from `git add -A` to the end of `git commit` (ADR 0010), so it commits removals too, and `commit_message` counts them by kind like any other change. `_posting_path` and `_safe_id` check an ID against `POSTING_ID_PATTERN`.
 - **Duplicates and indexes.** Duplicates are found by `duplicate_of` over `intake.postings()`, which loads the repository fresh on every call. There is no separate duplicate index. `LabelIndex.sync` and `PostingIndex.sync` (`index.py`) drop every ID no longer in the repository. Scoring and the agent's tools sync before they read.
 - **Runs.** `Runs` (`triage/runs.py`) holds one slot (`_claim`/`_release`) for a computing pass or a single score.
   - A pass waiting for its answer about unscreened postings does not hold the slot. When it resumes, the `score` node works from a context built fresh at that moment.
@@ -48,12 +48,24 @@ A crash between steps leaves records whose posting still exists, so the reposito
 
 Rejected: running `load` after the delete to verify it, as `merge_extraction_labels` does. A delete only removes records keyed by the ID, which cannot make another file invalid. A full load per delete would cost the time of a pool load for nothing.
 
+**Readers see a delete whole or not at all.** Every write so far swaps one file by rename, so a reader never caught one half done. A delete removes up to four records one after another. A `load` that globs `labels/` before the delete and reads after it finds a file missing, or a label whose posting is gone, and fails the whole load: `GET /pool` would answer 500 for the moment of the delete.
+
+- `write_gate` moves to `data/loader.py`, and `writer.py` imports it from there, since `writer` already imports `loader`.
+- `load` and `read_scores` hold it while they read.
+- `pool_state` (`api/app.py`) holds it across its `load`, `read_scores` and `read_pool`, so one request sees one state.
+- The gate is reentrant, so `merge_extraction_labels`, which loads inside it, keeps working.
+
+Rejected: a loader that tolerates the race by skipping a file that vanished between glob and read and by checking orphans against the stems seen at the start. Each reader that combines files (`load`, `read_scores`, `pool_state`) would need its own version of that care. The gate is one mechanism for all of them.
+
 ### D2 Delete takes the scoring slot
 
 `Runs.exclusive(name)` is a context manager over `_claim`/`_release`, the slot a single score already takes. The delete endpoint runs `delete_posting` inside `runs.exclusive(f"delete:{id}")`. A computing pass or score therefore raises `RunBusyError`, which answers 409 `scoring in progress`, and no pass can start while the files are removed.
 
-- `AvailabilityChecks.running()` returns the running check's ID or `None`. A running check answers 409 `check in progress`. The check needs no slot: its writes already skip a deleted posting.
-- Rejected: only reading whether a pass computes before deleting. A pass starting between that read and the delete could judge a posting whose files then vanish.
+- The check gets the same exclusion. `AvailabilityChecks.exclusive()` is a context manager that holds the checks' lock for the whole delete. It raises `CheckBusyError` while a check computes, which answers 409 `check in progress`.
+  - `start` claims `_computing` before it loads its batch, not after as today, and frees it if the load fails.
+  - A check started during a delete therefore waits on the lock and then takes its batch from the repository without the posting.
+- `AvailabilityChecks.running()` returns the running check's ID or `None`, for `delete_blocked` (D4) only.
+- Rejected: only reading whether a pass or a check computes before deleting (`running()` as the guard). One can start between that read and the delete. A pass could then judge a posting whose files vanish, and a check could report a posting that no longer exists.
 - Rejected: letting the delete wait for the slot. A pass can run for minutes, and the request would hang.
 
 ### D3 A paused pass skips a deleted posting
@@ -70,7 +82,7 @@ Rejected: refusing a delete while any pass waits for its answer. `Runs` would ha
   - 409 `scoring in progress` (detail: the run's ID);
   - 409 `check in progress` (detail: the check's ID).
 
-  The order of the checks is: check running, then the slot, then the ID inside the slot.
+  The delete runs inside `checks.exclusive()`, then inside `runs.exclusive(…)`, and looks up the ID inside both. Both locks are held only for the milliseconds of the delete.
 - `GET /postings/{id}` adds `delete_blocked: "scoring" | "check" | null`. It is `"scoring"` while the slot is held and `"check"` while a check runs. A paused pass does not count (D3).
 - `GET /pool` is unchanged. The pool view derives the blocked state from its own pass and check state.
 
@@ -99,6 +111,7 @@ The look follows the Design artifact https://claude.ai/artifact/TauRa8AUApTexoFi
 ## Risks / Trade-offs
 
 - [A delete by mistake] → The confirmation names the posting and its rating. The data repository's git history holds the files once a backup ran. A delete before the first backup is lost, and the dialog says „endgültig“.
+- [Reads now wait for `write_gate`, also while a backup holds it from `git add` to the end of `git commit`, and concurrent reads queue behind each other] → The backup's commit and each write take milliseconds to about a second. The app serves one user. A slow backup shows as a slower pool load, not as an error.
 - [A pass paused in another tab resumes after a delete] → D3 skips the posting. Its progress total drops by one, as for a ruling.
 - [A stale posting page sends a delete after a pass started] → 409, and the dialog says why (spec „Delete refused or failed“).
 - [An import or alert run writes to a posting deleted at the same moment] → `update_posting` raises for the missing file, and that one entry fails. This is rare and not worth a lock across intake.

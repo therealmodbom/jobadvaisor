@@ -43,7 +43,7 @@ Every delete SHALL ask first, in a modal dialog titled „Anzeige löschen?“. 
 - **THEN** the app sends one delete
 
 ### Requirement: Delete disabled while a pass or a check runs
-In the pool view the delete buttons SHALL be disabled while the view's scoring pass runs or waits for its answer about unscreened postings, and while an availability check runs. On the posting page the button SHALL be disabled when, as the page loads, a pass or a single score computes or a check runs. A visible, focusable info icon beside each disabled button SHALL give the reason: „Gerade läuft ein Score-Durchlauf. Löschen geht wieder, wenn er fertig ist.“ or „Gerade läuft eine Verfügbarkeitsprüfung. Löschen geht wieder, wenn sie fertig ist.“
+In the pool view the delete buttons SHALL be disabled while the view's scoring pass runs or waits for its answer about unscreened postings, and while an availability check runs. On the posting page the button SHALL be disabled when, as the page loads, a pass or a single score computes or a check runs.
 
 #### Scenario: Pool during a pass
 - **WHEN** a pass runs and the user looks at a pool row
@@ -52,6 +52,13 @@ In the pool view the delete buttons SHALL be disabled while the view's scoring p
 #### Scenario: Posting page during a check
 - **WHEN** an availability check runs and the user opens a posting's page
 - **THEN** its trash button is disabled, and the info icon beside it names the running check
+
+### Requirement: Reason beside a disabled delete button
+A visible, focusable info icon beside each disabled delete button SHALL give the reason: „Gerade läuft ein Score-Durchlauf. Löschen geht wieder, wenn er fertig ist.“ or „Gerade läuft eine Verfügbarkeitsprüfung. Löschen geht wieder, wenn sie fertig ist.“ The reason SHALL show on hover and on keyboard focus and reach screen readers.
+
+#### Scenario: Reason by keyboard
+- **WHEN** a pass runs and the user tabs to the info icon beside a row's trash button
+- **THEN** the reason about the running pass is shown and announced
 
 ### Requirement: Delete refused or failed
 When the server refuses a delete because a pass, a score or a check started meanwhile, the dialog SHALL stay open and say why in words. When the delete fails for any other reason, the dialog SHALL say so and offer to try again. When the posting turns out to be gone already, the UI SHALL treat it as deleted.

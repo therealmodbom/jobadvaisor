@@ -43,7 +43,7 @@ None.
 - `posting-pool`: adds „Delete a posting“, „A deleted posting is gone everywhere“, „No delete while scoring or a check runs“, „A paused pass skips a deleted posting“ and „Scores keep naming a deleted example“.
 - `data-repository`: adds „Deletion leaves the repository valid“.
 - `posting-intake`: adds „A deleted posting is no duplicate“.
-- `web-ui`: adds „Delete button in a pool row“, „Delete button on the posting page“, „Delete confirmation“, „Keys and focus in the delete dialog“, „Delete disabled while a pass or a check runs“ and „Delete refused or failed“.
+- `web-ui`: adds „Delete button in a pool row“, „Delete button on the posting page“, „Delete confirmation“, „Keys and focus in the delete dialog“, „Delete disabled while a pass or a check runs“, „Reason beside a disabled delete button“ and „Delete refused or failed“.
 
 ## Impact
 
@@ -51,7 +51,8 @@ None.
   - `data/writer.py`: `delete_posting(root, posting_id)` under `write_gate`.
   - `api/app.py`: `DELETE /postings/{id}`, and `delete_blocked` in `GET /postings/{id}`.
   - `triage/graph.py`: the `score` node skips a posting whose file is gone.
-  - `triage/runs.py` and `availability.py`: a read of whether a run or a check computes.
+  - `triage/runs.py` and `availability.py`: a delete excludes a pass, a single score and a check, and a check claims its slot before it takes its batch.
+  - `data/loader.py`: `write_gate` moves here. `load`, `read_scores` and `pool_state` read under it, so no read sees half a delete.
 - Frontend:
   - `api.ts`, plus a new trash button and confirmation component;
   - `views/PoolView.tsx`: the row button, the reload after a delete, and the shortcut guard for `[role="alertdialog"]`;
