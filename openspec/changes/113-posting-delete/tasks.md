@@ -60,7 +60,7 @@
   - 404 counts as success;
   - the disabled state shows `WhyDisabled` with the reason;
   - axe finds no violation.
-- [ ] 2.2 Put the button into the pool row after `StatusControl`, disabled while `usePass().busy` or a check runs. Reload the pool after a delete, keeping filter, sort and selection rules. Add `[role="alertdialog"]` to the shortcut guard. Verify in `PoolView.test.tsx`:
+- [x] 2.2 Put the button into the pool row after `StatusControl`, disabled while `usePass().busy` or a check runs. Reload the pool after a delete, keeping filter, sort and selection rules. Add `[role="alertdialog"]` to the shortcut guard. Verify in `PoolView.test.tsx`:
   - after a confirmed delete the row is gone and the filters stay;
   - with the dialog open, „1“ rates nothing;
   - during a pass and during a check the button is disabled with the matching reason.

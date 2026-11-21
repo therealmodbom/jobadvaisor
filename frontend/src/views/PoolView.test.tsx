@@ -2628,3 +2628,121 @@ test('the pool with closed rows has no accessibility violations', async () => {
   await titles()
   expect(await axe(container)).toHaveNoViolations()
 })
+
+// --- deleting a posting ------------------------------------------------------------------------
+
+const REASON_SCORING = 'Gerade läuft ein Score-Durchlauf. Löschen geht wieder, wenn er fertig ist.'
+const REASON_CHECK = 'Gerade läuft eine Verfügbarkeitsprüfung. Löschen geht wieder, wenn sie fertig ist.'
+const trash = (title: string) => row(title).getByRole('button', { name: 'Anzeige löschen' })
+
+/** A `GET /pool` answer that drops `gone` once `deleted()` says the delete happened. */
+const afterDelete = (gone: string, deleted: () => boolean) => () => ({
+  body: deleted() ? poolWith({ rows: POOL.rows.filter((entry) => entry.posting_id !== gone) }) : POOL })
+
+test('every row has a trash button right of the status, named "Anzeige löschen"', async () => {
+  stubApi({ 'GET /pool': { body: POOL } })
+  render(<PoolView />)
+  const shown = await titles()
+  const first = row('Data Analyst (m/w/d)')
+  const status = first.getByRole('combobox', { name: /Bewerbungsstatus/ })
+  expect(trash('Data Analyst (m/w/d)')).toBeEnabled()
+  expect(status.compareDocumentPosition(trash('Data Analyst (m/w/d)')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(screen.getAllByRole('button', { name: 'Anzeige löschen' })).toHaveLength(shown.length)
+})
+
+test('after a confirmed delete the row is gone, the pool reloads and the filters stay', async () => {
+  let deleted = false
+  const calls = stubApi({ 'GET /pool': afterDelete('p2', () => deleted),
+                          'DELETE /postings/p2': () => { deleted = true; return { status: 204 } } })
+  render(<PoolView />)
+  await titles()
+  await userEvent.click(screen.getByRole('button', { name: 'Noch nicht bewertet' }))
+  await userEvent.type(screen.getByRole('searchbox', { name: 'Titel oder Firma' }), 'Dat')
+  expect(await titles()).toEqual(['Data Engineer (m/w/d)', 'Datenjournalist (m/w/d)'])
+  await userEvent.click(trash('Data Engineer (m/w/d)'))
+  const dialog = await screen.findByRole('alertdialog', { name: 'Anzeige löschen?' })
+  expect(dialog).toHaveTextContent('Data Engineer (m/w/d) (Nordblatt) wird endgültig gelöscht')
+  await userEvent.click(within(dialog).getByRole('button', { name: 'Endgültig löschen' }))
+  await vi.waitFor(() => expect(screen.queryByRole('heading', { name: 'Data Engineer (m/w/d)' })).toBeNull())
+  expect(await titles()).toEqual(['Datenjournalist (m/w/d)'])
+  expect(screen.getByRole('button', { name: 'Noch nicht bewertet' })).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.getByRole('searchbox', { name: 'Titel oder Firma' })).toHaveValue('Dat')
+  expect(calls.filter((call) => call.method === 'DELETE').map((call) => call.path)).toEqual(['/postings/p2'])
+  await vi.waitFor(() => expect(calls.filter((call) => call.path === '/pool')).toHaveLength(2))
+  expect(screen.queryByRole('alertdialog')).toBeNull()
+})
+
+test('the deleted row leaves at once, also when the reload fails', async () => {
+  let deleted = false
+  stubApi({ 'GET /pool': () => (deleted ? { status: 500, body: { error: 'internal error', detail: 'x' } } : { body: POOL }),
+            'DELETE /postings/p2': () => { deleted = true; return { status: 204 } } })
+  render(<PoolView />)
+  await titles()
+  await userEvent.click(trash('Data Engineer (m/w/d)'))
+  await userEvent.click(await screen.findByRole('button', { name: 'Endgültig löschen' }))
+  await vi.waitFor(() => expect(screen.queryByRole('heading', { name: 'Data Engineer (m/w/d)' })).toBeNull())
+  expect(await screen.findByText(/konnten nicht neu geladen werden/)).toBeVisible()
+})
+
+test('deleting the selected row moves the selection to the next row', async () => {
+  let deleted = false
+  stubApi({ 'GET /pool': afterDelete('p3', () => deleted),
+            'DELETE /postings/p3': () => { deleted = true; return { status: 204 } } })
+  render(<PoolView />)
+  await titles()
+  await userEvent.click(screen.getByRole('heading', { name: 'Datenjournalist (m/w/d)' }).closest('li')!)
+  expect(document.getElementById('note-p3')).not.toBeNull()
+  await userEvent.click(trash('Datenjournalist (m/w/d)'))
+  await userEvent.click(await screen.findByRole('button', { name: 'Endgültig löschen' }))
+  await vi.waitFor(() => expect(screen.queryByRole('heading', { name: 'Datenjournalist (m/w/d)' })).toBeNull())
+  // Not the first unrated row (p2): the row that followed the deleted one.
+  await vi.waitFor(() => expect(document.getElementById('note-n1')).not.toBeNull())
+  expect(document.getElementById('note-p2')).toBeNull()
+})
+
+test('with the delete dialog open the shortcut keys rate nothing', async () => {
+  const calls = stubApi({ 'GET /pool': { body: POOL } })
+  render(<PoolView />)
+  await titles()
+  await userEvent.click(trash('Data Engineer (m/w/d)'))
+  await screen.findByRole('alertdialog')
+  await userEvent.keyboard('1')
+  await userEvent.keyboard('{Shift>}1{/Shift}')
+  expect(calls.filter((call) => call.method === 'PUT')).toEqual([])
+})
+
+test.each([
+  ['a running pass', () => openRunning(running('scoring', [3, 10])), REASON_SCORING],
+  ['a pass that waits for its answer', () => openQuestion(), REASON_SCORING],
+  ['a running check', () => openCheck(checkState()), REASON_CHECK],
+])('during %s every trash button is disabled and its info icon gives the reason', async (_name, open, reason) => {
+  await open()
+  const buttons = screen.getAllByRole('button', { name: 'Anzeige löschen' })
+  expect(buttons.length).toBeGreaterThan(1)
+  for (const button of buttons) {
+    expect(button).toBeDisabled()
+    expect(button).toHaveAccessibleDescription(reason)
+  }
+  const first = within(screen.getByRole('heading', { name: 'Data Analyst (m/w/d)' }).closest('li')!)
+  act(() => first.getByRole('button', { name: 'Warum ist Löschen nicht möglich?' }).focus())
+  expect(first.getByRole('tooltip')).toHaveTextContent(reason)
+})
+
+test('the trash buttons are enabled again once the check ended', async () => {
+  let current = checkState()
+  await openCheck(() => current)
+  expect(trash('Data Analyst (m/w/d)')).toBeDisabled()
+  current = finished(1)
+  await tick()
+  expect(trash('Data Analyst (m/w/d)')).toBeEnabled()
+  expect(screen.queryByRole('button', { name: 'Warum ist Löschen nicht möglich?' })).toBeNull()
+})
+
+test('the pool with trash buttons and an open delete dialog has no accessibility violations', async () => {
+  stubApi({ 'GET /pool': { body: POOL } })
+  const { container } = render(<PoolView />)
+  await titles()
+  expect(await axe(container)).toHaveNoViolations()
+  await userEvent.click(trash('Data Analyst (m/w/d)'))
+  expect(await axe(await screen.findByRole('alertdialog'))).toHaveNoViolations()
+})
