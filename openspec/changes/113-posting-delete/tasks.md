@@ -71,7 +71,7 @@
 
 ## 3. End to end and docs
 
-- [ ] 3.1 Add an e2e walkthrough over a demo copy. It deletes a rated posting from the pool and an unrated one from its page, each through the dialog. Then:
+- [x] 3.1 Add an e2e walkthrough over a demo copy. It deletes a rated posting from the pool and an unrated one from its page, each through the dialog. Then:
   - both are gone from the pool;
   - the data repository loads;
   - submitting one of the links again stores a new posting;
