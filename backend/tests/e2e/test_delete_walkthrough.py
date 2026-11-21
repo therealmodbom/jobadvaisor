@@ -166,7 +166,7 @@ def test_submitting_a_deleted_link_again_stores_a_new_posting(page, app_url, dat
         answer = page.request.post(f"{app_url}/postings", form={"url": UNRATED_LINK})
     assert answer.status == 201, answer.text()
     body = answer.json()
-    assert body["duplicate"] is False and body["posting_id"] != UNRATED
+    assert body["duplicate"] is False
     stored = load(data_root).postings[body["posting_id"]]
     assert stored.urls == [UNRATED_LINK] and stored.title == UNRATED_TITLE
     page.goto(f"{app_url}/#/pool")

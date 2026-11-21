@@ -411,7 +411,8 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
     def remove_posting(posting_id: str) -> Response:
         """Delete a posting with its rating, score and hand-settled values for good
         (`delete_posting`); answers 204 with no body. The delete takes the checks' lock, then
-        the run slot, then `write_gate`, and holds them only for the delete. `{error, detail}`
+        the run slot, then `write_gate`, and holds them until the delete has run, which may wait
+        for a backup's `git commit` to release `write_gate`. `{error, detail}`
         errors: 404 for an unknown or unsafe ID (also a second delete); 409 `scoring in
         progress` (detail: the pass, or `score:<posting ID>`, that computes) or `check in
         progress` (detail: the check's ID) with nothing changed."""
