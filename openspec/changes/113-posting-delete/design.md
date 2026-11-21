@@ -101,7 +101,7 @@ Rejected: refusing a delete while any pass waits for its answer. `Runs` would ha
   - 409 `scoring in progress` (detail: the run's ID);
   - 409 `check in progress` (detail: the check's ID).
 
-  The delete runs inside `checks.exclusive()`, then inside `runs.exclusive(…)`, and looks up the ID inside both. Both locks are held only for the milliseconds of the delete.
+  The delete runs inside `checks.exclusive()`, then inside `runs.exclusive(…)`, and looks up the ID inside both. Both locks are held until the delete has run, which can first wait for a backup's commit to release `write_gate`.
 - `GET /postings/{id}` adds `delete_blocked: "scoring" | "check" | null`. It is `"scoring"` while the slot is held and `"check"` while a check runs. A paused pass does not count (D3).
 - `GET /pool` is unchanged. The pool view derives the blocked state from its own pass and check state.
 
@@ -117,14 +117,14 @@ The look follows the Design artifact https://claude.ai/artifact/TauRa8AUApTexoFi
   - title „Anzeige löschen?“;
   - text „**Titel** (Firma) wird endgültig gelöscht, mit ihrem Score.“;
   - for a rated posting with a strength, „Du hast sie mit **„<level label>“** bewertet. Die Bewertung geht mit verloren und zählt danach nicht mehr als Beispiel fürs Scoren.“ The label comes from `LEVELS`. A verdict without a strength (an imported label) reads „Ja“ or „Nein“. A label without a verdict (`imported_not_preference`) adds no rating line.
-  - buttons „Abbrechen“ (outline, initial focus via `onOpenAutoFocus`) and „Endgültig löschen“ (filled `danger`, with the trash icon).
+  - buttons „Abbrechen“ (outline, initial focus, the `AlertDialog` default for its cancel button) and „Endgültig löschen“ (filled `danger`, with the trash icon).
 
   While the request runs, „Endgültig löschen“ is `aria-disabled` and a ref blocks a second send.
   - A 409 shows the matching reason in a `role="alert"` line in the dialog. The dialog stays open.
   - Any other failure shows „Löschen hat nicht geklappt. Versuch es noch einmal.“, and the button stays usable.
   - A 404 counts as success.
-- **Pool row:** the button sits after `StatusControl`, with `mt-6` so it lines up with the select (the select has a label above it). On success `PoolView` reloads `GET /pool` (counter, `next_pass` and `next_check` change too) and keeps its filters, sort and scroll position. If the deleted row was selected, the selection moves to the next row, as it does after a rating.
-- **Posting page:** the button sits after `AvailabilityControl`, with `mt-6`. „Bearbeiten“ grows from `size="sm"` (32 px) to the default height (44 px, `h-11`), like the selects (`min-h-11`). Widths stay as they are. On success the page sets `location.hash = '#/pool'`. The pool view reloads when it becomes active.
+- **Pool row:** the button sits after `StatusControl`, with `mt-6` so it lines up with the select (the select has a label above it). On success `PoolView` reloads `GET /pool` (counter, `next_pass` and `next_check` change too) and keeps its filters, sort and scroll position. If the deleted row was selected, the selection moves to the next row, as it does after a rating, and the focus follows it (the trigger row is gone, so the dialog's own focus return is skipped).
+- **Posting page:** the button sits after `AvailabilityControl`, with `mt-6`. „Bearbeiten“ grows from `size="sm"` (32 px) to the default height (44 px, `h-11`), like the selects (`min-h-11`). Widths stay as they are. While `delete_blocked` is not `null`, the page re-reads `GET /postings/{id}` every second (`POLL_MS`) and takes only `delete_blocked` from the answer, so the button comes back when the pass or check ends. On success the page sets `location.hash = '#/pool'`. The pool view reloads when it becomes active.
 - **Shortcut guard:** `PoolView`'s key handler also skips targets inside `[role="alertdialog"]`. The Radix dialog renders in a portal outside the row, so the guard must match on the dialog role, not on the row.
 
 ## Risks / Trade-offs

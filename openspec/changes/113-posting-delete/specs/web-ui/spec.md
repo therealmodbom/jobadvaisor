@@ -7,7 +7,7 @@ Each pool row SHALL hold a delete button right of „Bewerbungsstatus“. The bu
 
 #### Scenario: Delete from the pool
 - **WHEN** the user presses the trash button of a row and confirms
-- **THEN** the row disappears and the view stays where it was, with its filters and sort kept
+- **THEN** the row disappears and the view stays where it was, with its filters and sort kept, and the focus moves to the row selected next
 
 ### Requirement: Delete button on the posting page
 The posting page SHALL hold the same delete button in the head row under the title, after „Verfügbarkeit“. On that row „Bearbeiten“, the „Bewerbungsstatus“ select, the „Verfügbarkeit“ select and the delete button SHALL be equally high. After a confirmed delete the app SHALL return to the pool.
@@ -43,7 +43,7 @@ Every delete SHALL ask first, in a modal dialog titled „Anzeige löschen?“. 
 - **THEN** the app sends one delete
 
 ### Requirement: Delete disabled while a pass or a check runs
-In the pool view the delete buttons SHALL be disabled while the view's scoring pass runs or waits for its answer about unscreened postings, and while an availability check runs. On the posting page the button SHALL be disabled when, as the page loads, a pass or a single score computes or a check runs.
+In the pool view the delete buttons SHALL be disabled while the view's scoring pass runs or waits for its answer about unscreened postings, and while an availability check runs. On the posting page the button SHALL be disabled while a pass or a single score computes or a check runs, read as the page loads and again every second while the button is disabled.
 
 #### Scenario: Pool during a pass
 - **WHEN** a pass runs and the user looks at a pool row
@@ -52,6 +52,10 @@ In the pool view the delete buttons SHALL be disabled while the view's scoring p
 #### Scenario: Posting page during a check
 - **WHEN** an availability check runs and the user opens a posting's page
 - **THEN** its trash button is disabled, and the info icon beside it names the running check
+
+#### Scenario: Posting page after the check
+- **WHEN** the check ends while the user stays on a posting's page with a disabled trash button
+- **THEN** the button becomes usable without a page reload
 
 ### Requirement: Reason beside a disabled delete button
 A visible, focusable info icon beside each disabled delete button SHALL give the reason: „Gerade läuft ein Score-Durchlauf. Löschen geht wieder, wenn er fertig ist.“ or „Gerade läuft eine Verfügbarkeitsprüfung. Löschen geht wieder, wenn sie fertig ist.“ The reason SHALL show on hover and on keyboard focus and reach screen readers.
