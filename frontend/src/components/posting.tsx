@@ -138,7 +138,8 @@ function levelText(label: Label | null): string | null {
  * "Abbrechen" has the focus on open; Escape closes it without a request, but not while one runs. "Endgültig löschen" sends
  * one `DELETE` however often it is pressed. A 409 shows the matching reason in the dialog, which
  * stays open; any other failure says so and the button stays usable; a 404 (already gone) counts
- * as deleted. After a delete the dialog closes and `onDeleted` runs. */
+ * as deleted. After a delete the dialog closes without handing focus back (the trigger is gone;
+ * `onDeleted` places it) and `onDeleted` runs. */
 export function DeleteDialog({ row, onDeleted, children }: {
   row: Pick<PoolRow, 'posting_id' | 'title' | 'company' | 'label'>
   onDeleted: () => void
@@ -149,6 +150,9 @@ export function DeleteDialog({ row, onDeleted, children }: {
   const [problem, setProblem] = useState<string | null>(null)
   /** Blocks a second request in the same tick, before `sending` has rendered. */
   const guard = useRef(false)
+  /** Set once the delete went through: the trigger is gone then, so the close must not move focus
+   * (`onDeleted` places it). */
+  const deleted = useRef(false)
   const level = levelText(row.label)
 
   async function remove() {
@@ -168,6 +172,7 @@ export function DeleteDialog({ row, onDeleted, children }: {
       }
     }
     guard.current = false
+    deleted.current = true
     setSending(false)
     setOpen(false)
     onDeleted()
@@ -184,7 +189,7 @@ export function DeleteDialog({ row, onDeleted, children }: {
       <AlertDialog.Trigger asChild>{children}</AlertDialog.Trigger>
       <AlertDialog.Portal>
         <AlertDialog.Overlay className="fixed inset-0 z-50 bg-foreground/40" />
-        <AlertDialog.Content
+        <AlertDialog.Content onCloseAutoFocus={(event) => { if (deleted.current) event.preventDefault() }}
           className="fixed top-1/2 left-1/2 z-50 flex w-[min(440px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col gap-4 rounded-xl border bg-card p-6 shadow-card">
           <AlertDialog.Title className="text-xl font-bold">Anzeige löschen?</AlertDialog.Title>
           <AlertDialog.Description asChild>

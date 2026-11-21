@@ -664,15 +664,20 @@ export function PoolView({ active = true, reloadKey = 0 }: { active?: boolean; r
    * (running or waiting for its answer). */
   const deleteBlocked: DeleteBlock | null = check.running ? 'check' : busy ? 'scoring' : null
   /** A confirmed delete of `id`: the row leaves at once (the reload may fail), the selection moves
-   * to the next row (the previous one at the end) when `id` was selected, and the pool reloads for
+   * to the next row (the previous one at the end) when `id` was selected, the selected row takes
+   * focus (the dialog's close does not hand it back, see `DeleteDialog`), and the pool reloads for
    * the counter and the pass and check figures. Filters and sort stay. */
   function deleted(id: string) {
     // The request took a while, so read the rows and the selection as they are now, not as of the click.
     const { shown, current } = latestView.current
+    let next = current
     if (id === current) {
       const at = shown.findIndex((row) => row.posting_id === id)
-      setSelected((shown[at + 1] ?? shown[at - 1])?.posting_id ?? null)
+      next = (shown[at + 1] ?? shown[at - 1])?.posting_id
+      setSelected(next ?? null)
     }
+    // The trigger row unmounts with the dialog, so focus would drop to the body; the selected row takes it.
+    if (next && next !== id) setFocusRequest({ id: next, target: 'row' })
     setPool((now) => now && { ...now, rows: now.rows.filter((row) => row.posting_id !== id) })
     load()
   }

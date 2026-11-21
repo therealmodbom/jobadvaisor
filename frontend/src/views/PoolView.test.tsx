@@ -2700,6 +2700,31 @@ test('deleting the selected row moves the selection to the next row', async () =
   expect(document.getElementById('note-p2')).toBeNull()
 })
 
+test('after a confirmed delete focus moves to the newly selected row, not to the body', async () => {
+  let deleted = false
+  stubApi({ 'GET /pool': afterDelete('p3', () => deleted),
+            'DELETE /postings/p3': () => { deleted = true; return { status: 204 } } })
+  render(<PoolView />)
+  await titles()
+  await userEvent.click(screen.getByRole('heading', { name: 'Datenjournalist (m/w/d)' }).closest('li')!)
+  await userEvent.click(trash('Datenjournalist (m/w/d)'))
+  await userEvent.click(await screen.findByRole('button', { name: 'Endgültig löschen' }))
+  await vi.waitFor(() => expect(screen.queryByRole('heading', { name: 'Datenjournalist (m/w/d)' })).toBeNull())
+  await vi.waitFor(() => expect(document.getElementById('row-n1')).toContainElement(document.activeElement as HTMLElement))
+  // Radix hands focus back on a timer after the close; it must not take it from the row.
+  await new Promise((resolve) => setTimeout(resolve, 50))
+  expect(document.getElementById('row-n1')).toContainElement(document.activeElement as HTMLElement)
+})
+
+test('Abbrechen gives focus back to the trash button', async () => {
+  stubApi({ 'GET /pool': { body: POOL } })
+  render(<PoolView />)
+  await titles()
+  await userEvent.click(trash('Datenjournalist (m/w/d)'))
+  await userEvent.click(await screen.findByRole('button', { name: 'Abbrechen' }))
+  await vi.waitFor(() => expect(trash('Datenjournalist (m/w/d)')).toHaveFocus())
+})
+
 test('the next row is the neighbour in the order as it is when the delete answers, not at the click', async () => {
   let deleted = false
   let finish: (reply: { status: number }) => void = () => {}
