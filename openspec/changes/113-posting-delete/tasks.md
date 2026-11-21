@@ -50,7 +50,7 @@
 
 ## 2. Frontend
 
-- [ ] 2.1 Add `DeleteButton` and `DeleteDialog` in `components/posting.tsx`, and the `DELETE` call in `api.ts` (D5). Verify with component tests:
+- [x] 2.1 Add `DeleteButton` and `DeleteDialog` in `components/posting.tsx`, and the `DELETE` call in `api.ts` (D5). Verify with component tests:
   - the dialog names title and company, and for a rated posting the level label;
   - „Abbrechen“ has the focus on open;
   - Escape closes the dialog without a request;

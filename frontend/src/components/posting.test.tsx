@@ -1,12 +1,12 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, expect, test, vi } from 'vitest'
 import type { PoolRow, ScoreAnswer } from '@/api'
 import { useScore } from '@/lib/score'
 import { axe } from '@/test-axe'
 import { pending, stubApi } from '@/test-api'
-import { row } from '@/test-fixtures'
-import { ScoreButton, ScoreProblem } from './posting'
+import { label, row } from '@/test-fixtures'
+import { DeleteButton, ScoreButton, ScoreProblem } from './posting'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -170,4 +170,143 @@ test('the reason shows on hover and on focus of the info icon and Escape hides i
 test('the disabled button with its info icon has no accessibility violations', async () => {
   const { container } = render(<Harness posting={row('e', 'X', { state: 'excluded', score: null, rules: ['nur-vor-ort'] })} />)
   expect(await axe(container)).toHaveNoViolations()
+})
+
+// --- DeleteButton and DeleteDialog ---------------------------------------------------------
+
+const unrated = row('d1', 'Data Analyst (m/w/d)', { label: null })
+const REASON_SCORING = 'Gerade läuft ein Score-Durchlauf. Löschen geht wieder, wenn er fertig ist.'
+const REASON_CHECK = 'Gerade läuft eine Verfügbarkeitsprüfung. Löschen geht wieder, wenn sie fertig ist.'
+const RETRY = 'Löschen hat nicht geklappt. Versuch es noch einmal.'
+
+/** Open the dialog of the delete button of `posting`. */
+async function openDialog(posting: PoolRow = unrated, onDeleted = vi.fn()) {
+  render(<DeleteButton row={posting} blocked={null} onDeleted={onDeleted} />)
+  await userEvent.click(screen.getByRole('button', { name: 'Anzeige löschen' }))
+  return { dialog: await screen.findByRole('alertdialog', { name: 'Anzeige löschen?' }), onDeleted }
+}
+const confirm = () => screen.getByRole('button', { name: 'Endgültig löschen' })
+
+test('the dialog names title and company and says the delete is for good, with the score', async () => {
+  const { dialog } = await openDialog()
+  expect(dialog).toHaveTextContent('Data Analyst (m/w/d) (Grünwerk Solar) wird endgültig gelöscht, mit ihrem Score.')
+  expect(dialog).not.toHaveTextContent('bewertet')
+})
+
+test.each([
+  ['a rated posting names the level', label('positive', [], 'strong'), 'Ja, auf jeden Fall'],
+  ['a weak negative one too', label('negative', [], 'weak'), 'Nein, eher nicht'],
+  ['a verdict without a strength reads Ja', label('positive'), 'Ja'],
+  ['a verdict without a strength reads Nein', label('negative'), 'Nein'],
+])('%s', async (_name, rating, level) => {
+  const { dialog } = await openDialog(row('d1', 'Data Analyst (m/w/d)', { label: rating }))
+  expect(dialog).toHaveTextContent(`Du hast sie mit „${level}“ bewertet. Die Bewertung geht mit verloren und zählt danach nicht mehr als Beispiel fürs Scoren.`)
+})
+
+test('an imported label without a verdict adds no rating line', async () => {
+  const { dialog } = await openDialog(row('d1', 'Data Analyst (m/w/d)', { label: label(null) }))
+  expect(dialog).not.toHaveTextContent('bewertet')
+})
+
+test('"Abbrechen" has the focus when the dialog opens', async () => {
+  await openDialog()
+  expect(screen.getByRole('button', { name: 'Abbrechen' })).toHaveFocus()
+})
+
+test.each([['Escape', '{Escape}'], ['"Abbrechen"', null]])('%s closes the dialog without a request and returns focus', async (_name, key) => {
+  const calls = stubApi({})
+  const { onDeleted } = await openDialog()
+  if (key) await userEvent.keyboard(key)
+  else await userEvent.click(screen.getByRole('button', { name: 'Abbrechen' }))
+  await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+  expect(calls.filter((call) => call.method === 'DELETE')).toEqual([])
+  expect(onDeleted).not.toHaveBeenCalled()
+  expect(screen.getByRole('button', { name: 'Anzeige löschen' })).toHaveFocus()
+})
+
+test('a confirmed delete sends one DELETE, closes the dialog and reports it', async () => {
+  const calls = stubApi({ 'DELETE /postings/d1': { status: 204 } })
+  const { onDeleted } = await openDialog()
+  await userEvent.click(confirm())
+  await waitFor(() => expect(onDeleted).toHaveBeenCalledOnce())
+  expect(calls.filter((call) => call.method === 'DELETE').map((call) => call.path)).toEqual(['/postings/d1'])
+  expect(screen.queryByRole('alertdialog')).toBeNull()
+})
+
+test('a double press sends one request', async () => {
+  const calls = stubApi({ 'DELETE /postings/d1': pending })
+  await openDialog()
+  await userEvent.dblClick(confirm())
+  await userEvent.click(confirm())
+  expect(calls.filter((call) => call.method === 'DELETE')).toHaveLength(1)
+  expect(confirm()).toHaveAttribute('aria-disabled', 'true')
+})
+
+test.each([
+  ['scoring in progress', REASON_SCORING],
+  ['check in progress', REASON_CHECK],
+])('a 409 "%s" shows the reason and keeps the dialog open', async (error, reason) => {
+  stubApi({ 'DELETE /postings/d1': { status: 409, body: { error, detail: 'r1' } } })
+  const { onDeleted } = await openDialog()
+  await userEvent.click(confirm())
+  expect(await screen.findByRole('alert')).toHaveTextContent(reason)
+  expect(screen.getByRole('alertdialog')).toBeVisible()
+  expect(onDeleted).not.toHaveBeenCalled()
+})
+
+test('a 500 shows the retry message, and the next press sends again', async () => {
+  let fail = true
+  const calls = stubApi({ 'DELETE /postings/d1': () => (fail ? { status: 500, body: { error: 'internal error', detail: 'x' } } : { status: 204 }) })
+  const { onDeleted } = await openDialog()
+  await userEvent.click(confirm())
+  expect(await screen.findByRole('alert')).toHaveTextContent(RETRY)
+  expect(confirm()).not.toHaveAttribute('aria-disabled')
+  fail = false
+  await userEvent.click(confirm())
+  await waitFor(() => expect(onDeleted).toHaveBeenCalledOnce())
+  expect(calls.filter((call) => call.method === 'DELETE')).toHaveLength(2)
+})
+
+test('an unreachable server shows the retry message', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('offline') }))
+  await openDialog()
+  await userEvent.click(confirm())
+  expect(await screen.findByRole('alert')).toHaveTextContent(RETRY)
+})
+
+test('a 404 counts as success', async () => {
+  stubApi({ 'DELETE /postings/d1': { status: 404, body: { error: 'not found', detail: 'd1' } } })
+  const { onDeleted } = await openDialog()
+  await userEvent.click(confirm())
+  await waitFor(() => expect(onDeleted).toHaveBeenCalledOnce())
+  expect(screen.queryByRole('alert')).toBeNull()
+})
+
+test.each([['scoring', REASON_SCORING], ['check', REASON_CHECK]] as const)(
+  'blocked by %s: the button is disabled, opens nothing and the info icon gives the reason', async (blocked, reason) => {
+    render(<DeleteButton row={unrated} blocked={blocked} onDeleted={vi.fn()} />)
+    const button = screen.getByRole('button', { name: 'Anzeige löschen' })
+    expect(button).toBeDisabled()
+    expect(button).toHaveAccessibleDescription(reason)
+    const info = screen.getByRole('button', { name: 'Warum ist Löschen nicht möglich?' })
+    expect(info).toHaveAccessibleDescription(reason)
+    await userEvent.tab()
+    expect(info).toHaveFocus()
+    expect(screen.getByRole('tooltip')).toHaveTextContent(reason)
+    expect(screen.getByRole('tooltip')).toBeVisible()
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+  })
+
+test('an enabled button has no info icon', () => {
+  render(<DeleteButton row={unrated} blocked={null} onDeleted={vi.fn()} />)
+  expect(screen.queryByRole('button', { name: 'Warum ist Löschen nicht möglich?' })).toBeNull()
+})
+
+test('the button, its disabled state and the open dialog have no accessibility violations', async () => {
+  const { container, rerender } = render(<DeleteButton row={unrated} blocked="check" onDeleted={vi.fn()} />)
+  expect(await axe(container)).toHaveNoViolations()
+  rerender(<DeleteButton row={row('d1', 'Data Analyst (m/w/d)', { label: label('positive', [], 'strong') })} blocked={null} onDeleted={vi.fn()} />)
+  await userEvent.click(screen.getByRole('button', { name: 'Anzeige löschen' }))
+  await screen.findByRole('alertdialog')
+  expect(await axe(document.body)).toHaveNoViolations()
 })

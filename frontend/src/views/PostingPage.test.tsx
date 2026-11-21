@@ -20,7 +20,7 @@ const page = (changes: Partial<PostingPageData> = {}): PostingPageData => ({
   posting,
   score: { score: 8, reasoning: 'Viel SQL, passt zu deinen Beispielen.', example_ids: ['ex1'], scored_at: '2026-10-13T08:00:00+00:00' },
   examples: [{ posting_id: 'ex1', title: 'Analyst Energie', company: 'Nordblatt' }],
-  checkable: true, reason_chips: POOL.reason_chips, screening: true, ...changes,
+  checkable: true, reason_chips: POOL.reason_chips, screening: true, delete_blocked: null, ...changes,
 })
 
 test('shows heading, text, original link, score with reasoning, examples, rating, status and no origin', async () => {

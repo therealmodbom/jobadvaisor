@@ -32,8 +32,10 @@ export function stubApi(routes: Record<string, Answer | ((call: Call) => Answer)
     const route = routes[`${method} ${path}`]
     if (!route) throw new Error(`unrouted request ${method} ${path}`)
     const answer = await (typeof route === 'function' ? route(call) : route)
-    return new Response(JSON.stringify(answer.body ?? {}), {
-      status: answer.status ?? 200, headers: { 'Content-Type': 'application/json' },
+    const status = answer.status ?? 200
+    // A 204 has no body; `Response` refuses to carry one.
+    return new Response(status === 204 ? null : JSON.stringify(answer.body ?? {}), {
+      status, headers: { 'Content-Type': 'application/json' },
     })
   }))
   return calls

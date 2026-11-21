@@ -47,8 +47,8 @@ function LoadedPage({ postingId }: { postingId: string }) {
   useEffect(load, [load])
 
   /** A score from the button replaces the page's data (the counter and next-pass figures are the pool's). */
-  const score = useScore(({ row, posting, score, examples, checkable, reason_chips, screening }: ScoreAnswer) =>
-    setData({ row, posting, score, examples, checkable, reason_chips, screening }), load)
+  const score = useScore(({ row, posting, score, examples, checkable, reason_chips, screening, delete_blocked }: ScoreAnswer) =>
+    setData({ row, posting, score, examples, checkable, reason_chips, screening, delete_blocked }), load)
 
   const title = data?.posting.title
   useEffect(() => {

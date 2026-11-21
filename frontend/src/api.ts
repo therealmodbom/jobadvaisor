@@ -173,6 +173,13 @@ export type RatingAnswer = { row: PoolRow; counter: Counter; next_pass: NextPass
 export const putRating = (postingId: string, body: RatingBody) =>
   api<RatingAnswer>(`/postings/${encodeURIComponent(postingId)}/rating`, { method: 'PUT', json: body })
 
+/** Deletes a posting for good (`DELETE /postings/{id}`, 204 without a body). Rejects with
+ * `ApiError`: 404 unknown posting (already gone); 409 with `error` `scoring in progress` or
+ * `check in progress` while a pass, a single score or an availability check runs; 500 or 0
+ * (unreachable) otherwise. */
+export const deletePosting = (postingId: string) =>
+  api<void>(`/postings/${encodeURIComponent(postingId)}`, { method: 'DELETE' })
+
 /** `GET /postings/{id}`: the posting's pool row, the stored posting, its score (null without
  * one), the compared examples that still exist, the reason chips and `screening` (a content-guard
  * classifier is configured). */
@@ -186,6 +193,9 @@ export type PostingPageData = {
   checkable: boolean
   reason_chips: ReasonChip[]
   screening: boolean
+  /** Why a delete would be refused as the page loaded: a pass or single score computes
+   * (`scoring`), an availability check runs (`check`), or neither (`null`). */
+  delete_blocked: 'scoring' | 'check' | null
 }
 
 /** The answer of a single score: the posting page as `GET /postings/{id}` has it, plus the
