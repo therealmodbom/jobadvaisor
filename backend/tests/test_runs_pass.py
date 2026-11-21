@@ -95,6 +95,38 @@ def test_a_cancel_during_the_first_score_stops_after_that_posting(tmp_path):
     assert read_pool(blocking.root).passes[0].scored == 1
 
 
+def test_exclusive_is_busy_while_a_pass_computes_and_names_it(blocking):
+    run_id = blocking.start_and_wait_for_the_block()
+    with pytest.raises(RunBusyError) as busy:
+        with blocking.runs.exclusive("delete:p1"):
+            pytest.fail("the block ran beside a pass")
+    assert busy.value.run_id == run_id
+    blocking.gate.set()
+    blocking.settle()
+    with blocking.runs.exclusive("delete:p1"):  # free again
+        pass
+
+
+def test_a_pass_started_while_exclusive_holds_the_slot_is_busy(blocking):
+    with blocking.runs.exclusive("delete:p1"):
+        with pytest.raises(RunBusyError) as busy:
+            blocking.runs.start()
+        assert busy.value.run_id == "delete:p1"
+        assert blocking.runs._cancelled == set()
+    blocking.gate.set()
+    assert blocking.runs.start()  # the slot is free again
+    blocking.settle()
+
+
+def test_the_slot_is_free_again_after_an_exception_inside_exclusive(blocking):
+    with pytest.raises(ZeroDivisionError):
+        with blocking.runs.exclusive("delete:p1"):
+            1 / 0
+    blocking.gate.set()
+    assert blocking.runs.start()
+    blocking.settle()
+
+
 def test_a_pass_resumed_with_the_answer_is_cancelled_too(tmp_path):
     blocking = Blocking(tmp_path, unscreened=True, block_at=2)
     run_id = blocking.runs.start()

@@ -26,7 +26,7 @@
   - a `DELETE` started from another thread while one of these requests holds the gate waits until the request has answered;
   - a request arriving after the delete answers 404 for each of the four, with no file written;
   - `POST …/score` answers 404 when the posting is deleted between `runs.score` and the answer (spec: Delete a posting → Edit after a delete).
-- [ ] 1.4 Add `Runs.exclusive(name)`, `AvailabilityChecks.exclusive()` and `AvailabilityChecks.running()`, and make `start` claim before it loads its batch (D2). Verify with unit tests:
+- [x] 1.4 Add `Runs.exclusive(name)`, `AvailabilityChecks.exclusive()` and `AvailabilityChecks.running()`, and make `start` claim before it loads its batch (D2). Verify with unit tests:
   - `Runs.exclusive` raises `RunBusyError` while a pass or a single score computes;
   - a pass started while `Runs.exclusive` holds the slot raises `RunBusyError`;
   - the slot is free again after an exception inside the block;

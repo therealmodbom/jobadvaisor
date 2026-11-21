@@ -21,9 +21,9 @@ from jobadvaisor.availability import (
     check_posting,
     checkable,
 )
-from jobadvaisor.data.loader import load
+from jobadvaisor.data.loader import DataRepositoryError, load
 from jobadvaisor.data.models import ClosedRule, Posting
-from jobadvaisor.data.writer import read_posting, update_posting
+from jobadvaisor.data.writer import delete_posting, read_posting, update_posting
 from jobadvaisor.intake import fetch
 from jobadvaisor.intake.company_facts import Throttle
 
@@ -532,3 +532,101 @@ def test_cancelling_an_ended_or_unknown_check_is_refused(root):
         checks.cancel(check_id)
     with pytest.raises(KeyError):
         checks.cancel("nope")
+
+
+# --- exclusive and running: what a delete needs of the checks (`113-posting-delete` D2)
+
+def blocked_check(root, *posting_ids: str):
+    """Postings `posting_ids` with a link each, and a check over them that waits inside its
+    first request; returns `(checks, check_id, release)` once it has entered."""
+    for posting_id in posting_ids:
+        add_posting(root, posting_id, f"Engineer {posting_id}",
+                    urls=[f"https://{posting_id}.example.org/1"])
+    release, entered = threading.Event(), threading.Event()
+    site = Site()
+    site.on_request = lambda url: (entered.set(), release.wait(30))
+    checks = AvailabilityChecks(root, http=site.client, throttle=Clock().throttle())
+    check_id = checks.start()
+    assert entered.wait(10)
+    return checks, check_id, release
+
+
+def test_exclusive_is_refused_while_a_check_computes_and_running_names_it(root):
+    checks, check_id, release = blocked_check(root, "p1")
+    assert checks.running() == check_id
+    with pytest.raises(CheckBusyError) as refused:
+        with checks.exclusive():
+            pytest.fail("the block ran beside a running check")
+    assert refused.value.check_id == check_id
+    release.set()
+    assert finished(checks, check_id)["status"] == "done"
+    assert checks.running() is None
+    with checks.exclusive():  # free again
+        pass
+
+
+def test_running_is_none_while_no_check_computes(root):
+    assert AvailabilityChecks(root).running() is None
+
+
+def test_a_check_started_inside_exclusive_waits_and_leaves_out_a_posting_deleted_there(root):
+    for posting_id in ("p1", "p2"):
+        add_posting(root, posting_id, f"Engineer {posting_id}",
+                    urls=[f"https://{posting_id}.example.org/1"])
+    checks = AvailabilityChecks(root, http=Site().client, throttle=Clock().throttle())
+    started: list[str] = []
+    starter = threading.Thread(target=lambda: started.append(checks.start()))
+    with checks.exclusive():
+        starter.start()
+        starter.join(0.3)
+        assert starter.is_alive() and not started  # it waits for the block to end
+        delete_posting(root, "p2")
+    starter.join(10)
+    state = finished(checks, started[0])
+    assert (state["status"], state["total"], state["done"]) == ("done", 1, 1)
+    assert checks.read(started[0])["counts"]["available"] == 1
+
+
+def test_the_lock_is_free_again_after_an_exception_inside_exclusive(root):
+    checks = AvailabilityChecks(root, http=Site().client, throttle=Clock().throttle())
+    with pytest.raises(ZeroDivisionError):
+        with checks.exclusive():
+            1 / 0
+    assert finished(checks, checks.start())["status"] == "done"
+
+
+def test_a_failed_load_in_start_frees_the_claim(root):
+    write_json(root / "postings/broken.json", {"schema_version": "1"})
+    checks = AvailabilityChecks(root, http=Site().client, throttle=Clock().throttle())
+    with pytest.raises(DataRepositoryError):
+        checks.start()
+    assert checks.running() is None
+    (root / "postings/broken.json").unlink()
+    assert finished(checks, checks.start())["status"] == "done"
+
+
+def test_a_second_start_while_the_first_loads_is_refused(root, monkeypatch):
+    """`start` claims before it loads, so a delete or a second check cannot slip into the gap."""
+    add_posting(root, "p1", "Engineer 1", urls=[JOB])
+    loading, release = threading.Event(), threading.Event()
+    real = availability_module.load
+
+    def slow_load(location):
+        loading.set()
+        assert release.wait(10)
+        return real(location)
+
+    monkeypatch.setattr(availability_module, "load", slow_load)
+    checks = AvailabilityChecks(root, http=Site().client, throttle=Clock().throttle())
+    started: list[str] = []
+    starter = threading.Thread(target=lambda: started.append(checks.start()))
+    starter.start()
+    assert loading.wait(10)
+    with pytest.raises(CheckBusyError):
+        checks.start()
+    with pytest.raises(CheckBusyError):
+        with checks.exclusive():
+            pass
+    release.set()
+    starter.join(10)
+    assert finished(checks, started[0])["status"] == "done"

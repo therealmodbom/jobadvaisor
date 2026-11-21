@@ -6,7 +6,9 @@ restart forgets it), like the alert-mail runs."""
 import threading
 import uuid
 from collections import deque
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -144,29 +146,49 @@ class AvailabilityChecks:
     def start(self) -> str:
         """Check the postings `check_batch` names in the background and return the check's ID at
         once; `read` reports its `total`. Raises `CheckBusyError` while another check computes,
-        `DataRepositoryError` when the data repository does not load."""
-        repository = load(self._root)
-        walled = login_wall_hosts(repository.policy_pack)
-        batch = _round_robin([(i, repository.postings[i]) for i in check_batch(repository)],
-                             walled)
+        `DataRepositoryError` when the data repository does not load. The check is claimed
+        before the batch is loaded and released again if that fails, and the lock is free while
+        it loads, so `exclusive` (a delete) either refuses this check or runs first and the
+        batch leaves out what it deleted."""
         check_id = uuid.uuid4().hex
         with self._lock:
             if self._computing:
                 raise CheckBusyError(self._computing)
             self._computing = check_id
-            self._state[check_id] = {
-                "check_id": check_id, "status": "running", "error": None, "total": len(batch),
-                "done": 0, "cancel_requested": False,
-                "counts": {"available": 0, "closed": 0, "unknown": 0}, "still_closed": 0,
-                "closed": []}
         try:
+            repository = load(self._root)
+            walled = login_wall_hosts(repository.policy_pack)
+            batch = _round_robin([(i, repository.postings[i]) for i in check_batch(repository)],
+                                 walled)
+            with self._lock:
+                self._state[check_id] = {
+                    "check_id": check_id, "status": "running", "error": None,
+                    "total": len(batch), "done": 0, "cancel_requested": False,
+                    "counts": {"available": 0, "closed": 0, "unknown": 0}, "still_closed": 0,
+                    "closed": []}
             self._executor.submit(self._run, check_id, batch, repository.policy_pack)
         except Exception:
             with self._lock:
                 self._computing = None
-                del self._state[check_id]
+                self._state.pop(check_id, None)
             raise
         return check_id
+
+    @contextmanager
+    def exclusive(self) -> Iterator[None]:
+        """Hold the checks' lock for the block, so no check starts or ends meanwhile (a posting
+        delete takes it, `113-posting-delete` D2): a `start` waits for the block to end. Raises
+        `CheckBusyError` (naming the check) while one computes. Code in the block must not call
+        another method of this object, which would wait for the lock it holds."""
+        with self._lock:
+            if self._computing:
+                raise CheckBusyError(self._computing)
+            yield
+
+    def running(self) -> str | None:
+        """The ID of the check that computes now, or `None`."""
+        with self._lock:
+            return self._computing
 
     def cancel(self, check_id: str) -> None:
         """Ask the running check to stop; returns at once. The worker reads the request before
