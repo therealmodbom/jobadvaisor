@@ -85,7 +85,7 @@ The look follows the Design artifact https://claude.ai/artifact/TauRa8AUApTexoFi
 - **`DeleteDialog`**, a Radix `AlertDialog`:
   - title „Anzeige löschen?“;
   - text „**Titel** (Firma) wird endgültig gelöscht, mit ihrem Score.“;
-  - for a rated posting with a strength, „Du hast sie mit **„<level label>“** bewertet. Die Bewertung geht mit verloren und zählt danach nicht mehr als Beispiel fürs Scoren.“ The label comes from `LEVELS`. A verdict without a strength reads „Ja“ or „Nein“.
+  - for a rated posting with a strength, „Du hast sie mit **„<level label>“** bewertet. Die Bewertung geht mit verloren und zählt danach nicht mehr als Beispiel fürs Scoren.“ The label comes from `LEVELS`. A verdict without a strength (an imported label) reads „Ja“ or „Nein“. A label without a verdict (`imported_not_preference`) adds no rating line.
   - buttons „Abbrechen“ (outline, initial focus via `onOpenAutoFocus`) and „Endgültig löschen“ (filled `danger`, with the trash icon).
 
   While the request runs, „Endgültig löschen“ is `aria-disabled` and a ref blocks a second send.

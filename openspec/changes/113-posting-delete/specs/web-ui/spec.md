@@ -43,7 +43,7 @@ Every delete SHALL ask first, in a modal dialog titled „Anzeige löschen?“. 
 - **THEN** the app sends one delete
 
 ### Requirement: Delete disabled while a pass or a check runs
-While a scoring pass runs or waits for its answer about unscreened postings, or while an availability check runs, the delete buttons SHALL be disabled. A visible, focusable info icon beside each disabled button SHALL give the reason: „Gerade läuft ein Score-Durchlauf. Löschen geht wieder, wenn er fertig ist.“ or „Gerade läuft eine Verfügbarkeitsprüfung. Löschen geht wieder, wenn sie fertig ist.“ The posting page SHALL take this state from the posting's data when the page loads.
+In the pool view the delete buttons SHALL be disabled while the view's scoring pass runs or waits for its answer about unscreened postings, and while an availability check runs. On the posting page the button SHALL be disabled when, as the page loads, a pass or a single score computes or a check runs. A visible, focusable info icon beside each disabled button SHALL give the reason: „Gerade läuft ein Score-Durchlauf. Löschen geht wieder, wenn er fertig ist.“ or „Gerade läuft eine Verfügbarkeitsprüfung. Löschen geht wieder, wenn sie fertig ist.“
 
 #### Scenario: Pool during a pass
 - **WHEN** a pass runs and the user looks at a pool row
