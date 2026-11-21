@@ -9,7 +9,7 @@ from langchain_core.embeddings import DeterministicFakeEmbedding
 from langgraph.types import Command
 
 from jobadvaisor.data.loader import load
-from jobadvaisor.data.writer import read_pool, read_score, update_posting
+from jobadvaisor.data.writer import delete_posting, read_pool, read_score, update_posting
 from jobadvaisor.index import LabelIndex
 from jobadvaisor.pool import counter
 from jobadvaisor.tools.guard import ContentGuard
@@ -242,12 +242,18 @@ def test_screening_turned_on_while_paused_screens_before_scoring(screening_off):
     assert "Unscreened Engineer" not in screening_off.model_prompts()
 
 
-def test_posting_deleted_while_paused_fails_alone(screening_off):
+def test_a_posting_deleted_while_the_pass_waits_is_skipped_and_leaves_the_total(screening_off):
     screening_off.start("run-1")
-    (screening_off.root / "postings/unscreened.json").unlink()
+    delete_posting(screening_off.root, "unscreened")
     results = screening_off.resume("run-1", True)["results"]
-    assert results["unscreened"]["status"] == "failed"
+    assert results["unscreened"] == {"status": "deleted"}
     assert results["clean"]["status"] == "scored"
+    assert [r["status"] for r in results.values()].count("failed") == 0
+    assert len(screening_off.judge.calls) == 1 and "Unscreened Engineer" not in \
+        screening_off.model_prompts()
+    assert not (screening_off.root / "scores/unscreened.json").exists()
+    assert screening_off.reports[-2:] == [report("scoring", (1, 1)), report("storing", (1, 1))]
+    assert read_pool(screening_off.root).passes[-1].scored == 1
 
 
 def test_abort_ends_the_run_without_any_model_call_or_stored_score(screening_off):

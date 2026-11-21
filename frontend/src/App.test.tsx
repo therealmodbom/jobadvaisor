@@ -89,6 +89,25 @@ test('a posting route shows the page with the decoded ID and keeps Anzeigen curr
   expect(screen.queryByText('Diese Anzeige gibt es nicht (mehr).')).toBeNull()
 })
 
+test('deleting a posting from its page returns to a pool that no longer lists it', async () => {
+  let deleted = false
+  stubApi({
+    'GET /pool': () => ({ body: { ...POOL, rows: POOL.rows.filter((entry) => !(deleted && entry.posting_id === 'p1')) } }),
+    'GET /postings/p1': { body: { row: POOL.rows[0], posting: { title: 'Data Analyst (m/w/d)', company: 'Grünwerk Solar', location_raw: 'Kiel',
+      source_type: 'url', urls: [], text: 'Text' }, score: null, examples: [], checkable: true,
+      reason_chips: POOL.reason_chips, screening: true, delete_blocked: null } },
+    'DELETE /postings/p1': () => { deleted = true; return { status: 204 } },
+  })
+  render(<App />)
+  await userEvent.click(await screen.findByRole('link', { name: 'Data Analyst (m/w/d)' }))
+  await userEvent.click(await screen.findByRole('button', { name: 'Anzeige löschen' }))
+  await userEvent.click(await screen.findByRole('button', { name: 'Endgültig löschen' }))
+  expect(await screen.findByRole('heading', { level: 1, name: 'Deine Anzeigen' })).toBeVisible()
+  expect(window.location.hash).toBe('#/pool')
+  await vi.waitFor(() => expect(screen.queryByRole('heading', { level: 3, name: 'Data Analyst (m/w/d)' })).toBeNull())
+  expect(screen.getByRole('heading', { level: 3, name: 'Data Engineer (m/w/d)' })).toBeVisible()
+})
+
 test('switching views keeps the conversation', async () => {
   stubApi({ 'GET /pool': { body: POOL }, 'GET /policy-pack/login-wall-hosts': { body: { hosts: [] } },
             'POST /agent/messages': { body: { reply: 'Regel no-on-call.', tool_calls: [] } } })

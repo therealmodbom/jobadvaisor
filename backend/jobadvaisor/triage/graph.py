@@ -53,7 +53,8 @@ class TriageState(TypedDict, total=False):
     `{"status": "unscreened"}` while the user is asked, `{"status": "pending"}` until `score`
     reaches the posting, `{"status": "scored", "score", "reasoning", "example_ids"}`,
     `{"status": "failed", "error"}` or `{"status": "closed"}` (closed on disk after the batch
-    was taken: no model call, no score). `unscreened`
+    was taken: no model call, no score) or `{"status": "deleted"}` (deleted while the pass
+    waited for its answer: skipped, no model call, no score, no failure). `unscreened`
     lists the postings the user is asked about; `aborted` is true when the user aborted.
     `cancelled` is set (true) by the node that sees the user's cancel and by
     `confirm_unscreened` on the answer `"cancel"`; absent otherwise. A key not declared here is
@@ -253,7 +254,9 @@ def score(state: TriageState, runtime: Runtime[TriageContext]) -> dict:
     as stored now, since a paused run may resume after it was flagged or screening was turned
     on; an unscreened posting passes only when the user continued with it, any other ruling
     becomes the posting's result without a model call. A posting closed on disk since the batch
-    was taken is `closed` without a model call; it counts as done. A failed call fails that
+    was taken is `closed` without a model call; it counts as done. A posting deleted since then
+    (the pass waited for its answer) is `deleted`, with no guard ruling and no model call, and
+    leaves the total like a ruling. A failed call fails that
     posting only.
 
     Reports `scoring` after every posting (`design.md` → The progress shape): a failed one
@@ -270,6 +273,11 @@ def score(state: TriageState, runtime: Runtime[TriageContext]) -> dict:
     for posting_id in queue:
         if context.cancelled():
             return {"results": results, "cancelled": True}
+        if posting_id not in context.repository.postings:  # deleted while the pass waited
+            results[posting_id] = {"status": "deleted"}
+            total -= 1
+            _report(context, "scoring", (done, total))
+            continue
         try:
             ruling = _guard_ruling(context, posting_id)
             if ruling and not (ruling["status"] == "unscreened" and posting_id in continued):

@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from jobadvaisor.data.writer import write_gate
+from jobadvaisor.data.loader import write_gate
 
 logger = logging.getLogger(__name__)
 

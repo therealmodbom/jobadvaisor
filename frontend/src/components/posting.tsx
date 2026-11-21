@@ -1,9 +1,12 @@
-import { useId, useState, type FormEvent, type ReactNode } from 'react'
-import { Check, ExternalLink, Info, LoaderCircle } from 'lucide-react'
-import { api, type Availability, type AvailabilityChoice, type PoolRow, type Posting, type ReasonChip, type Status } from '@/api'
+import { useId, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { Check, ExternalLink, Info, LoaderCircle, Trash2 } from 'lucide-react'
+import { AlertDialog } from 'radix-ui'
+import { api, ApiError, deletePosting, type Availability, type AvailabilityChoice, type Label, type PoolRow, type Posting, type ReasonChip, type Status } from '@/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { WhyDisabled } from '@/components/why'
 import { categoryNames, STATUSES, whenLabel } from '@/lib/german'
+import { LEVELS } from '@/lib/rating'
 import type { ScoreCall } from '@/lib/score'
 import { cn } from '@/lib/utils'
 
@@ -105,6 +108,140 @@ export function AvailabilityControl({ id, value, checkable, open, saving, failed
           <Button type="button" variant="outline" size="sm" onClick={() => onChange(failed)}>Erneut versuchen</Button>
         </span>
       )}
+    </div>
+  )
+}
+
+/** What refuses a delete: a pass or a single score computes (`scoring`) or an availability check
+ * runs (`check`). The pool view derives it from its pass and check state, the posting page gets
+ * it as `delete_blocked`. */
+export type DeleteBlock = 'scoring' | 'check'
+
+const DELETE_REASONS: Record<DeleteBlock, string> = {
+  scoring: 'Gerade läuft ein Score-Durchlauf. Löschen geht wieder, wenn er fertig ist.',
+  check: 'Gerade läuft eine Verfügbarkeitsprüfung. Löschen geht wieder, wenn sie fertig ist.',
+}
+/** The API's 409 `error` for each `DeleteBlock`. */
+const DELETE_REFUSALS: Record<string, DeleteBlock> = { 'scoring in progress': 'scoring', 'check in progress': 'check' }
+const DELETE_FAILED = 'Löschen hat nicht geklappt. Versuch es noch einmal.'
+
+/** The rating level `label` names in the delete dialog ("Ja, auf jeden Fall"; "Ja" or "Nein" for a
+ * verdict without a strength), or null for no rating (no label, or an import that is no preference). */
+function levelText(label: Label | null): string | null {
+  if (!label?.verdict) return null
+  const level = LEVELS.find(({ verdict, strength }) => verdict === label.verdict && strength === label.strength)
+  return level?.label ?? (label.verdict === 'positive' ? 'Ja' : 'Nein')
+}
+
+/** The modal that confirms a delete of `row`, opened by `children`, the trigger button (focus
+ * returns to it on close). It names title and company, and the rating level when there is one.
+ * "Abbrechen" has the focus on open; Escape closes it without a request, but not while one runs. "Endgültig löschen" sends
+ * one `DELETE` however often it is pressed. A 409 shows the matching reason in the dialog, which
+ * stays open; any other failure says so and the button stays usable; a 404 (already gone) counts
+ * as deleted. After a delete the dialog closes without handing focus back (the trigger is gone;
+ * `onDeleted` places it) and `onDeleted` runs. */
+export function DeleteDialog({ row, onDeleted, children }: {
+  row: Pick<PoolRow, 'posting_id' | 'title' | 'company' | 'label'>
+  onDeleted: () => void
+  children: ReactNode
+}) {
+  const [open, setOpen] = useState(false)
+  const [sending, setSending] = useState(false)
+  const [problem, setProblem] = useState<string | null>(null)
+  /** Blocks a second request in the same tick, before `sending` has rendered. */
+  const guard = useRef(false)
+  /** Set once the delete went through: the trigger is gone then, so the close must not move focus
+   * (`onDeleted` places it). */
+  const deleted = useRef(false)
+  const level = levelText(row.label)
+
+  async function remove() {
+    if (guard.current) return
+    guard.current = true
+    setSending(true)
+    setProblem(null)
+    try {
+      await deletePosting(row.posting_id)
+    } catch (error) {
+      if (!(error instanceof ApiError && error.status === 404)) {
+        const block = error instanceof ApiError && error.status === 409 ? DELETE_REFUSALS[error.error] : undefined
+        setProblem(block ? DELETE_REASONS[block] : DELETE_FAILED)
+        guard.current = false
+        setSending(false)
+        return
+      }
+    }
+    guard.current = false
+    deleted.current = true
+    setSending(false)
+    setOpen(false)
+    onDeleted()
+  }
+
+  return (
+    // While the request runs the dialog cannot be closed (Escape, "Abbrechen", a click outside), so the
+    // user sees how it ended.
+    <AlertDialog.Root open={open} onOpenChange={(next) => {
+      if (!next && guard.current) return
+      setOpen(next)
+      if (!next) setProblem(null)
+    }}>
+      <AlertDialog.Trigger asChild>{children}</AlertDialog.Trigger>
+      <AlertDialog.Portal>
+        <AlertDialog.Overlay className="fixed inset-0 z-50 bg-foreground/40" />
+        <AlertDialog.Content onCloseAutoFocus={(event) => { if (deleted.current) event.preventDefault() }}
+          className="fixed top-1/2 left-1/2 z-50 flex w-[min(440px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col gap-4 rounded-xl border bg-card p-6 shadow-card">
+          <AlertDialog.Title className="text-xl font-bold">Anzeige löschen?</AlertDialog.Title>
+          <AlertDialog.Description asChild>
+            <div className="flex flex-col gap-2">
+              <p><strong>{row.title}</strong> ({row.company}) wird endgültig gelöscht, mit ihrem Score.</p>
+              {level && (
+                <p>
+                  Du hast sie mit <strong>„{level}“</strong> bewertet. Die Bewertung geht mit verloren und zählt danach
+                  nicht mehr als Beispiel fürs Scoren.
+                </p>
+              )}
+            </div>
+          </AlertDialog.Description>
+          {problem && <p role="alert" className="text-danger">{problem}</p>}
+          <div className="flex flex-wrap justify-end gap-2">
+            <AlertDialog.Cancel asChild>
+              <Button type="button" variant="outline" aria-disabled={sending || undefined}
+                      className={cn(sending && 'cursor-not-allowed opacity-50')}>Abbrechen</Button>
+            </AlertDialog.Cancel>
+            <Button type="button" variant="destructive" aria-disabled={sending || undefined}
+                    className={cn(sending && 'cursor-not-allowed opacity-50')} onClick={() => void remove()}>
+              <Trash2 aria-hidden="true" />Endgültig löschen
+            </Button>
+          </div>
+        </AlertDialog.Content>
+      </AlertDialog.Portal>
+    </AlertDialog.Root>
+  )
+}
+
+/** The trash button of a pool row or the posting page: an icon button named "Anzeige löschen" that
+ * opens `DeleteDialog` for `row`; `onDeleted` runs after the delete. While `blocked` the button is
+ * `disabled` and a visible, focusable info icon beside it gives the reason (on hover and on focus,
+ * and to screen readers through the button's description). `className` places the group, for
+ * example `mt-6` to line it up with a select that has a label above. */
+export function DeleteButton({ row, blocked, onDeleted, className }: {
+  row: Pick<PoolRow, 'posting_id' | 'title' | 'company' | 'label'>
+  blocked: DeleteBlock | null
+  onDeleted: () => void
+  className?: string
+}) {
+  const reasonId = useId()
+  const button = (
+    <Button type="button" variant="outline" aria-label="Anzeige löschen" disabled={blocked !== null}
+            aria-describedby={blocked ? reasonId : undefined} className="size-11 flex-none px-0 text-danger">
+      <Trash2 className="size-5" aria-hidden="true" />
+    </Button>
+  )
+  return (
+    <div className={cn('flex items-center gap-1', className)}>
+      {blocked ? button : <DeleteDialog row={row} onDeleted={onDeleted}>{button}</DeleteDialog>}
+      {blocked && <WhyDisabled id={reasonId} label="Warum ist Löschen nicht möglich?" reason={DELETE_REASONS[blocked]} />}
     </div>
   )
 }

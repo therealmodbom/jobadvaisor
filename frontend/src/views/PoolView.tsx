@@ -4,7 +4,7 @@ import { DropdownMenu } from 'radix-ui'
 import { api, ApiError, type Counter, type NextPass, type PassProgress, type PassState, type PassVariant, type Pool, type PoolRow, type RatingAnswer, type ScoreAnswer, type Status, type Strength, type Verdict } from '@/api'
 import { CheckButton, CheckStatus } from '@/components/check'
 import { DismissButton } from '@/components/dismiss'
-import { Badge, ChipList, ScoreButton, ScoreProblem, ScoreText, StatusControl } from '@/components/posting'
+import { Badge, ChipList, DeleteButton, ScoreButton, ScoreProblem, ScoreText, StatusControl, type DeleteBlock } from '@/components/posting'
 import { ProgressBlock } from '@/components/progress'
 import { Legend, ReasonsAndNote, VerdictButtons } from '@/components/rating'
 import { EmptyState, ErrorWithRetry, Loading } from '@/components/states'
@@ -417,13 +417,15 @@ function CounterLine({ counter }: { counter: Counter }) {
 
 /** One pool row: the "Hinzugefügt" line (when it entered the app), title link, company and location, score with its button, the "Stichprobe", "Stelle geschlossen" and
  * import marks, the rating (verdict buttons; the selected row also shows every reason chip and the
- * note field, the others their chosen reasons) and the status control. `onSelect` makes it the row
+ * note field, the others their chosen reasons), the status control and the trash button. `onSelect` makes it the row
  * the shortcuts act on, `onLevel` sends a rating level. `onStatus` sends a new status; `saving`
- * and `failed` show its state, `failed` with a retry. `scoreCall` is the state of the row's score
- * button (`screening`: a content-guard classifier is configured), `onScore` sends its click. Focus
+ * and `failed` show its state, `failed` with a retry. `deleteBlocked` is what disables the trash
+ * button (a pass or a check runs), `onDeleted` runs after a confirmed delete. `scoreCall` is the
+ * state of the row's score button (`screening`: a content-guard classifier is configured),
+ * `onScore` sends its click. Focus
  * selects the row, except focus from a mouse press: that waits for the click, since selecting on
  * mousedown reflows the rows and the click would miss its target. */
-function Row({ row, chips, rating, selected, onSelect, onLevel, saving, failed, onStatus, screening, scoreCall, onScore }: {
+function Row({ row, chips, rating, selected, onSelect, onLevel, saving, failed, onStatus, deleteBlocked, onDeleted, screening, scoreCall, onScore }: {
   row: PoolRow
   chips: Pool['reason_chips']
   rating: Rating
@@ -433,17 +435,23 @@ function Row({ row, chips, rating, selected, onSelect, onLevel, saving, failed, 
   saving: boolean
   failed: Status | undefined
   onStatus: (status: Status) => void
+  deleteBlocked: DeleteBlock | null
+  onDeleted: () => void
   screening: boolean
   scoreCall: ScoreCall
   onScore: () => void
 }) {
   const now = rating.view(row)
   const pressed = useRef(false)
+  /** The event came from inside the row's own DOM. React also bubbles events of the delete dialog,
+   * a portal outside the row, through the row; those must not select it. */
+  const inRow = (event: { currentTarget: Element; target: EventTarget }) => event.currentTarget.contains(event.target as Node)
   // The press's own focus event fires in the same task, so a zero timeout clears a press that never focused.
   const press = () => { pressed.current = true; setTimeout(() => { pressed.current = false }) }
   return (
     <li id={`row-${row.posting_id}`} tabIndex={-1} onPointerDown={press}
-        onFocusCapture={() => { if (!pressed.current) onSelect() }} onClick={onSelect}
+        onFocusCapture={(event) => { if (!pressed.current && inRow(event)) onSelect() }}
+        onClick={(event) => { if (inRow(event)) onSelect() }}
         className={cn('flex flex-wrap items-start gap-x-6 gap-y-3 rounded-xl border bg-card px-5 py-4 shadow-card',
           selected && 'outline-2 outline-offset-2 outline-ring')}>
       <div className="min-w-0 flex-[3_1_280px]">
@@ -476,6 +484,8 @@ function Row({ row, chips, rating, selected, onSelect, onLevel, saving, failed, 
       </div>
       <StatusControl id={`status-${row.posting_id}`} title={row.title} value={row.status} saving={saving}
                      failed={failed} onStatus={onStatus} />
+      {/* mt-6 is the height of the status select's label, so the button lines up with the select. */}
+      <DeleteButton row={row} blocked={deleteBlocked} onDeleted={onDeleted} className="mt-6" />
       <div className="w-full basis-full">
         <VerdictButtons row={row} rating={rating} onLevel={onLevel} keys={selected} />
       </div>
@@ -645,6 +655,33 @@ export function PoolView({ active = true, reloadKey = 0 }: { active?: boolean; r
   const unrated = (row: PoolRow) => row.status === 'open' && rating.view(row).verdict === null
   const current = shown.some((row) => row.posting_id === selected) ? selected : nextUnrated(shown, undefined, unrated) ?? shown[0]?.posting_id
 
+  /** The shown rows and the selected ID of the newest render, for `deleted`, which runs after a request. */
+  const latestView = useRef({ shown, current })
+  useEffect(() => {
+    latestView.current = { shown, current }
+  })
+  /** What refuses a delete now, in the server's order: a running check, else the view's pass
+   * (running or waiting for its answer). */
+  const deleteBlocked: DeleteBlock | null = check.running ? 'check' : busy ? 'scoring' : null
+  /** A confirmed delete of `id`: the row leaves at once (the reload may fail), the selection moves
+   * to the next row (the previous one at the end) when `id` was selected, the selected row takes
+   * focus (the dialog's close does not hand it back, see `DeleteDialog`), and the pool reloads for
+   * the counter and the pass and check figures. Filters and sort stay. */
+  function deleted(id: string) {
+    // The request took a while, so read the rows and the selection as they are now, not as of the click.
+    const { shown, current } = latestView.current
+    let next = current
+    if (id === current) {
+      const at = shown.findIndex((row) => row.posting_id === id)
+      next = (shown[at + 1] ?? shown[at - 1])?.posting_id
+      setSelected(next ?? null)
+    }
+    // The trigger row unmounts with the dialog, so focus would drop to the body; the selected row takes it.
+    if (next && next !== id) setFocusRequest({ id: next, target: 'row' })
+    setPool((now) => now && { ...now, rows: now.rows.filter((row) => row.posting_id !== id) })
+    load()
+  }
+
   /** Give the filter its rows afresh: nothing rated or scored here stays in it. */
   function pick(id: string) {
     epoch.current++
@@ -683,14 +720,14 @@ export function PoolView({ active = true, reloadKey = 0 }: { active?: boolean; r
 
   useEffect(() => {
     /** The pool's shortcuts (`design.md` "Rating without a run"): off while a text field, select,
-     * editable element, menu (the pass variant menu), dialog (the header settings) or the check
-     * column has focus, while a modifier other than Shift is held and while the view is hidden. A held key repeats only j and k, so it never rates or
+     * editable element, menu (the pass variant menu), dialog (the header settings), alert dialog
+     * (the delete confirmation, which renders outside its row) or the check column has focus, while a modifier other than Shift is held and while the view is hidden. A held key repeats only j and k, so it never rates or
      * toggles twice. */
     function onKey(event: KeyboardEvent) {
       const row = shown.find((entry) => entry.posting_id === current)
       if (!active || !pool || !row || event.altKey || event.ctrlKey || event.metaKey) return
       if (event.repeat && event.key !== 'j' && event.key !== 'k') return
-      if ((event.target as HTMLElement).closest?.('input, textarea, select, [role="menu"], [role="dialog"], [data-no-shortcuts], [contenteditable]:not([contenteditable="false"])')) return
+      if ((event.target as HTMLElement).closest?.('input, textarea, select, [role="menu"], [role="dialog"], [role="alertdialog"], [data-no-shortcuts], [contenteditable]:not([contenteditable="false"])')) return
       const digit = /^Digit([1-9])$/.exec(event.code)?.[1]
       const level = LEVELS.find(({ key }) => key === event.key)
       const step = { j: 1, k: -1 }[event.key]
@@ -875,6 +912,7 @@ export function PoolView({ active = true, reloadKey = 0 }: { active?: boolean; r
                        selected={row.posting_id === current} onSelect={() => setSelected(row.posting_id)}
                        onLevel={(verdict, strength) => rate(row, verdict, strength)} saving={!!saving[row.posting_id]}
                        failed={failed[row.posting_id]} onStatus={(status) => setStatus(row.posting_id, status)}
+                       deleteBlocked={deleteBlocked} onDeleted={() => deleted(row.posting_id)}
                        screening={pool.screening} scoreCall={score.call(row.posting_id)}
                        onScore={() => { sentScore.current.set(row.posting_id, epoch.current); void score.run(row.posting_id) }} />
                 ))}

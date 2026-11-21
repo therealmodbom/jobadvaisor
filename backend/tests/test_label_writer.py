@@ -2,15 +2,20 @@ import json
 from datetime import UTC, datetime
 
 import pytest
+from conftest import git, write_json
 
+from jobadvaisor.data.backup import commit_message
 from jobadvaisor.data.loader import load
-from jobadvaisor.data.models import Availability, Guard, Label
+from jobadvaisor.data.models import Availability, Guard, Label, Score
 from jobadvaisor.data.writer import (
+    delete_posting,
     read_posting,
+    read_score,
     update_posting,
     write_availability,
     write_guard,
     write_label,
+    write_score,
 )
 
 LABEL = Label(schema_version="1", kind="rating", verdict="negative", chips=["too-junior"],
@@ -156,3 +161,78 @@ def test_write_guard_refuses_an_unsafe_or_unknown_posting(data_repository):
         write_guard(data_repository, "../profile", GUARD)
     with pytest.raises(ValueError, match="no posting postings/p9.json"):
         write_guard(data_repository, "p9", GUARD)
+
+
+SCORE = Score(schema_version="1", score=7, reasoning="Fits.",
+              scored_at=datetime(2026, 2, 1, 15, 0, tzinfo=UTC))
+
+
+def with_records(root, posting_id: str) -> None:
+    """Give `posting_id` a label, a score and a hand-settled value, beside `p1`'s own."""
+    write_label(root, posting_id, LABEL)
+    write_score(root, posting_id, SCORE)
+    write_json(root / "extraction-labels.json", {
+        "schema_version": "1", "min_accuracy": 0.8,
+        "labels": {"p1": {"role_type": "backend"}, posting_id: {"role_type": "data"}}})
+
+
+def test_a_deleted_posting_loses_every_record_and_the_others_keep_theirs(data_repository):
+    write_score(data_repository, "p1", SCORE)
+    with_records(data_repository, "p2")
+    delete_posting(data_repository, "p2")
+    assert not any((data_repository / name / "p2.json").exists()
+                   for name in ("postings", "labels", "scores"))
+    repository = load(data_repository)
+    assert set(repository.postings) == {"p1"} and set(repository.labels) == {"p1"}
+    assert read_score(data_repository, "p1") == SCORE
+    assert repository.extraction_labels.labels == {"p1": {"role_type": "backend"}}
+    assert repository.extraction_labels.min_accuracy == 0.8
+
+
+def test_a_posting_without_label_score_or_hand_settled_values_deletes_cleanly(data_repository):
+    delete_posting(data_repository, "p2")
+    assert set(load(data_repository).postings) == {"p1"}
+    assert not (data_repository / "extraction-labels.json").exists()
+    assert (data_repository / "labels/p1.json").exists()
+
+
+def test_an_extraction_labels_file_without_the_posting_is_left_alone(data_repository):
+    write_json(data_repository / "extraction-labels.json",
+               {"schema_version": "1", "labels": {"p1": {"role_type": "backend"}}})
+    before = (data_repository / "extraction-labels.json").read_text()
+    delete_posting(data_repository, "p2")
+    assert (data_repository / "extraction-labels.json").read_text() == before
+
+
+def test_deleting_an_unknown_posting_raises_key_error_and_changes_nothing(data_repository):
+    with pytest.raises(KeyError):
+        delete_posting(data_repository, "p9")
+    assert set(load(data_repository).postings) == {"p1", "p2"}
+
+
+def test_deleting_twice_raises_key_error_the_second_time(data_repository):
+    delete_posting(data_repository, "p2")
+    with pytest.raises(KeyError):
+        delete_posting(data_repository, "p2")
+
+
+@pytest.mark.parametrize("posting_id", ["../profile", "Bad_ID", ""])
+def test_deleting_an_unsafe_id_raises_value_error(data_repository, posting_id):
+    with pytest.raises(ValueError, match="posting ID"):
+        delete_posting(data_repository, posting_id)
+    assert (data_repository / "profile.json").exists()
+
+
+def test_the_backup_commits_a_delete_as_one_rating_one_score_and_one_posting(backed_up):
+    root = backed_up.root
+    write_score(root, "demo-001", SCORE)
+    git(root, "add", "-A")
+    git(root, "commit", "-m", "score")
+    delete_posting(root, "demo-001")
+    git(root, "add", "-A")
+    staged = [path for path in git(root, "diff", "--cached", "--name-only", "-z").split("\0")
+              if path]
+    assert sorted(staged) == ["labels/demo-001.json", "postings/demo-001.json",
+                              "scores/demo-001.json"]
+    assert commit_message(staged) == "Backup: 1 rating, 1 score, 1 posting"
+    assert "demo-001" not in load(root).postings

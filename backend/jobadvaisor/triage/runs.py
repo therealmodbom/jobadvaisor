@@ -7,8 +7,9 @@ import copy
 import dataclasses
 import threading
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
@@ -127,6 +128,24 @@ class Runs:
             return score_one(self._context(), posting_id)
         finally:
             self._release(run_id)
+
+    def running(self) -> str | None:
+        """The ID of the run that holds the slot now (a pass, `score:<posting ID>` or a name
+        given to `exclusive`), or `None`. A pass paused over its question holds no slot."""
+        with self._lock:
+            return next(iter(self._computing), None)
+
+    @contextmanager
+    def exclusive(self, name: str) -> Iterator[None]:
+        """Hold the one slot as `name` for the block, so no pass or single score computes or
+        starts meanwhile (a posting delete takes it, `113-posting-delete` D2). Raises
+        `RunBusyError` (naming the run) while one computes, and frees the slot on every
+        outcome of the block."""
+        self._claim(name)
+        try:
+            yield
+        finally:
+            self._release(name)
 
     def _claim(self, run_id: str) -> None:
         """Take the one slot for `run_id` and drop a cancel request of an earlier step in the

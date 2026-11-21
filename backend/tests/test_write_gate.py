@@ -6,7 +6,8 @@ from datetime import UTC, datetime
 
 from conftest import POSTING
 
-from jobadvaisor.data import writer
+from jobadvaisor.api import app as app_module
+from jobadvaisor.data import loader, writer
 from jobadvaisor.data.models import (
     Availability,
     Company,
@@ -74,6 +75,59 @@ def test_every_public_write_function_waits_for_the_gate(data_repository):
         thread.join(timeout=10)
     assert all(event.is_set() for event in finished.values())
     assert not failures, f"writes that failed once the gate was released: {failures}"
+
+
+def _blocked_while_gated(call) -> object:
+    """Run `call` in a thread while this one holds the gate; assert it waits, then returns its
+    result once the gate is released."""
+    done, result = threading.Event(), []
+
+    def run():
+        result.append(call())
+        done.set()
+
+    thread = threading.Thread(target=run)
+    with writer.write_gate:
+        thread.start()
+        assert not done.wait(0.2), "the read did not wait for the write gate"
+    assert done.wait(10)
+    thread.join(10)
+    return result[0]
+
+
+def test_the_gate_lives_in_the_loader_and_the_writer_shares_it():
+    assert writer.write_gate is loader.write_gate
+
+
+def test_load_and_read_scores_wait_for_the_gate(data_repository):
+    assert set(_blocked_while_gated(lambda: loader.load(data_repository)).postings) == {
+        "p1", "p2"}
+    assert _blocked_while_gated(lambda: writer.read_scores(data_repository)) == ({}, {})
+
+
+def test_pool_state_holds_the_gate_across_its_three_reads(data_repository, monkeypatch):
+    """A delete started while `pool_state` reads waits until all three reads are done, so the
+    state shows the posting with its score or neither."""
+    writer.write_score(data_repository, "p2", SCORE)
+    deleted, seen = threading.Event(), []
+    original = app_module.read_pool
+
+    def read_pool_while_a_delete_waits(root):
+        thread = threading.Thread(
+            target=lambda: (writer.delete_posting(root, "p2"), deleted.set()))
+        thread.start()
+        seen.append(deleted.wait(0.2))  # the first two reads are done, the third is not
+        return original(root)
+
+    monkeypatch.setattr(app_module, "read_pool", read_pool_while_a_delete_waits)
+    repository, scores, _, _ = app_module.pool_state(data_repository)
+    assert seen == [False] and deleted.wait(10)
+    assert "p2" in repository.postings and "p2" in scores
+
+
+def test_merge_extraction_labels_still_loads_inside_the_gate(data_repository):
+    merged = writer.merge_extraction_labels(data_repository, {"p1": {"role_type": "backend"}})
+    assert merged.labels == {"p1": {"role_type": "backend"}}
 
 
 def test_the_gate_is_reentrant():

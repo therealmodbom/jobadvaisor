@@ -9,13 +9,18 @@ import json
 import os
 import re
 import tempfile
-import threading
 from collections.abc import Callable
 from pathlib import Path
 
 from pydantic import BaseModel
 
-from jobadvaisor.data.loader import DataRepositoryError, _load_file, load
+from jobadvaisor.data.loader import (
+    EXTRACTION_LABELS_FILE,
+    DataRepositoryError,
+    _load_file,
+    load,
+    write_gate,
+)
 from jobadvaisor.data.models import (
     POSTING_ID_PATTERN,
     Availability,
@@ -32,10 +37,6 @@ from jobadvaisor.data.models import (
     Posting,
     Score,
 )
-
-# ponytail: process-local, reentrant (write functions call each other); one app process only,
-# a file lock if several ever write the data
-write_gate = threading.RLock()
 
 
 def _gated[**P, R](function: Callable[P, R]) -> Callable[P, R]:
@@ -111,6 +112,29 @@ def merge_extraction_labels(root: Path, additions: dict[str, dict]) -> Extractio
 
 
 @_gated
+def delete_posting(root: Path, posting_id: str) -> None:
+    """Remove every record of the posting under `root`: its label and score (if any), its key in
+    `extraction-labels.json` (if any; the other entries and `min_accuracy` stay, written by
+    rename like `merge_extraction_labels`), and last `postings/<posting_id>.json`. A crash
+    between the steps leaves records whose posting still exists, so the repository still loads
+    and a second delete finishes. No trash and no load afterwards (`design.md` D1). Raises
+    `ValueError` for an unsafe ID, `KeyError` for a posting that does not exist, and
+    `DataRepositoryError` for an unreadable `extraction-labels.json` (nothing removed yet)."""
+    path = root / "postings" / f"{_safe_id(posting_id)}.json"
+    if not path.is_file():
+        raise KeyError(posting_id)
+    labels_path = root / EXTRACTION_LABELS_FILE
+    current = _read_entity(root, EXTRACTION_LABELS_FILE, ExtractionLabels)
+    for directory in ("labels", "scores"):
+        (root / directory / f"{posting_id}.json").unlink(missing_ok=True)
+    if current is not None and posting_id in current.labels:
+        _replace(labels_path, current.model_copy(update={
+            "labels": {key: values for key, values in current.labels.items()
+                       if key != posting_id}}))
+    path.unlink()
+
+
+@_gated
 def write_company(root: Path, company_id: str, company: Company) -> Path:
     """Write `company` as `companies/<company_id>.json` under `root`, replacing any earlier
     record. Validated again first, unset facts left out, swapped in by rename like
@@ -181,19 +205,21 @@ def read_scores(root: Path) -> tuple[dict[str, Score], dict[str, str]]:
     """Every readable `scores/*.json` under `root` by posting ID, and the problems by posting ID
     (one line naming the file and why) for unreadable, invalid or unsupported-version files.
     Files whose stem is no safe posting ID are skipped; a missing directory gives two empty
-    dicts. Never raises for a bad score file."""
+    dicts. Never raises for a bad score file. Reads under `write_gate`, so a delete is seen
+    whole or not at all."""
     scores: dict[str, Score] = {}
     problems: dict[str, str] = {}
-    for path in sorted((root / "scores").glob("*.json")):
-        if not re.fullmatch(POSTING_ID_PATTERN, path.stem):
-            continue
-        try:
-            score = read_score(root, path.stem)
-        except DataRepositoryError as error:
-            problems[path.stem] = "; ".join(error.problems)
-        else:
-            if score is not None:
-                scores[path.stem] = score
+    with write_gate:
+        for path in sorted((root / "scores").glob("*.json")):
+            if not re.fullmatch(POSTING_ID_PATTERN, path.stem):
+                continue
+            try:
+                score = read_score(root, path.stem)
+            except DataRepositoryError as error:
+                problems[path.stem] = "; ".join(error.problems)
+            else:
+                if score is not None:
+                    scores[path.stem] = score
     return scores, problems
 
 

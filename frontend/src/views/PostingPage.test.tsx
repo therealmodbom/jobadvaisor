@@ -1,13 +1,17 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, expect, test, vi } from 'vitest'
 import type { PostingPageData, RatingBody } from '@/api'
+import { POLL_MS } from '@/lib/run'
 import { axe } from '@/test-axe'
 import { pending, stubApi } from '@/test-api'
 import { label, POOL, ratingAnswer, row } from '@/test-fixtures'
 import { PostingPage } from './PostingPage'
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+  vi.useRealTimers()
+  vi.unstubAllGlobals()
+})
 
 const posting = { title: 'Data Analyst (m/w/d)', company: 'Grünwerk Solar', location_raw: 'Kiel',
   source_type: 'url' as const, urls: ['https://example.com/job', 'https://other.example/x'],
@@ -20,7 +24,7 @@ const page = (changes: Partial<PostingPageData> = {}): PostingPageData => ({
   posting,
   score: { score: 8, reasoning: 'Viel SQL, passt zu deinen Beispielen.', example_ids: ['ex1'], scored_at: '2026-10-13T08:00:00+00:00' },
   examples: [{ posting_id: 'ex1', title: 'Analyst Energie', company: 'Nordblatt' }],
-  checkable: true, reason_chips: POOL.reason_chips, screening: true, ...changes,
+  checkable: true, reason_chips: POOL.reason_chips, screening: true, delete_blocked: null, ...changes,
 })
 
 test('shows heading, text, original link, score with reasoning, examples, rating, status and no origin', async () => {
@@ -508,4 +512,107 @@ test('the page with a hand-set availability has no axe violations', async () => 
   const { container } = render(<PostingPage postingId="p1" />)
   await screen.findByRole('heading', { level: 1 })
   expect(await axe(container)).toHaveNoViolations()
+})
+
+// --- deleting the posting ----------------------------------------------------------------------
+
+const REASON_SCORING = 'Gerade läuft ein Score-Durchlauf. Löschen geht wieder, wenn er fertig ist.'
+const REASON_CHECK = 'Gerade läuft eine Verfügbarkeitsprüfung. Löschen geht wieder, wenn sie fertig ist.'
+const trash = () => screen.getByRole('button', { name: 'Anzeige löschen' })
+
+test('the trash button follows "Verfügbarkeit" in the head row', async () => {
+  stubApi({ 'GET /postings/p1': { body: page() } })
+  render(<PostingPage postingId="p1" />)
+  const edit = await screen.findByRole('button', { name: 'Bearbeiten' })
+  expect(edit.parentElement).toContainElement(trash())
+  expect(availabilitySelect().compareDocumentPosition(trash()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(trash()).toBeEnabled()
+})
+
+test('"Bearbeiten", both selects and the trash button have the same height class', async () => {
+  stubApi({ 'GET /postings/p1': { body: page() } })
+  render(<PostingPage postingId="p1" />)
+  const edit = await screen.findByRole('button', { name: 'Bearbeiten' })
+  expect(edit).toHaveClass('h-11')
+  expect(edit).not.toHaveClass('h-8')
+  expect(screen.getByRole('combobox', { name: /Bewerbungsstatus/ })).toHaveClass('min-h-11')
+  expect(availabilitySelect()).toHaveClass('min-h-11')
+  expect(trash()).toHaveClass('size-11')
+})
+
+test('a confirmed delete sends one DELETE and returns to the pool', async () => {
+  window.location.hash = '#/anzeigen/p1'
+  const calls = stubApi({ 'GET /postings/p1': { body: page() }, 'DELETE /postings/p1': { status: 204 } })
+  render(<PostingPage postingId="p1" />)
+  await screen.findByRole('heading', { level: 1 })
+  await userEvent.click(trash())
+  const dialog = await screen.findByRole('alertdialog', { name: 'Anzeige löschen?' })
+  expect(dialog).toHaveTextContent('Data Analyst (m/w/d) (Grünwerk Solar) wird endgültig gelöscht')
+  expect(dialog).toHaveTextContent('Du hast sie mit „Ja“ bewertet.')
+  await userEvent.click(within(dialog).getByRole('button', { name: 'Endgültig löschen' }))
+  await waitFor(() => expect(window.location.hash).toBe('#/pool'))
+  expect(calls.filter((call) => call.method === 'DELETE').map((call) => call.path)).toEqual(['/postings/p1'])
+})
+
+test('a refused delete keeps the page and the hash and says why', async () => {
+  window.location.hash = '#/anzeigen/p1'
+  stubApi({ 'GET /postings/p1': { body: page() },
+            'DELETE /postings/p1': { status: 409, body: { error: 'scoring in progress', detail: 'ps1' } } })
+  render(<PostingPage postingId="p1" />)
+  await screen.findByRole('heading', { level: 1 })
+  await userEvent.click(trash())
+  await userEvent.click(await screen.findByRole('button', { name: 'Endgültig löschen' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent(REASON_SCORING)
+  expect(window.location.hash).toBe('#/anzeigen/p1')
+})
+
+test.each([['check', REASON_CHECK], ['scoring', REASON_SCORING]] as const)(
+  'delete_blocked "%s" disables the trash button and the info icon gives the reason', async (blocked, reason) => {
+    stubApi({ 'GET /postings/p1': { body: page({ delete_blocked: blocked }) } })
+    render(<PostingPage postingId="p1" />)
+    await screen.findByRole('heading', { level: 1 })
+    expect(trash()).toBeDisabled()
+    expect(trash()).toHaveAccessibleDescription(reason)
+    expect(screen.getByRole('button', { name: 'Warum ist Löschen nicht möglich?' })).toHaveAccessibleDescription(reason)
+  })
+
+test('a score answer brings the page\'s delete_blocked along', async () => {
+  const scored = page({ delete_blocked: null })
+  stubApi({ 'GET /postings/p1': { body: page({ delete_blocked: 'scoring' }) },
+            'POST /postings/p1/score': { body: { ...scored, counter: POOL.counter, next_pass: POOL.next_pass } } })
+  render(<PostingPage postingId="p1" />)
+  await screen.findByRole('heading', { level: 1 })
+  expect(trash()).toBeDisabled()
+  await userEvent.click(screen.getByRole('button', { name: 'Neu berechnen' }))
+  await waitFor(() => expect(trash()).toBeEnabled())
+})
+
+test('a blocked trash button re-reads the page and enables itself once the run is over, then stops polling', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  let blocked: PostingPageData['delete_blocked'] = 'check'
+  const calls = stubApi({ 'GET /postings/p1': () => ({ body: page({ delete_blocked: blocked }) }) })
+  render(<PostingPage postingId="p1" />)
+  await screen.findByRole('heading', { level: 1 })
+  expect(trash()).toBeDisabled()
+  expect(trash()).toHaveAccessibleDescription(REASON_CHECK)
+  blocked = null
+  await act(() => vi.advanceTimersByTimeAsync(POLL_MS))
+  expect(trash()).toBeEnabled()
+  const reads = calls.filter((call) => call.path === '/postings/p1').length
+  await act(() => vi.advanceTimersByTimeAsync(POLL_MS * 5))
+  expect(calls.filter((call) => call.path === '/postings/p1')).toHaveLength(reads)
+})
+
+test('the page with the trash button, disabled and with its dialog open, has no axe violations', async () => {
+  stubApi({ 'GET /postings/p1': { body: page({ delete_blocked: 'check' }) } })
+  const view = render(<PostingPage postingId="p1" />)
+  await screen.findByRole('heading', { level: 1 })
+  expect(await axe(view.container)).toHaveNoViolations()
+  view.unmount()
+  stubApi({ 'GET /postings/p1': { body: page() } })
+  const open = render(<PostingPage postingId="p1" />)
+  await screen.findByRole('heading', { level: 1 })
+  expect(await axe(open.container)).toHaveNoViolations()
+  await userEvent.click(trash())
+  expect(await axe(await screen.findByRole('alertdialog'))).toHaveNoViolations()
 })

@@ -266,6 +266,27 @@ def test_near_identical_text_is_a_duplicate(api, variant):
     assert again.json()["posting_id"] == first.json()["posting_id"] and len(stored(root)) == 1
 
 
+def test_the_link_of_a_deleted_posting_stores_a_fresh_one_not_a_duplicate(api, site):
+    client, root = api
+    first = client.post(url=f"{site}/static.html")
+    assert first.status_code == 201
+    assert client.http.delete(f"/postings/{first.json()['posting_id']}").status_code == 204
+    again = client.post(url=f"{site}/static.html?utm_source=newsletter")
+    assert again.status_code == 201 and again.json()["duplicate"] is False
+    assert again.json()["duplicate_by"] is None
+    assert stored(root) == [again.json()["posting_id"]]
+    assert not (root / "labels").exists() and not (root / "scores").exists()  # unrated, unscored
+
+
+def test_the_text_of_a_deleted_posting_stores_a_fresh_one_not_a_duplicate(api):
+    client, root = api
+    first = client.post(text=TEXT)
+    assert client.http.delete(f"/postings/{first.json()['posting_id']}").status_code == 204
+    again = client.post(text=TEXT)
+    assert again.status_code == 201 and again.json()["duplicate_by"] is None
+    assert stored(root) == [again.json()["posting_id"]]
+
+
 def test_a_different_posting_sharing_boilerplate_is_stored(api):
     client, root = api
     client.post(text=TEXT)

@@ -9,7 +9,7 @@ from functools import cache
 from pathlib import Path
 from typing import Annotated, Literal, Self
 
-from fastapi import FastAPI, File, Form, Request, UploadFile
+from fastapi import FastAPI, File, Form, Request, Response, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -38,7 +38,7 @@ from jobadvaisor.data.backup import (
     BackupRunning,
     BackupUnavailable,
 )
-from jobadvaisor.data.loader import DataRepository, DataRepositoryError, load
+from jobadvaisor.data.loader import DataRepository, DataRepositoryError, load, write_gate
 from jobadvaisor.data.models import (
     HOST_PATTERN,
     ImportMapping,
@@ -49,6 +49,7 @@ from jobadvaisor.data.models import (
     Score,
 )
 from jobadvaisor.data.writer import (
+    delete_posting,
     read_pool,
     read_posting,
     read_scores,
@@ -379,17 +380,52 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
         pool = update_pool_settings(intake.root, PoolSettings(**body.model_dump()))
         return {"settings": pool.settings.model_dump()}
 
+    def delete_blocked() -> Literal["scoring", "check"] | None:
+        """What would refuse a delete now, in the order `DELETE` refuses: `"check"` while an
+        availability check runs, `"scoring"` while a pass, a single score or another
+        request's delete holds the slot, else `None`. A snapshot: read before a handler takes
+        `write_gate`, since `DELETE` holds the checks' lock while it waits for the gate."""
+        if checks.running():
+            return "check"
+        return "scoring" if runs.running() else None
+
     @app.get("/postings/{posting_id}")
     def read_posting_page(posting_id: str) -> dict:
         """Everything the posting page shows: its pool `row` (exploration off), the `posting`,
         its stored `score` (null without one), the `examples` the judge compared it with that
         still exist, `checkable` (a check can read one of its links: not pasted text or a PDF,
-        not only login-walled or non-public links) and `screening` (a content-guard classifier
-        is configured). 404 for an unknown or unsafe ID."""
-        repository, scores, problems, _ = pool_state(intake.root)
-        if posting_id not in repository.postings:
+        not only login-walled or non-public links), `screening` (a content-guard classifier
+        is configured) and `delete_blocked` (`"scoring"` while a pass or a single score
+        computes, `"check"` while an availability check runs, else null: what a delete would
+        be refused for). The whole read runs under `write_gate`, so a delete falls before or
+        after it. 404 for an unknown or unsafe ID."""
+        blocked = delete_blocked()
+        with write_gate:
+            repository, scores, problems, _ = pool_state(intake.root)
+            if posting_id not in repository.postings:
+                return problem(404, "not found", f"no posting {posting_id}")
+            return posting_page(repository, scores, problems, posting_id) | {
+                "delete_blocked": blocked}
+
+    @app.delete("/postings/{posting_id}", status_code=204)
+    def remove_posting(posting_id: str) -> Response:
+        """Delete a posting with its rating, score and hand-settled values for good
+        (`delete_posting`); answers 204 with no body. The delete takes the checks' lock, then
+        the run slot, then `write_gate`, and holds them until the delete has run, which may wait
+        for a backup's `git commit` to release `write_gate`. `{error, detail}`
+        errors: 404 for an unknown or unsafe ID (also a second delete); 409 `scoring in
+        progress` (detail: the pass, or `score:<posting ID>`, that computes) or `check in
+        progress` (detail: the check's ID) with nothing changed."""
+        try:
+            with checks.exclusive(), runs.exclusive(f"delete:{posting_id}"):
+                delete_posting(intake.root, posting_id)
+        except (KeyError, ValueError):
             return problem(404, "not found", f"no posting {posting_id}")
-        return posting_page(repository, scores, problems, posting_id)
+        except RunBusyError as error:
+            return problem(409, "scoring in progress", error.run_id)
+        except CheckBusyError as error:
+            return problem(409, "check in progress", error.check_id)
+        return Response(status_code=204)
 
     @app.post("/postings/{posting_id}/score")
     def score_posting_now(posting_id: str) -> dict:
@@ -400,7 +436,8 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
         `excluded` (detail: the rule IDs), `held` (the guard categories) or `unscreened` (no
         guard result and screening off) for a posting no pass would score; 502 `scoring
         failed` when the judge, the label index or the classifier fails (trying again may help);
-        a failure to store the guard result or the score is a 500."""
+        a failure to store the guard result or the score is a 500. The judge runs outside
+        `write_gate`, which only the answer takes; a posting deleted by then is a 404 too."""
         repository, *_ = pool_state(intake.root)
         if posting_id not in repository.postings:
             return problem(404, "not found", f"no posting {posting_id}")
@@ -414,10 +451,14 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
             return problem(409, error.reason, refusal_detail(error))
         except ScoringFailed as error:
             return problem(502, "scoring failed", str(error))
-        repository, scores, problems, pool = pool_state(intake.root)
-        return posting_page(repository, scores, problems, posting_id) | {
-            "counter": counter(repository, scores, pool),
-            "next_pass": next_pass(repository, scores, pool)}
+        blocked = delete_blocked()
+        with write_gate:
+            repository, scores, problems, pool = pool_state(intake.root)
+            if posting_id not in repository.postings:  # deleted after the judge
+                return problem(404, "not found", f"no posting {posting_id}")
+            return posting_page(repository, scores, problems, posting_id) | {
+                "delete_blocked": blocked, "counter": counter(repository, scores, pool),
+                "next_pass": next_pass(repository, scores, pool)}
 
     def posting_page(repository: DataRepository, scores: dict[str, Score],
                      problems: dict[str, str], posting_id: str) -> dict:
@@ -443,25 +484,27 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
         them. A given verdict is kept; without one it is the polarity of the first chip that
         has one. The label replaces the earlier one whole, so an omitted `strength` clears it.
         404 for an unknown posting, 422 for an unknown chip (named), no verdict, or a
-        `strength` without a given verdict (a chip-derived verdict has none)."""
-        repository, *_ = pool_state(intake.root)
-        if posting_id not in repository.postings:
-            return problem(404, "not found", f"no posting {posting_id}")
-        if body.strength and not body.verdict:
-            return problem(422, "invalid rating", "strength needs a verdict")
-        try:
-            verdict = resolve_verdict(body.verdict, body.chips,
-                                      repository.policy_pack.reason_chips)
-        except ValueError as error:
-            return problem(422, "invalid rating", str(error))
-        write_label(intake.root, posting_id, Label(
-            schema_version="1", kind="rating", verdict=verdict, strength=body.strength,
-            chips=body.chips, note=body.note, rated_at=datetime.now(UTC)))
-        repository, scores, problems, pool = pool_state(intake.root)
-        row = next(row for row in rank(repository, scores, problems, ALL_STATUSES)
-                   if row["posting_id"] == posting_id)
-        return {"row": row, "counter": counter(repository, scores, pool),
-                "next_pass": next_pass(repository, scores, pool)}
+        `strength` without a given verdict (a chip-derived verdict has none). The check, the
+        write and the answer run under `write_gate`, so a delete falls before or after them."""
+        with write_gate:
+            repository, *_ = pool_state(intake.root)
+            if posting_id not in repository.postings:
+                return problem(404, "not found", f"no posting {posting_id}")
+            if body.strength and not body.verdict:
+                return problem(422, "invalid rating", "strength needs a verdict")
+            try:
+                verdict = resolve_verdict(body.verdict, body.chips,
+                                          repository.policy_pack.reason_chips)
+            except ValueError as error:
+                return problem(422, "invalid rating", str(error))
+            write_label(intake.root, posting_id, Label(
+                schema_version="1", kind="rating", verdict=verdict, strength=body.strength,
+                chips=body.chips, note=body.note, rated_at=datetime.now(UTC)))
+            repository, scores, problems, pool = pool_state(intake.root)
+            row = next(row for row in rank(repository, scores, problems, ALL_STATUSES)
+                       if row["posting_id"] == posting_id)
+            return {"row": row, "counter": counter(repository, scores, pool),
+                    "next_pass": next_pass(repository, scores, pool)}
 
     @app.post("/pool/passes", status_code=202)
     def start_pass(body: PassBody) -> dict:
@@ -734,18 +777,21 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
         setting `availability` and/or release a flagged posting; answers the stored posting
         (a `status` makes it schema version 2). A hand setting replaces any availability, one a
         check set included, and keeps the version; the next check replaces it in turn. 404 for
-        an unknown posting, 409 for releasing one the content guard did not flag."""
-        try:
-            read_posting(intake.root, posting_id)
-        except ValueError:
-            return problem(404, "not found", f"no posting {posting_id}")
-        corrections = body.model_dump(exclude_unset=True, exclude={"release", "availability"})
-        try:
-            posting = amend_posting(intake.root, posting_id, corrections, bool(body.release),
-                                    availability=body.availability)
-        except NotFlaggedError as error:
-            return problem(409, "not flagged", str(error))
-        return {"posting_id": posting_id, "posting": posting.model_dump(mode="json")}
+        an unknown posting, 409 for releasing one the content guard did not flag. The check and
+        the write run under `write_gate`, so a delete falls before or after them."""
+        with write_gate:
+            try:
+                read_posting(intake.root, posting_id)
+            except ValueError:
+                return problem(404, "not found", f"no posting {posting_id}")
+            corrections = body.model_dump(exclude_unset=True,
+                                          exclude={"release", "availability"})
+            try:
+                posting = amend_posting(intake.root, posting_id, corrections,
+                                        bool(body.release), availability=body.availability)
+            except NotFlaggedError as error:
+                return problem(409, "not flagged", str(error))
+            return {"posting_id": posting_id, "posting": posting.model_dump(mode="json")}
 
     @app.get("/policy-pack/login-wall-hosts")
     def read_login_wall_hosts() -> dict:
@@ -823,9 +869,11 @@ def configured_runs(settings: Settings) -> Runs:
 def pool_state(root: Path) -> tuple[DataRepository, dict[str, Score], dict[str, str], Pool]:
     """The data repository at `root` as it is now, its readable scores, the problems of the
     unreadable score files (by posting ID) and `pool.json`. Raises `DataRepositoryError` when
-    the repository or `pool.json` does not load; a bad score file never raises."""
-    scores, problems = read_scores(root)
-    return load(root), scores, problems, read_pool(root)
+    the repository or `pool.json` does not load; a bad score file never raises. The three
+    reads run under `write_gate`, so a delete shows in all of them or in none."""
+    with write_gate:
+        scores, problems = read_scores(root)
+        return load(root), scores, problems, read_pool(root)
 
 
 def reason_chips(repository: DataRepository) -> list[dict]:

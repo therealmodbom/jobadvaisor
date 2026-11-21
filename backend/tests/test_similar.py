@@ -9,6 +9,7 @@ from langchain_core.embeddings import DeterministicFakeEmbedding
 
 from jobadvaisor.data.loader import load
 from jobadvaisor.data.models import Posting
+from jobadvaisor.data.writer import delete_posting
 from jobadvaisor.index import LabelIndex, PostingIndex, state_path
 from jobadvaisor.settings import Settings
 from jobadvaisor.tools.guard import ContentGuard
@@ -158,6 +159,19 @@ def test_state_path_is_outside_the_repository_and_unique_per_data_repository(tmp
     assert len(paths) == 2
     assert all(path.parent == settings.state_directory and path.name.startswith("data-")
                for path in paths)
+
+
+def test_a_deleted_rated_posting_leaves_both_indexes(tmp_path, repository_root):
+    labels = built_index(tmp_path / "chroma", repository_root)
+    postings = PostingIndex(tmp_path / "chroma", DeterministicFakeEmbedding(size=16), "fake-16")
+    postings.sync(load(repository_root))
+    assert "p3" in labels.posting_ids() and "p3" in postings.posting_ids()
+    delete_posting(repository_root, "p3")
+    labels.sync(load(repository_root))
+    postings.sync(load(repository_root))
+    assert "p3" not in labels.posting_ids() and "p3" not in postings.posting_ids()
+    assert "p3" not in labels.nearest("Android Developer\n\nWe build things.", 5)
+    assert "p3" not in postings.nearest("Android Developer\n\nWe build things.", 5)
 
 
 def test_posting_index_holds_every_stored_posting_and_follows_changes(tmp_path, repository_root):

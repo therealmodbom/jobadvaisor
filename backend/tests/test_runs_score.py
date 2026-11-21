@@ -99,3 +99,39 @@ def test_the_slot_is_free_again_after_an_unknown_posting_and_after_a_judge_error
         gated.runs.score("p1")
     gated.judge_fails = False
     assert gated.runs.score("p1").score == 1
+
+
+def test_exclusive_is_busy_while_a_single_score_computes_and_names_it(gated):
+    thread = gated.hold_a_single_score()
+    with pytest.raises(RunBusyError) as busy:
+        with gated.runs.exclusive("delete:p2"):
+            pytest.fail("the block ran beside a single score")
+    assert busy.value.run_id == "score:p1"
+    gated.release(thread)
+    with gated.runs.exclusive("delete:p2"):  # free again
+        pass
+
+
+def test_a_single_score_during_exclusive_is_busy_and_the_slot_is_free_after_it(gated):
+    with gated.runs.exclusive("delete:p2"):
+        with pytest.raises(RunBusyError) as busy:
+            gated.runs.score("p1")
+        assert busy.value.run_id == "delete:p2"
+    assert gated.runs.score("p1").score == 1
+
+
+def test_running_names_the_run_that_holds_the_slot_and_is_none_otherwise(gated):
+    assert gated.runs.running() is None
+    thread = gated.hold_a_single_score()
+    assert gated.runs.running() == "score:p1"
+    gated.release(thread)
+    assert gated.runs.running() is None
+    with gated.runs.exclusive("delete:p2"):
+        assert gated.runs.running() == "delete:p2"
+
+
+def test_the_slot_is_free_again_after_an_exception_inside_exclusive(gated):
+    with pytest.raises(RuntimeError):
+        with gated.runs.exclusive("delete:p2"):
+            raise RuntimeError("the block fails")
+    assert gated.runs.score("p1").score == 1
