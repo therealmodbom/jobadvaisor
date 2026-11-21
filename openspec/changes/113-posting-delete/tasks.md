@@ -79,5 +79,5 @@
 
   Verify with `env -C backend uv run pytest -m e2e -q` after `npm --prefix frontend run build`.
 - [ ] 3.2 Click-test both delete paths in the browser against the real dev server, including the disabled state during a pass. Verified when both deletes work and the reason icon shows.
-- [ ] 3.3 Update the README pool workflow section and the AGENTS.md „Current state“ section. Retake `docs/images/pool.png` and `posting.png` with `scripts/readme_images.py`. Verified when the README mentions the delete and both images show the trash button.
+- [x] 3.3 Update the README pool workflow section and the AGENTS.md „Current state“ section. Retake `docs/images/pool.png` and `posting.png` with `scripts/readme_images.py`. Verified when the README mentions the delete and both images show the trash button.
 - [ ] 3.4 Run every check: `env -C backend uv run pytest -q`, `env -C backend uv run pytest -m e2e -q`, `env -C backend uv run ruff check .`, `npm --prefix frontend test`, `npm --prefix frontend run lint` and `npm --prefix frontend run build`. Verified when all pass and the `push` CI run on the branch head is green.
