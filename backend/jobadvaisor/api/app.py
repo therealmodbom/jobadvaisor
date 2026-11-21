@@ -382,9 +382,9 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
 
     def delete_blocked() -> Literal["scoring", "check"] | None:
         """What would refuse a delete now, in the order `DELETE` refuses: `"check"` while an
-        availability check runs, `"scoring"` while a pass or a single score holds the slot,
-        else `None`. A snapshot: read before a handler takes `write_gate`, since `DELETE` holds
-        the checks' lock while it waits for the gate."""
+        availability check runs, `"scoring"` while a pass, a single score or another
+        request's delete holds the slot, else `None`. A snapshot: read before a handler takes
+        `write_gate`, since `DELETE` holds the checks' lock while it waits for the gate."""
         if checks.running():
             return "check"
         return "scoring" if runs.running() else None

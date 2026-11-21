@@ -567,6 +567,7 @@ def test_every_request_on_a_deleted_posting_is_404_and_writes_no_file(api, root)
                    api.client.put("/postings/p2/rating", json={"verdict": "positive"}),
                    api.client.patch("/postings/p2", json={"availability": "closed"}),
                    api.client.patch("/postings/p2", json={"title": "Renamed"}),
+                   api.client.patch("/postings/p2", json={"status": "applied"}),
                    post_score(api, "p2")):
         assert answer.status_code == 404 and answer.json()["error"] == "not found"
     assert not any((root / name / "p2.json").exists() for name in ("postings", "labels", "scores"))
@@ -685,11 +686,12 @@ def test_a_delete_refused_for_a_check_leaves_the_run_slot_free(tmp_path, root):
     site = Site()
     site.on_request = lambda url: (entered.set(), release.wait(30))
     api = checked_api(tmp_path, root, site)
-    api.client.post("/availability/checks")
+    check_id = api.client.post("/availability/checks").json()["check_id"]
     assert entered.wait(10)
     assert api.client.delete("/postings/p3").status_code == 409
     assert post_score(api, "p2").status_code == 200  # the slot was not left claimed
     release.set()
+    assert settled_check(api, check_id)["status"] == "done"  # no worker outlives the test
 
 
 def test_delete_blocked_is_null_on_the_posting_page_of_an_idle_app(api):
@@ -699,10 +701,25 @@ def test_delete_blocked_is_null_on_the_posting_page_of_an_idle_app(api):
 
 def test_a_check_and_a_delete_started_together_never_deadlock_with_a_reading_request(
         tmp_path, root):
-    """Page reads, a check start and deletes race; none may wait for another forever."""
+    """Page reads, check starts and deletes that remove real postings race; none may wait for
+    another forever. The threads are daemons, so a real deadlock fails the test instead of
+    hanging the process."""
     add_posting(root, "linked", "Engineer 9", urls=["https://a.example.org/1"])
     api = checked_api(tmp_path, root, Site())
     errors: list = []
+    check_ids: list[str] = []
+    victims = ["p2", "p3", "p4", "p5", "sales"]
+
+    def delete_next():
+        """Delete the next real posting; one refused for a running check (409) is retried."""
+        answer = api.client.delete(f"/postings/{victims[0] if victims else 'nope'}")
+        if answer.status_code == 204:
+            victims.pop(0)
+
+    def start_check():
+        answer = api.client.post("/availability/checks")
+        if answer.status_code == 202:
+            check_ids.append(answer.json()["check_id"])
 
     def hammer(call):
         try:
@@ -711,17 +728,19 @@ def test_a_check_and_a_delete_started_together_never_deadlock_with_a_reading_req
         except Exception as error:  # noqa: BLE001 - reported below
             errors.append(error)
 
-    threads = [threading.Thread(target=hammer, args=(call,)) for call in (
+    threads = [threading.Thread(target=hammer, args=(call,), daemon=True) for call in (
         lambda: api.client.get("/postings/p1"),
-        lambda: api.client.post("/availability/checks"),
+        start_check,
         lambda: api.client.put("/postings/p1/rating", json={"verdict": "positive"}),
-        lambda: api.client.delete("/postings/nope"),
+        delete_next,
         lambda: api.client.get("/pool"))]
     for thread in threads:
         thread.start()
     for thread in threads:
         thread.join(30)
     assert not any(thread.is_alive() for thread in threads), "a request never answered"
+    for check_id in check_ids:  # no worker may write under tmp_path after the test
+        assert settled_check(api, check_id)["status"] == "done"
     assert not errors
 
 
