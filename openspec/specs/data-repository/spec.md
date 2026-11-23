@@ -6,7 +6,7 @@ Defines the user data repository: a separate git repository in a documented, ver
 ## Requirements
 
 ### Requirement: Documented schema per entity
-The system SHALL define one versioned JSON Schema per entity — profile, policy pack, posting, label, score, pool (settings and pass history) — and publish the schemas in this repository as the public contract for external writers such as a legacy exporter. A posting MAY carry an application status and an origin mark; a score belongs to a posting by its ID. The policy pack MAY hold the user's import mapping for job lists (status column, status values per application status and skip, assessment column), so the layout of the user's own list lives in the data repository and not in this repository.
+The system SHALL define one versioned JSON Schema per entity — profile, policy pack, posting, label, score, pool (settings and pass history), mailbox (account without password, folder choice, start date and handled mails) — and publish the schemas in this repository as the public contract for external writers such as a legacy exporter. A posting MAY carry an application status and an origin mark; a score belongs to a posting by its ID. The policy pack MAY hold the user's import mapping for job lists (status column, status values per application status and skip, assessment column), so the layout of the user's own list lives in the data repository and not in this repository.
 
 #### Scenario: Schema carries a version
 - **WHEN** a schema file is read
@@ -19,6 +19,10 @@ The system SHALL define one versioned JSON Schema per entity — profile, policy
 #### Scenario: Earlier version loads
 - **WHEN** a posting file references the schema version before this change
 - **THEN** it loads, with the status open and no origin mark
+
+#### Scenario: No mailbox file
+- **WHEN** the data repository holds no mailbox file
+- **THEN** it loads, and no mailbox is configured
 
 ### Requirement: Location from configuration
 The system SHALL read the data repository location from configuration and SHALL NOT assume a fixed path.
@@ -258,3 +262,10 @@ Deleting a posting SHALL remove every file and entry keyed by its ID: `postings/
 #### Scenario: Backup after a delete
 - **WHEN** a posting with a rating and a score is deleted and a backup runs
 - **THEN** the commit removes the three files, and its message names 1 rating, 1 score and 1 posting
+
+### Requirement: Mailbox settings stored without the password
+The mailbox's server, port, user name, folder choice, start date and handled mails SHALL be stored in the data repository; the password SHALL never be. A handled mail SHALL be recorded by its folder's validity value and number and by a hash of its message ID, never by its sender, subject or text.
+
+#### Scenario: File after a check
+- **WHEN** the user finished the pick list of a check
+- **THEN** the mailbox file in the data repository holds the handled mails as numbers and hashes, and no password, sender, subject or mail text

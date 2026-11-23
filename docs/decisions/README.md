@@ -23,3 +23,5 @@ Each ADR has the sections Status, Context, Decision, Alternatives considered, Co
 | 0013 | [Pass progress and cancel kept in memory, beside the checkpoint](0013-pass-progress-and-cancel-in-memory-beside-the-checkpoint.md) | Accepted |
 | 0014 | [Closed rules add to the code defaults](0014-closed-rules-add-to-the-code-defaults.md) | Accepted |
 | 0015 | [Hard delete, with git history as the way back](0015-hard-delete-with-git-history-as-the-way-back.md) | Accepted |
+| 0016 | [Mailbox password encrypted in the state directory, with the key from the secret configuration](0016-mailbox-password-encrypted-in-the-state-directory.md) | Accepted |
+| 0017 | [IMAPClient over the standard library's imaplib](0017-imapclient-over-imaplib.md) | Accepted |

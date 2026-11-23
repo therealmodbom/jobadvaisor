@@ -189,3 +189,14 @@ The image and the code SHALL name no remote host or provider: a backup pushes to
 #### Scenario: Another installation
 - **WHEN** an installation's data repository has an SSH remote at another provider, and its deployment settings name its own key directory and key file
 - **THEN** the backup pushes to that remote with that key, with the same image and Compose file
+
+### Requirement: Mailbox key from the host
+The key that encrypts the mailbox password SHALL come from the host's secret file like the other secrets, and the encrypted password SHALL live on the state volume. Neither the state volume nor the data repository alone SHALL reveal the password.
+
+#### Scenario: Restart
+- **WHEN** the service restarts with the same secret file and state volume
+- **THEN** the stored mailbox password still works
+
+#### Scenario: State volume without the key
+- **WHEN** the state volume is copied to another machine without the secret file
+- **THEN** the mailbox password cannot be read from the copy
