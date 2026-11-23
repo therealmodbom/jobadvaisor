@@ -789,6 +789,10 @@ The header's settings button „Einstellungen“ SHALL open the settings page, r
 - **WHEN** the settings page is shown 390 pixels wide
 - **THEN** the sections are listed above the content, and the page does not scroll sideways
 
+#### Scenario: Pool keys off
+- **WHEN** the settings page is open and the user presses a rating key of the pool view
+- **THEN** no posting is rated
+
 ### Requirement: Mailbox settings form
 The section „Postfach“ SHALL offer the fields server, port (993 when empty), user name and password, and the action „Verbinden und Ordner laden“. That action SHALL store the account and, after a successful login, show the folder choice. A failed login SHALL show its reason beside the form.
 
@@ -801,15 +805,19 @@ The section „Postfach“ SHALL offer the fields server, port (993 when empty),
 - **THEN** the view says that the login was refused, and the fields keep their values except the password
 
 ### Requirement: Password field
-The password field SHALL mask its text, and a button with an eye icon SHALL show and hide the typed text. A stored password SHALL show as eight dots, labelled as stored, and SHALL never be filled in; an empty field SHALL keep the stored password on save. The section SHALL recommend an app password that the provider can revoke on its own.
+The password field SHALL mask its text, and a button with an eye icon SHALL show and hide the typed text. A stored password SHALL show as eight dots, labelled as stored, and SHALL never be filled in; an empty field SHALL keep the stored password on save while server, port and user name stay the same. The section SHALL recommend an app password that the provider can revoke on its own.
 
 #### Scenario: Show the typed password
 - **WHEN** the user types a password and presses the eye button
 - **THEN** the typed text is readable, and a second press masks it again
 
 #### Scenario: Stored password kept
-- **WHEN** a password is stored and the user changes only the server and saves
+- **WHEN** a password is stored and the user changes only the folder choice and saves
 - **THEN** the stored password stays, and the field still shows eight dots
+
+#### Scenario: Server changed
+- **WHEN** a password is stored and the user changes the server without entering a password and saves
+- **THEN** the field is empty, no longer labelled as stored, and asks for the password
 
 ### Requirement: Mailbox settings without a key
 When no key for the password is configured, the password field and „Verbinden und Ordner laden“ SHALL be disabled. A visible info icon that keyboard users can reach SHALL say that no key is configured and that the README explains how to set one up.
@@ -826,7 +834,7 @@ After connecting, the section SHALL offer „Alle Ordner“, which includes fold
 - **THEN** checks search those two folders only
 
 ### Requirement: Mailbox source
-The intake source „Postfach“ SHALL point to the section „Postfach“ while no mailbox is configured. Once one is, it SHALL show the account, the folder choice and the time of the last check, and „Postfach prüfen“. Before the first check it SHALL show „Mails ab“, a date preset to 30 days back.
+The intake source „Postfach“ SHALL point to the section „Postfach“ while no mailbox is configured. Once one is, it SHALL show the account, the folder choice and the time of the last check, and „Postfach prüfen“. Before the first check it SHALL show „Mails ab“, a date preset to 30 days back, with a hint that older mails are never read and that each mail from a sender without a fixed rule costs a model call.
 
 #### Scenario: Not configured
 - **WHEN** no mailbox is configured and the user chooses the source „Postfach“
@@ -834,7 +842,11 @@ The intake source „Postfach“ SHALL point to the section „Postfach“ while
 
 #### Scenario: First check
 - **WHEN** a mailbox is configured but never checked
-- **THEN** the view shows „Mails ab“ preset to 30 days back, and „Postfach prüfen“
+- **THEN** the view shows „Mails ab“ preset to 30 days back with the cost hint, and „Postfach prüfen“
+
+#### Scenario: Later checks
+- **WHEN** the mailbox was checked before
+- **THEN** the view shows no „Mails ab“ field, only the time of the last check and „Postfach prüfen“
 
 ### Requirement: Mailbox check progress and outcome
 While a check runs, the view SHALL show how many new mails it found and how many it has read, and „Postfach prüfen“ SHALL be disabled. A check without new mails SHALL say so. A failed check SHALL show its reason with „Erneut versuchen“ and a link to the settings. A stored password the key cannot decrypt SHALL be named, with a link to enter it again. Switching away and reloading the page SHALL keep a running check's progress.
@@ -862,6 +874,24 @@ A finished check SHALL show the entries of all its mails in one list, grouped by
 - **WHEN** the user presses „Nichts hinzufügen“
 - **THEN** no entry is added, and the mails of the check are not offered again
 
+### Requirement: Mailbox check report
+Above the pick list, the view SHALL name, each as a short note: the number of mails left for the next check, chosen folders that no longer exist, mails that were too large, mails whose reading failed, mails held by the content guard, mails not read while screening is off, and an interrupted connection. A mail head SHALL carry the notes of the pasted alert mail for that mail (hosts not read, more than 100 entries).
+
+#### Scenario: Mails left
+- **WHEN** a check read 200 mails and 60 remain
+- **THEN** a note says that 60 mails are left for the next check
+
+#### Scenario: Failed and held mails
+- **WHEN** a check could not read one mail and the content guard held another
+- **THEN** a note names each with its sender and subject, and neither appears in the pick list
+
+### Requirement: Mailbox pick list kept when adding is refused
+When finishing a check's pick list is refused because another alert run computes, the view SHALL show that run's progress and keep the pick list, so it can be finished afterwards.
+
+#### Scenario: Alert run busy
+- **WHEN** the user adds entries while another alert run computes
+- **THEN** the view shows the computing run's progress, and the pick list can be finished afterwards
+
 ### Requirement: Select a mail's entries at once
 Each mail head SHALL have a checkbox that selects all selectable entries of that mail when not all are selected, and clears them otherwise. It SHALL show a dash while only some are selected. The head SHALL show „n von m ausgewählt“ for its mail.
 
@@ -879,4 +909,3 @@ Each mail head SHALL have a button that collapses and expands the mail's entries
 #### Scenario: Collapse
 - **WHEN** the user collapses a mail with two of three entries selected
 - **THEN** its entries are hidden, its head shows „2 von 3 ausgewählt“, and the add button still counts them
-

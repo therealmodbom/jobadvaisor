@@ -264,7 +264,7 @@ Deleting a posting SHALL remove every file and entry keyed by its ID: `postings/
 - **THEN** the commit removes the three files, and its message names 1 rating, 1 score and 1 posting
 
 ### Requirement: Mailbox settings stored without the password
-The mailbox's server, port, user name, folder choice, start date and handled mails SHALL be stored in the data repository; the password SHALL never be. A handled mail SHALL be recorded by its folder's validity value and number and by a hash of its message ID, never by its sender, subject or text.
+The mailbox's server, port, user name, folder choice, start date, handled mails and mails waiting for screening SHALL be stored in the data repository; the password SHALL never be. Such a mail SHALL be recorded by its folder's validity value and number and by a hash of its message ID, never by its sender, subject or text.
 
 #### Scenario: File after a check
 - **WHEN** the user finished the pick list of a check

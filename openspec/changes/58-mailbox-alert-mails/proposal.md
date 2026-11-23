@@ -23,22 +23,27 @@ Configuring a mailbox needs a place for app-wide settings. Today the header's ge
   - The form recommends an app password, which the provider can revoke on its own.
 - **Checking the mailbox.** The intake view gets a source „Postfach“.
   - Without an account, the source points to the settings.
-  - Before the first check, the user sets „Mails ab“, by default 30 days back. Older mails are never read. The date never moves forward by itself.
+  - Before the first check, the user sets „Mails ab“, by default 30 days back, with a hint about the model cost. Older mails are never read. The date changes only with the account.
   - „Postfach prüfen“ starts a check in the background, one at a time. The check reports how many unhandled mails it found and how many it has read, at most 200 mails per check, oldest first.
   - Each mail goes through the existing finder: fixed rules first, the content guard and the model for other senders, and one line per mail in the record. Mails are read only. They are never moved, flagged or marked as read.
-  - A connection, login or folder failure ends the check with its reason. A stored password the key can no longer decrypt asks for the password again.
+  - A mail that sits in several folders is read once. A mail over 4 MB is skipped and named.
+  - A connection, login or folder failure ends the check with its reason. A connection lost midway keeps the mails read so far. A stored password the key can no longer decrypt asks for the password again.
+  - Above the pick list, short notes name what the check did not offer: mails left for the next check, missing folders, oversized, failed or held mails, and mails not read while screening is off.
+  - Changing the server, port or user name without a new password removes the stored password, so it never goes to another server. Changing the server or user name also starts the handled-mail record afresh.
 - **Pick list grouped by mail.** The postings of all new mails appear in one list, grouped by mail.
   - Each mail head shows the sender, then subject, date and folder on one line (stacked on a phone).
   - It has a checkbox that selects or clears all selectable entries of that mail, showing a dash when only some are selected, the count „n von m ausgewählt“, and a button that collapses the mail.
   - „N Anzeigen hinzufügen“ starts the existing alert run. „Nichts hinzufügen“ adds none.
 - **Handled mails.**
   - A mail counts as handled once the user has finished the pick list holding it, or right away when the finder returns no posting for it.
+  - A mail that failed, or that no model could read because screening is off, is not handled. A mail of the second kind waits until screening is turned on.
   - A handled mail is never offered again, also after the server renumbered a folder or when the mail was moved to another searched folder.
-  - Handled mails are recorded in the data repository by the folder's validity and number and by a hash of the message ID. Sender, subject and text are not recorded.
+  - Handled and waiting mails are recorded in the data repository by the folder's validity value and number and by a hash of the message ID. Sender, subject and text are not recorded.
 - **Side effects the user should know:**
   - The app stores the mailbox password, encrypted, on the backend's machine.
   - The data repository, and so its backup remote, holds the mailbox host, the user name, the folder choice and the handled-mail record.
   - Every mail from a sender without a fixed rule costs one model call, plus one screening call.
+  - The text of every searched mail that no rule reads goes to the screening classifier, the model provider and the trace. That includes newsletters and private mail in a searched folder. A folder selection limits it.
 
 ## Non-goals
 
@@ -59,8 +64,16 @@ None.
 
 ### Modified Capabilities
 
-- `posting-intake`: adds „Mailbox over IMAP with TLS“, „Mailbox folders listed“, „Folders a check searches“, „The mailbox is read only“, „Mails from the start date on“, „Handled mails“, „Handled mails are skipped“, „Each mail through the finder“, „At most 200 mails per check“, „One mailbox check at a time“, „A failed check names its reason“, „Mailbox password stored encrypted“, „The mailbox password is never revealed“, „Unreadable stored password“ and „Mailbox entries added like alert entries“.
-- `web-ui`: replaces „Settings in the header“ with „Settings page“. Modifies „Intake view“ (the mailbox source). Adds „Mailbox settings form“, „Password field“, „Mailbox settings without a key“, „Folder choice“, „Mailbox source“, „Mailbox check progress and outcome“, „Mailbox pick list grouped by mail“, „Select a mail's entries at once“ and „Collapse a mail“.
+- `posting-intake`: adds the following requirements.
+  - Connection and folders: „Mailbox over IMAP with TLS“, „Mailbox folders listed“, „Folders a check searches“, „One mail read once per check“, „The mailbox is read only“.
+  - Which mails a check reads: „Mails from the start date on“, „Handled mails“, „Mails waiting for screening“, „Handled mails are skipped“, „Each mail through the finder“, „Oversized mails skipped“, „At most 200 mails per check“.
+  - Running a check: „One mailbox check at a time“, „A failed check names its reason“, „An interrupted check keeps what it read“.
+  - The password and the account: „Mailbox password stored encrypted“, „The mailbox password is never revealed“, „The password stays with its account“, „A new account starts fresh“, „Unreadable stored password“.
+  - Adding: „Mailbox entries added like alert entries“.
+- `web-ui`: replaces „Settings in the header“ with „Settings page“, and modifies „Intake view“ (the mailbox source). Adds the following requirements.
+  - Settings: „Mailbox settings form“, „Password field“, „Mailbox settings without a key“, „Folder choice“.
+  - The mailbox source: „Mailbox source“, „Mailbox check progress and outcome“, „Mailbox check report“, „Mailbox pick list kept when adding is refused“.
+  - The pick list: „Mailbox pick list grouped by mail“, „Select a mail's entries at once“, „Collapse a mail“.
 - `data-repository`: modifies „Documented schema per entity“ (the mailbox entity). Adds „Mailbox settings stored without the password“.
 - `deployment`: adds „Mailbox key from the host“.
 
