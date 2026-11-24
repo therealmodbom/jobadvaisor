@@ -167,17 +167,61 @@ test.each([['#/pool', 'Deine Anzeigen'], ['#/hinzufuegen', 'Anzeige hinzufügen'
     expect(await axe(container)).toHaveNoViolations()
   })
 
-test('the header offers "Einstellungen" after the backup control, from every view', async () => {
+
+test('the header offers "Einstellungen" as a link after the backup control, from every view', async () => {
   stubApi({ 'GET /pool': { body: POOL }, 'GET /policy-pack/login-wall-hosts': { body: { hosts: [] } } })
   window.location.hash = '#/hinzufuegen'
   render(<App />)
   const header = screen.getByRole('banner')
   const backup = await within(header).findByRole('button', { name: /Gesichert/ })
-  const settings = within(header).getByRole('button', { name: 'Einstellungen' })
+  const settings = within(header).getByRole('link', { name: 'Einstellungen' })
   expect(backup.compareDocumentPosition(settings) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(settings).not.toHaveAttribute('aria-current')
 })
 
-test('the settings panel opens from the intake view, and saving changes the pool\'s hint', async () => {
+test('the gear opens the settings page, marks itself current and leaves no navigation item current', async () => {
+  stubApi({ 'GET /pool': { body: POOL }, 'GET /policy-pack/login-wall-hosts': { body: { hosts: [] } } })
+  window.location.hash = '#/hinzufuegen'
+  render(<App />)
+  await userEvent.click(screen.getByRole('link', { name: 'Einstellungen' }))
+  expect(await screen.findByRole('heading', { level: 1, name: 'Einstellungen' })).toBeVisible()
+  expect(screen.getByRole('link', { name: 'Einstellungen' })).toHaveAttribute('aria-current', 'page')
+  expect(nav().queryByRole('link', { current: 'page' })).toBeNull()
+  expect(document.title).toBe('Einstellungen – JobAdvAIsor')
+  expect(screen.queryByRole('heading', { level: 1, name: 'Anzeige hinzufügen' })).toBeNull()
+})
+
+test('the sections are listed on the page, "Scoren" is the default and each has its address', async () => {
+  stubApi({ 'GET /pool': { body: POOL }, 'GET /mailbox': { body: { configured: false } } })
+  window.location.hash = '#/einstellungen'
+  render(<App />)
+  const sections = within(screen.getByRole('navigation', { name: 'Bereiche der Einstellungen' }))
+  expect(sections.getByRole('link', { name: 'Scoren' })).toHaveAttribute('aria-current', 'page')
+  expect(sections.getByRole('link', { name: 'Scoren' })).toHaveAttribute('href', '#/einstellungen/scoren')
+  expect(sections.getByRole('link', { name: 'Postfach' })).toHaveAttribute('href', '#/einstellungen/postfach')
+  expect(await screen.findByLabelText('Korrekturen bis zum Hinweis')).toBeVisible()
+  await userEvent.click(sections.getByRole('link', { name: 'Postfach' }))
+  expect(await screen.findByRole('heading', { level: 2, name: 'Postfach' })).toBeVisible()
+  expect(sections.getByRole('link', { name: 'Postfach' })).toHaveAttribute('aria-current', 'page')
+  expect(screen.queryByLabelText('Korrekturen bis zum Hinweis')).toBeNull()
+})
+
+test('the address of the section "Postfach" opens that section', async () => {
+  stubApi({ 'GET /pool': { body: POOL }, 'GET /mailbox': { body: { configured: false } } })
+  window.location.hash = '#/einstellungen/postfach'
+  render(<App />)
+  expect(await screen.findByRole('heading', { level: 2, name: 'Postfach' })).toBeVisible()
+  expect(screen.getByRole('link', { name: 'Postfach' })).toHaveAttribute('aria-current', 'page')
+})
+
+test('an unknown section falls back to "Scoren"', async () => {
+  stubApi({ 'GET /pool': { body: POOL } })
+  window.location.hash = '#/einstellungen/gibtsnicht'
+  render(<App />)
+  expect(await screen.findByLabelText('Korrekturen bis zum Hinweis')).toBeVisible()
+})
+
+test('the hint settings are saved on the page from the intake view, and the pool\'s hint follows', async () => {
   let saved = false
   const calls = stubApi({
     'GET /pool': () => ({ body: saved ? { ...POOL, counter: { ...POOL.counter, hint: 'rescore' } } : POOL }),
@@ -188,7 +232,7 @@ test('the settings panel opens from the intake view, and saving changes the pool
     } })
   window.location.hash = '#/hinzufuegen'
   render(<App />)
-  await userEvent.click(screen.getByRole('button', { name: 'Einstellungen' }))
+  await userEvent.click(screen.getByRole('link', { name: 'Einstellungen' }))
   expect(await screen.findByLabelText('Korrekturen bis zum Hinweis')).toHaveValue(10)
   expect(screen.getByLabelText('Anteil bis zum Hinweis (in %)')).toHaveValue(30)
   await userEvent.clear(screen.getByLabelText('Korrekturen bis zum Hinweis'))
@@ -196,31 +240,44 @@ test('the settings panel opens from the intake view, and saving changes the pool
   await userEvent.click(screen.getByRole('button', { name: 'Speichern' }))
   await vi.waitFor(() => expect(calls.find((call) => call.method === 'PUT')?.body)
     .toEqual({ correction_threshold: 2, correction_rate: 0.3 }))
-  await userEvent.keyboard('{Escape}')
   await userEvent.click(nav().getByRole('link', { name: 'Anzeigen' }))
   expect(await screen.findByText('neu scoren sinnvoll')).toBeVisible()
 })
 
-test('saving the settings on the pool view reloads the pool at once', async () => {
+test('leaving the settings page for the pool reloads the pool', async () => {
   let loads = 0
-  stubApi({ 'GET /pool': () => { loads += 1; return { body: POOL } },
-            'PUT /pool/settings': { body: { settings: POOL.settings } } })
+  stubApi({ 'GET /pool': () => { loads += 1; return { body: POOL } } })
   render(<App />)
   await screen.findByRole('list', { name: 'Anzeigen' })
-  await userEvent.click(screen.getByRole('button', { name: 'Einstellungen' }))
+  await userEvent.click(screen.getByRole('link', { name: 'Einstellungen' }))
   await screen.findByLabelText('Korrekturen bis zum Hinweis')
   const before = loads
-  await userEvent.click(screen.getByRole('button', { name: 'Speichern' }))
+  await userEvent.click(nav().getByRole('link', { name: 'Anzeigen' }))
   await vi.waitFor(() => expect(loads).toBeGreaterThan(before))
 })
 
-test('the pool\'s shortcut keys do nothing while the settings panel has focus', async () => {
-  const calls = stubApi({ 'GET /pool': { body: POOL } })
+test('the pool\'s rating keys rate on the pool but do nothing while the settings page is open', async () => {
+  const calls = stubApi({ 'GET /pool': { body: POOL },
+                          'PUT /postings/p2/rating': { body: { row: POOL.rows[1], counter: POOL.counter, next_pass: POOL.next_pass } } })
   render(<App />)
   await screen.findByRole('list', { name: 'Anzeigen' })
-  await userEvent.click(screen.getByRole('button', { name: 'Einstellungen' }))
-  await screen.findByLabelText('Korrekturen bis zum Hinweis')
-  screen.getByRole('button', { name: 'Speichern' }).focus()
+  await userEvent.click(screen.getByRole('heading', { level: 3, name: 'Data Engineer (m/w/d)' }))
   await userEvent.keyboard('1')
-  expect(calls.some((call) => call.path.includes('/rating'))).toBe(false)
+  await vi.waitFor(() => expect(calls.filter((call) => call.path.includes('/rating'))).toHaveLength(1))
+  await userEvent.click(screen.getByRole('link', { name: 'Einstellungen' }))
+  await screen.findByLabelText('Korrekturen bis zum Hinweis')
+  // The gear keeps the keys off while it has focus; the page itself must keep them off too.
+  const focused = document.activeElement as HTMLElement
+  focused.blur()
+  await userEvent.keyboard('1')
+  await userEvent.keyboard('j2')
+  expect(calls.filter((call) => call.path.includes('/rating'))).toHaveLength(1)
+})
+
+test('the settings page has no accessibility violations', async () => {
+  stubApi({ 'GET /pool': { body: POOL } })
+  window.location.hash = '#/einstellungen'
+  const { container } = render(<App />)
+  await screen.findByLabelText('Korrekturen bis zum Hinweis')
+  expect(await axe(container)).toHaveNoViolations()
 })

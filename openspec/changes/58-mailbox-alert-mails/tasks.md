@@ -82,7 +82,7 @@
 
 ## 8. Frontend: settings page (D7)
 
-- [ ] 8.1 Add the routes `#/einstellungen` and `#/einstellungen/<section>`, the gear as a link, and the page with the sections „Scoren“ and „Postfach“; move `SettingsForm` into „Scoren“ and remove the popover; verify with component tests (section by address, gear current, hint settings still save, spec scenario „Pool keys off“) and the scenario „Phone width“ in the browser
+- [x] 8.1 Add the routes `#/einstellungen` and `#/einstellungen/<section>`, the gear as a link, and the page with the sections „Scoren“ and „Postfach“; move `SettingsForm` into „Scoren“ and remove the popover; verify with component tests (section by address, gear current, hint settings still save, spec scenario „Pool keys off“) and the scenario „Phone width“ in the browser
 - [ ] 8.2 Build the section „Postfach“: fields, eye toggle, stored password as eight dots, the empty field after an account change, the no-key state with `WhyDisabled`, „Verbinden und Ordner laden“, the folder hint, the folder choice and „Höchstens Mails pro Prüfung“; verify with component tests for each spec scenario of „Mailbox settings form“, „Password field“, „Mailbox settings without a key“, „Folder choice“ and „Mails per check setting“
 
 ## 9. Frontend: mailbox source (D7)

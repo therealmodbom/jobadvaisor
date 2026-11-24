@@ -4,32 +4,32 @@ import { afterEach, expect, test, vi } from 'vitest'
 import { axe } from '@/test-axe'
 import { stubApi } from '@/test-api'
 import { POOL } from '@/test-fixtures'
-import { SettingsControl } from './settings'
+import { ScoringSettings, SettingsLink } from './settings'
 
 afterEach(() => vi.unstubAllGlobals())
 
 const THRESHOLD = 'Korrekturen bis zum Hinweis'
 const PERCENT = 'Anteil bis zum Hinweis (in %)'
 
-/** Render the control and open its panel once the stored settings have arrived. */
+/** Render the settings of the pool's hint once the stored values have arrived. */
 async function open(routes: Parameters<typeof stubApi>[0] = {}, onSaved = () => {}) {
   const calls = stubApi({ 'GET /pool': { body: POOL }, ...routes })
-  render(<SettingsControl onSaved={onSaved} />)
-  await userEvent.click(screen.getByRole('button', { name: 'Einstellungen' }))
+  render(<ScoringSettings onSaved={onSaved} />)
   await screen.findByLabelText(THRESHOLD)
   return calls
 }
 
-test('the button is closed at first and opens a panel with the stored threshold and rate', async () => {
-  stubApi({ 'GET /pool': { body: POOL } })
-  render(<SettingsControl onSaved={() => {}} />)
-  const button = screen.getByRole('button', { name: 'Einstellungen' })
-  expect(button).toHaveAttribute('aria-expanded', 'false')
-  expect(screen.queryByRole('dialog')).toBeNull()
-  await userEvent.click(button)
-  expect(button).toHaveAttribute('aria-expanded', 'true')
-  expect(screen.getByRole('dialog', { name: 'Einstellungen' })).toBeVisible()
-  expect(await screen.findByLabelText(THRESHOLD)).toHaveValue(10)
+test('the gear is a link to the settings page and marks the page as current', () => {
+  const { rerender } = render(<SettingsLink current={false} />)
+  expect(screen.getByRole('link', { name: 'Einstellungen' })).toHaveAttribute('href', '#/einstellungen')
+  expect(screen.getByRole('link', { name: 'Einstellungen' })).not.toHaveAttribute('aria-current')
+  rerender(<SettingsLink current />)
+  expect(screen.getByRole('link', { name: 'Einstellungen' })).toHaveAttribute('aria-current', 'page')
+})
+
+test('the form shows the stored threshold and rate', async () => {
+  await open()
+  expect(screen.getByLabelText(THRESHOLD)).toHaveValue(10)
   expect(screen.getByLabelText(PERCENT)).toHaveValue(30)
 })
 
@@ -70,37 +70,16 @@ test('a failed save keeps the input and offers a retry', async () => {
   await waitFor(() => expect(calls.filter((call) => call.method === 'PUT')).toHaveLength(2))
 })
 
-test('Escape closes the panel and focus returns to the button', async () => {
-  await open()
-  await userEvent.keyboard('{Escape}')
-  expect(screen.queryByRole('dialog')).toBeNull()
-  expect(screen.getByRole('button', { name: 'Einstellungen' })).toHaveFocus()
-  expect(screen.getByRole('button', { name: 'Einstellungen' })).toHaveAttribute('aria-expanded', 'false')
-})
-
-test('a click outside closes the panel', async () => {
-  await open()
-  await userEvent.click(document.body)
-  expect(screen.queryByRole('dialog')).toBeNull()
-})
-
-test('a second press on the button closes the panel', async () => {
-  await open()
-  await userEvent.click(screen.getByRole('button', { name: 'Einstellungen' }))
-  expect(screen.queryByRole('dialog')).toBeNull()
-})
-
 test('a failed load of the stored settings offers a retry', async () => {
   let failing = true
   stubApi({ 'GET /pool': () => (failing ? { status: 500 } : { body: POOL }) })
-  render(<SettingsControl onSaved={() => {}} />)
-  await userEvent.click(screen.getByRole('button', { name: 'Einstellungen' }))
+  render(<ScoringSettings onSaved={() => {}} />)
   failing = false
   await userEvent.click(await screen.findByRole('button', { name: 'Erneut versuchen' }))
   expect(await screen.findByLabelText(THRESHOLD)).toHaveValue(10)
 })
 
-test('the open panel has no accessibility violations', async () => {
+test('the form has no accessibility violations', async () => {
   await open()
   expect(await axe(document.body, { rules: { region: { enabled: false } } })).toHaveNoViolations()
 })
