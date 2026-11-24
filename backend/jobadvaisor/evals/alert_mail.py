@@ -5,8 +5,11 @@ and *links correct* with two DeepEval metrics without a judge. It measures the m
 runs once per model and its figures are compared between models; the mails the rules read are
 the regression test `tests/test_alert_mail_regression.py`.
 
-Each case is `fixtures/intake/alert-mails/<case>.html` or `.txt` with `<case>.json`: the
-expected `[{url, title}]` after cleaning, or `{"held": true}`. Links are compared exactly.
+Each case is `fixtures/intake/alert-mails/<case>.html`, `.txt` or `.eml` with `<case>.json`: the
+expected `[{url, title}]` after cleaning, or `{"held": true}`. Links are compared exactly. The
+`.eml` cases are mails as the mailbox reads them (`openspec/changes/58-mailbox-alert-mails`
+D8); they are different mails from the pasted ones, so read their figures from the per-case rows
+of the report and do not compare them with the pasted cases'.
 """
 
 import json
@@ -25,6 +28,7 @@ from jobadvaisor.intake.alert_mail import (
     read_mail,
     rule_for,
 )
+from jobadvaisor.intake.mailbox import mail_parts, parse_mail
 from jobadvaisor.llm import ModelNotConfiguredError
 from jobadvaisor.settings import REPOSITORY_ROOT
 from jobadvaisor.tools.guard import ContentGuard
@@ -44,14 +48,19 @@ class Case:
 
 
 def load_cases() -> list[Case]:
-    """Every fixture mail with its expectation, by name."""
+    """Every fixture mail with its expectation, by name. An `.eml` case is read as the mailbox
+    reads it (`mail_parts`): its decoded HTML part and plain text, not a re-serialised copy."""
     cases = []
     for path in sorted(CASES.iterdir()):
-        if path.suffix in (".html", ".txt"):
+        if path.suffix == ".eml":
+            html, text = mail_parts(parse_mail(path.read_bytes()))
+        elif path.suffix in (".html", ".txt"):
             content = path.read_text()
             html, text = (content, "") if path.suffix == ".html" else (None, content)
-            cases.append(Case(path.stem, html, text, json.loads(path.with_suffix(".json")
-                                                                .read_text())))
+        else:
+            continue
+        cases.append(Case(path.stem, html, text, json.loads(path.with_suffix(".json")
+                                                            .read_text())))
     return cases
 
 

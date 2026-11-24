@@ -18,8 +18,9 @@ from jobadvaisor.tools.guard import ContentGuard
 
 MIME_RULE_CASES = ["linkedin-mime", "ba-mime", "career-site-mime"]
 RULE_CASES = {"linkedin-digest", "linkedin-single", "ba-list", "ba-plain", "career-site-a",
-              "career-site-b"}
-MODEL_CASES = {"unknown-jobid", "unknown-redirect", "injection"}
+              "career-site-b", *MIME_RULE_CASES}
+MODEL_CASES = {"unknown-jobid", "unknown-redirect", "injection", "unknown-preheader",
+               "unknown-quoted-printable", "unknown-multipart"}
 
 
 class NoStoredPostings(Intake):
