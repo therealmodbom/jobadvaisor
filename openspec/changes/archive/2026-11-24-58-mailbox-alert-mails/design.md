@@ -44,7 +44,7 @@ See `proposal.md` → Why. The code this change builds on:
 
 ### D1 The password: Fernet ciphertext in the state directory, key from `MAILBOX_KEY`
 
-Why this storage and not the alternatives: [ADR 0016](../../../docs/decisions/0016-mailbox-password-encrypted-in-the-state-directory.md).
+Why this storage and not the alternatives: [ADR 0016](../../../../docs/decisions/0016-mailbox-password-encrypted-in-the-state-directory.md).
 
 - **The key.** `mailbox_key` joins `SECRETS` in `settings.py`, so the Keychain (account `mailbox-key`), the environment, `.env` and the container's `secrets.env` all work. It holds a Fernet key: 32 url-safe base64 bytes, generated with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. A key that `Fernet` rejects counts as no key: `key_configured` is false, and every operation answers `no key`.
 - **The module.** `mailbox_secret.py` has three operations:
@@ -60,7 +60,7 @@ Why this storage and not the alternatives: [ADR 0016](../../../docs/decisions/00
 
 ### D2 IMAP access through one narrow client
 
-Why IMAPClient: [ADR 0017](../../../docs/decisions/0017-imapclient-over-imaplib.md).
+Why IMAPClient: [ADR 0017](../../../../docs/decisions/0017-imapclient-over-imaplib.md).
 
 `intake/mailbox.py` holds the account access behind a `connect(account, password)` factory, which `create_app` takes as a parameter so tests inject a fake. The real factory:
 
