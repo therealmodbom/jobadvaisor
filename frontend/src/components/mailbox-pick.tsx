@@ -96,6 +96,18 @@ function BusyRun({ id, onEnded }: { id: string; onEnded: () => void }) {
   )
 }
 
+/** What a mail read on request without entries says, as the report says it of the mails read
+ * during the check: held by the content guard, waiting for the screening, or no postings. */
+function noEntriesNote(preview: NonNullable<MailboxMail['preview']>) {
+  if (preview.held) {
+    return <><strong>Von der Inhaltsprüfung zurückgehalten:</strong> Kein Modell hat die Mail gelesen, sie wird nicht noch einmal angeboten.</>
+  }
+  if (preview.model_skipped === 'screening off') {
+    return <><strong>Nicht gelesen, solange die Inhaltsprüfung aus ist:</strong> Für diesen Absender gibt es keine feste Regel. Sobald die Inhaltsprüfung an ist, liest die nächste Prüfung die Mail.</>
+  }
+  return 'Die Mail enthält keine Anzeigen.'
+}
+
 /** One mail of the pick list: its head (a tri-state checkbox that selects or clears the mail's
  * selectable entries, sender, the line of subject, date and folder, „n von m ausgewählt“, the
  * collapse button), its notes and its entries. An oversized mail not read yet has an unticked
@@ -124,16 +136,24 @@ function MailItem({ mail, reading, failure, on, toggle, setMany, collapsed, onCo
   const some = chosen > 0 && !all
   const subject = mail.subject || 'ohne Betreff'
   const unread = preview === null
+  const noChoice = !unread && selectable.length === 0
+  const whyId = useId()
   useLayoutEffect(() => {
     if (box.current) box.current.indeterminate = some
   })
   return (
     <li aria-label={`Mail „${subject}“`} className="flex flex-col rounded-[10px] border">
       <div className="flex items-start gap-3 px-4 py-3">
-        <input ref={box} type="checkbox" aria-label={`Alle Anzeigen der Mail „${subject}“`}
+        <input ref={box} type="checkbox" aria-label={unread ? `Mail „${subject}“ lesen` : `Alle Anzeigen der Mail „${subject}“`}
                checked={unread ? reading : all} disabled={unread ? reading : selectable.length === 0}
+               aria-describedby={noChoice ? whyId : undefined}
                onChange={() => unread ? onRead() : setMany(selectable, !all)}
                className="mt-0.5 size-[22px] flex-none accent-primary disabled:cursor-not-allowed disabled:opacity-50" />
+        {noChoice && (
+          <div className="-mx-2 -my-2.5 flex-none">
+            <WhyDisabled id={whyId} label="Warum ist die Mail nicht auswählbar?" reason="Diese Mail hat keine Anzeige, die du auswählen kannst." />
+          </div>
+        )}
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <p className="font-bold break-words">{mail.sender || 'Unbekannter Absender'}</p>
           <p className="flex flex-wrap gap-x-3 text-[15px] text-muted-foreground max-sm:flex-col">
@@ -163,6 +183,9 @@ function MailItem({ mail, reading, failure, on, toggle, setMany, collapsed, onCo
           </div>
         )}
       </div>
+      {preview && preview.entries.length === 0 && (
+        <div className="px-4 pb-3"><Note>{noEntriesNote(preview)}</Note></div>
+      )}
       {preview && preview.unread_hosts.length > 0 && (
         <div className="px-4 pb-3">
           <Note>
@@ -243,7 +266,8 @@ export function MailboxPickList({ check, reading, failures, finishing, finishFai
       <ul aria-label="Mails der Prüfung" className="flex flex-col gap-3">
         {check.mails.map((mail) => (
           <MailItem key={mail.key} mail={mail} reading={reading.has(mail.key) || mail.reading}
-                    failure={failures[mail.key] ?? (mail.read_failed ? oversizedFailure(mail.read_failed) : null)}
+                    failure={mail.preview !== null ? null
+                      : mail.read_failed ? oversizedFailure(mail.read_failed) : failures[mail.key] ?? null}
                     on={(index) => on(mail, index)}
                     toggle={(index) => setMany(mail, [index], !on(mail, index))}
                     setMany={(indexes, value) => setMany(mail, indexes, value)}

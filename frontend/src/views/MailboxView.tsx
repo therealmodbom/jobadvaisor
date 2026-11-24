@@ -55,7 +55,16 @@ export function MailboxView({ active, onText, onPdf }: { active: boolean; onText
   /** Oversized mails being read from this view, and why a reading failed, by mail key. */
   const [reading, setReading] = useState<Set<string>>(new Set())
   const [failures, setFailures] = useState<Record<string, string>>({})
+  // A mail's key is its place in the check, so the next check reuses the keys: nothing local to
+  // a mail outlives the check it came from.
+  const [owner, setOwner] = useState(box.checkId)
+  if (owner !== box.checkId) {
+    setOwner(box.checkId)
+    setReading(new Set())
+    setFailures({})
+  }
   const hintId = useId()
+  const replaceId = useId()
   const whyId = useId()
   const sinceId = useId()
   const sinceHintId = useId()
@@ -166,7 +175,8 @@ export function MailboxView({ active, onText, onPdf }: { active: boolean; onText
         )}
         {problem && <p role="alert" className="text-danger">{problem}</p>}
         <div className="flex flex-wrap items-center gap-1">
-          <Button type="button" disabled={running} aria-describedby={running ? whyId : undefined} onClick={startCheck}>
+          <Button type="button" disabled={running} aria-describedby={running ? whyId : picking ? replaceId : undefined}
+                  onClick={startCheck}>
             Postfach prüfen
           </Button>
           {running && <WhyDisabled id={whyId} label="Warum ist Prüfen nicht möglich?" reason="Es läuft schon eine Prüfung." />}
@@ -178,6 +188,9 @@ export function MailboxView({ active, onText, onPdf }: { active: boolean; onText
             </Button>
           )}
         </div>
+        {picking && (
+          <p id={replaceId} className="text-[13px] text-muted-foreground">Eine neue Prüfung ersetzt die offene Auswahlliste.</p>
+        )}
         {running && !box.pollFailed && <Progress check={check} stopping={stopping} hintId={hintId} />}
       </section>
 

@@ -1,4 +1,4 @@
-import { act, render, screen, within } from '@testing-library/react'
+import { act, cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import type { MailboxAccount } from '@/api'
@@ -364,6 +364,8 @@ async function openPicks(state = THREE(), routes: Parameters<typeof stubApi>[0] 
 
 const mailItemOf = (subject: string) => screen.getByRole('listitem', { name: `Mail „${subject}“` })
 const headBox = (subject: string) => screen.getByRole('checkbox', { name: `Alle Anzeigen der Mail „${subject}“` })
+/** The checkbox of an unread oversized mail: ticking it reads the mail. */
+const unreadBox = (subject: string) => screen.getByRole('checkbox', { name: `Mail „${subject}“ lesen` })
 const addButton = (n: number) => screen.getByRole('button', { name: `${n === 1 ? '1 Anzeige' : `${n} Anzeigen`} hinzufügen` })
 const finishes = (calls: Call[]) => calls.filter((call) => call.path.endsWith('/finish'))
 
@@ -579,7 +581,7 @@ test('an oversized mail is its own head, not read, with an unticked checkbox, an
   const calls = await openPicks(WITH_BIG(), { 'POST /mailbox/checks/c1/finish': { status: 202, body: { run_id: null } } })
   const head = mailItemOf('Riesige Mail')
   expect(within(head).getByText('Zu groß, nicht gelesen')).toBeVisible()
-  expect(headBox('Riesige Mail')).not.toBeChecked()
+  expect(unreadBox('Riesige Mail')).not.toBeChecked()
   expect(within(head).queryByText(/ausgewählt/)).toBeNull()
   await userEvent.click(addButton(2))
   expect((finishes(calls)[0].body as { entries: unknown[] }).entries).toHaveLength(2)
@@ -589,7 +591,7 @@ test('ticking an oversized mail reads it, shows that it is read and then its ent
   let release: (value: { body: unknown }) => void = () => {}
   const read = new Promise<{ body: unknown }>((resolve) => { release = resolve })
   const calls = await openPicks(WITH_BIG(), { 'POST /mailbox/checks/c1/mails/big/read': () => read })
-  await userEvent.click(headBox('Riesige Mail'))
+  await userEvent.click(unreadBox('Riesige Mail'))
   const head = mailItemOf('Riesige Mail')
   expect(within(head).getByText('Wird gelesen …')).toBeVisible()
   expect(addButton(2)).toBeDisabled()
@@ -607,9 +609,9 @@ test('ticking an oversized mail reads it, shows that it is read and then its ent
 test.each([['screening failed', /Inhaltsprüfung hat nicht geantwortet/], ['finder failed', /Modell hat nicht geantwortet/]])(
   'a failed reading of an oversized mail (%s) shows its reason at the head and leaves the box unticked', async (error, text) => {
     await openPicks(WITH_BIG(), { 'POST /mailbox/checks/c1/mails/big/read': { status: 502, body: { error, detail: 'x' } } })
-    await userEvent.click(headBox('Riesige Mail'))
+    await userEvent.click(unreadBox('Riesige Mail'))
     expect(await within(mailItemOf('Riesige Mail')).findByText(text)).toBeVisible()
-    expect(headBox('Riesige Mail')).not.toBeChecked()
+    expect(unreadBox('Riesige Mail')).not.toBeChecked()
     expect(within(mailItemOf('Riesige Mail')).getByText('Zu groß, nicht gelesen')).toBeVisible()
     expect(addButton(2)).toBeEnabled()
   })
@@ -638,7 +640,7 @@ test('ticking an oversized mail that is being read elsewhere reads the check aga
     'GET /mailbox/checks/c1': () => ({ body: WITH_BIG({ reading }) }),
     'POST /mailbox/checks/c1/mails/big/read': () => { reading = true; return { status: 409, body: { error: 'read in progress', detail: 'x' } } },
   })
-  await userEvent.click(headBox('Riesige Mail'))
+  await userEvent.click(unreadBox('Riesige Mail'))
   expect(await within(mailItemOf('Riesige Mail')).findByText('Wird gelesen …')).toBeVisible()
   expect(addButton(2)).toBeDisabled()
 })
@@ -657,6 +659,114 @@ test('a cancelled check shows its pick list with the note of how far it got', as
   await openPicks({ ...THREE(), cancelled: true, total: 200, read: 37 })
   expect(screen.getAllByRole('note').some((note) => /nach 37 von 200 Mails abgebrochen/.test(note.textContent!))).toBe(true)
   expect(screen.getByRole('list', { name: 'Mails der Prüfung' })).toBeVisible()
+})
+
+// ---- final review: stale source, stale failures, notes for read outcomes ----
+
+/** Leave or enter a route as the browser does: the hash changes and `hashchange` fires. */
+const goTo = (hash: string) => act(async () => {
+  window.history.replaceState(null, '', hash)
+  window.dispatchEvent(new HashChangeEvent('hashchange'))
+})
+
+test('the source reads the account again when the user comes back from the settings page', async () => {
+  let configured = false
+  const calls = stubApi({ 'GET /mailbox': () => ({ body: configured ? MAILBOX : NO_MAILBOX }) })
+  view()
+  expect(await screen.findByText(/Noch kein Postfach eingerichtet/)).toBeVisible()
+  await goTo('#/einstellungen/postfach')
+  configured = true // the mailbox is set up on the settings page
+  expect(calls.filter((call) => call.path === '/mailbox')).toHaveLength(1)
+  await goTo('#/hinzufuegen')
+  expect(await screen.findByRole('button', { name: 'Postfach prüfen' })).toBeVisible()
+  expect(screen.getByText(/name@example\.org/)).toHaveTextContent('imap.example.org')
+  expect(screen.queryByText(/Noch kein Postfach eingerichtet/)).toBeNull()
+})
+
+test('a pick list the settings dropped is gone after coming back from the settings page', async () => {
+  let dropped = false
+  await openPicks(THREE(), { 'GET /mailbox/checks/c1': () => ({ body: dropped ? { ...THREE(), status: 'finished' } : THREE() }) })
+  await goTo('#/einstellungen/postfach')
+  dropped = true
+  await goTo('#/hinzufuegen')
+  await vi.waitFor(() => expect(screen.queryByRole('list', { name: 'Mails der Prüfung' })).toBeNull())
+})
+
+test('the account is not read again by a hash change while the source never was shown', async () => {
+  const calls = stubApi({ 'GET /mailbox': { body: MAILBOX } })
+  view({ active: false })
+  await goTo('#/hinzufuegen')
+  expect(calls).toHaveLength(0)
+})
+
+test('a failed reading of an oversized mail does not stay on the same mail of the next check', async () => {
+  let started = false
+  await openPicks(WITH_BIG(), {
+    'POST /mailbox/checks/c1/mails/big/read': { status: 502, body: { error: 'finder failed', detail: 'x' } },
+    'POST /mailbox/checks': () => { started = true; return { status: 202, body: { check_id: 'c2' } } },
+    'GET /mailbox/checks/c2': { body: { ...WITH_BIG(), check_id: 'c2' } },
+    'GET /mailbox': () => ({ body: { ...CHECKED, check_id: started ? 'c2' : 'c1' } }),
+  })
+  await userEvent.click(unreadBox('Riesige Mail'))
+  expect(await within(mailItemOf('Riesige Mail')).findByText(/Modell hat nicht geantwortet/)).toBeVisible()
+  await userEvent.click(screen.getByRole('button', { name: 'Postfach prüfen' }))
+  await vi.waitFor(() => expect(screen.getByRole('list', { name: 'Mails der Prüfung' })).toBeVisible())
+  await vi.waitFor(() => expect(within(mailItemOf('Riesige Mail')).getByText('Zu groß, nicht gelesen')).toBeVisible())
+  expect(within(mailItemOf('Riesige Mail')).queryByText(/Modell hat nicht geantwortet/)).toBeNull()
+})
+
+test('a failure shows only for an unread oversized mail, and the server\'s read failure wins over a local one', async () => {
+  await openPicks(WITH_BIG({ read_failed: 'screening failed' }), {
+    'POST /mailbox/checks/c1/mails/big/read': { status: 502, body: { error: 'finder failed', detail: 'x' } },
+  })
+  const head = mailItemOf('Riesige Mail')
+  expect(within(head).getByText(/Inhaltsprüfung hat nicht geantwortet/)).toBeVisible()
+  await userEvent.click(unreadBox('Riesige Mail'))
+  expect(await within(head).findByText(/Modell hat nicht geantwortet|Inhaltsprüfung hat nicht geantwortet/)).toBeVisible()
+  expect(within(head).queryByText(/Modell hat nicht geantwortet/)).toBeNull()
+})
+
+const NO_ENTRIES = { entries: [], read_by: ['model'], unread_hosts: [], held: false, model_skipped: null, truncated: false }
+
+test.each([
+  ['finds no postings', NO_ENTRIES, /keine Anzeigen/],
+  ['is held by the content guard', { ...NO_ENTRIES, held: true }, /Inhaltsprüfung zurückgehalten/],
+  ['waits for the screening', { ...NO_ENTRIES, model_skipped: 'screening off' }, /Inhaltsprüfung aus/],
+])('an oversized mail read on request that %s says so and explains the disabled checkbox', async (_name, preview, note) => {
+  await openPicks(WITH_BIG(), {
+    'POST /mailbox/checks/c1/mails/big/read': { body: mailItem('big', 0, { subject: 'Riesige Mail', preview }) },
+  })
+  await userEvent.click(unreadBox('Riesige Mail'))
+  const head = mailItemOf('Riesige Mail')
+  expect(await within(head).findByText(note)).toBeVisible()
+  const box = within(head).getByRole('checkbox', { name: 'Alle Anzeigen der Mail „Riesige Mail“' })
+  expect(box).toBeDisabled()
+  expect(box).toHaveAccessibleDescription(/keine Anzeige, die du auswählen kannst/)
+  expect(within(head).getByRole('button', { name: 'Warum ist die Mail nicht auswählbar?' })).toBeVisible()
+})
+
+test('a mail whose entries are all stored has a disabled head checkbox with its reason', async () => {
+  await openPicks()
+  const head = mailItemOf('Neue Stellen m3')
+  expect(within(head).getByRole('checkbox', { name: 'Alle Anzeigen der Mail „Neue Stellen m3“' })).toBeEnabled()
+  const locked = { ...mailItem('m1', 1), preview: { ...mailItem('m1', 1).preview!, entries: [{ ...mailEntries(1)[0], duplicate: dup }] } }
+  cleanup()
+  await openPicks(mailCheck({ status: 'done', total: 1, read: 1, mails: [locked] }))
+  expect(within(mailItemOf('Neue Stellen m1')).getByRole('checkbox', { name: 'Alle Anzeigen der Mail „Neue Stellen m1“' })).toBeDisabled()
+  expect(within(mailItemOf('Neue Stellen m1')).getByRole('button', { name: 'Warum ist die Mail nicht auswählbar?' })).toBeVisible()
+})
+
+test('a new check is announced to replace an open pick list', async () => {
+  await openPicks()
+  expect(screen.getByText('Eine neue Prüfung ersetzt die offene Auswahlliste.')).toBeVisible()
+  expect(checkButton()).toHaveAccessibleDescription('Eine neue Prüfung ersetzt die offene Auswahlliste.')
+})
+
+test('without an open pick list there is no replace hint', async () => {
+  stubApi({ 'GET /mailbox': { body: CHECKED } })
+  view()
+  await screen.findByRole('button', { name: 'Postfach prüfen' })
+  expect(screen.queryByText(/ersetzt die offene Auswahlliste/)).toBeNull()
 })
 
 test('the pick list has unique ids and no accessibility violations', async () => {

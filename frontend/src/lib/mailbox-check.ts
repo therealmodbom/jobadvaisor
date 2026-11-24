@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, ApiError, type MailboxAccount, type MailboxCheckState, type MailboxMail } from '@/api'
 import { POLL_FAILURES, POLL_MS } from '@/lib/run'
+import { SETTINGS_HASH } from '@/lib/sections'
 
 const CHECK_KEY = 'jobadvaisor.mailbox-check'
 
@@ -25,7 +26,8 @@ const storedCheck = {
 
 /** The mailbox source's state: the account (`GET /mailbox`, read once `active` is true for the
  * first time, and again when a check ends, so the start date and the time of the last check
- * follow) and the check. The check is the one stored in this browser, else the one `GET /mailbox`
+ * follow, and when the route leaves the settings page, which may have changed the account) and
+ * the check. The check is the one stored in this browser, else the one `GET /mailbox`
  * names (running, or with an unfinished pick list), so a reload or a second tab finds it; a
  * stored one that reads `finished` gives way to that one. While a check runs, or a mail of its
  * pick list is being read elsewhere, it is polled. `check` is the last state read (null: none
@@ -172,6 +174,19 @@ export function useMailbox(active: boolean) {
       }
     } catch { /* the next poll or action tells */ }
   }, [checkId, follow, load])
+
+  // The source stays mounted while the settings page shows, so what the settings changed (a new
+  // account, a dropped pick list) is read again as soon as the user leaves the settings page.
+  useEffect(() => {
+    if (!wanted) return
+    const back = () => {
+      if (window.location.hash.startsWith(SETTINGS_HASH)) return
+      void load(true)
+      void refresh()
+    }
+    window.addEventListener('hashchange', back)
+    return () => window.removeEventListener('hashchange', back)
+  }, [wanted, load, refresh])
 
   /** Replace the mail with `mail.key` in the pick list. */
   const setMail = (mail: MailboxMail) => setCheck((now) => now && { ...now, mails: now.mails.map((one) => one.key === mail.key ? mail : one) })
