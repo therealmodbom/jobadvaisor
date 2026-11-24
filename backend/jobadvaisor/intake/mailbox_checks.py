@@ -250,25 +250,33 @@ class MailboxChecks:
 
     @contextmanager
     def account_change(self) -> Iterator[None]:
-        """Hold the lock around a change of the account (host or user) so no check starts
-        meanwhile; the pending pick list and its kept parts are dropped when the block ends
-        without an exception. Raises `CheckBusyError` while a check runs and
-        `ReadInProgressError` while an oversized mail is being read. Code in the block must not
-        call another method of this object."""
-        with self._lock:
+        """`credentials()` for a block known to change host or user: `moving()` runs at once."""
+        with self.credentials() as moving:
+            moving()
+            yield
+
+    @contextmanager
+    def credentials(self) -> Iterator[Callable[[], None]]:
+        """Hold the lock around a save of the account, so saves never interleave and the folder
+        list and a check read the account and its password as one pair; the block reads the
+        stored account it compares against inside. Before it changes host or user, it calls the
+        yielded `moving()`, which raises `CheckBusyError` while a check runs and
+        `ReadInProgressError` while an oversized mail is being read; the pending pick list and
+        its kept parts are then dropped when the block ends without an exception. Code in the
+        block must not call another method of this object."""
+        moved = False
+
+        def moving() -> None:
+            nonlocal moved
             if self._computing:
                 raise CheckBusyError(self._computing)
             self._refuse_while_reading()
-            yield
-            self._drop_pending()
+            moved = True
 
-    @contextmanager
-    def credentials(self) -> Iterator[None]:
-        """Hold the lock around a save that keeps host and user (port, password, folders), so
-        the folder list and a check read the account and its password as one pair. Code in the
-        block must not call another method of this object."""
         with self._lock:
-            yield
+            yield moving
+            if moved:
+                self._drop_pending()
 
     def _refuse_while_reading(self) -> None:
         """Raise `ReadInProgressError` while a mail of the pending pick list is being read. The

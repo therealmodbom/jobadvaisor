@@ -889,22 +889,19 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
         included)."""
         if body.password and not mailbox_secret.key_configured(settings.mailbox_key):
             return problem(409, "no key", MAILBOX_SETUP_REASONS["no key"])
-        stored = read_mailbox(intake.root)
-        moved = stored is not None and (body.host, body.user) != (stored.host, stored.user)
-        credentials_changed = stored is None or (body.host, body.port, body.user) != (
-            stored.host, stored.port, stored.user)
-
-        def save() -> None:
+        # Compare and save under one hold of the lock, so another save cannot land between.
+        with mailbox.credentials() as moving:
+            stored = read_mailbox(intake.root)
+            if stored is not None and (body.host, body.user) != (stored.host, stored.user):
+                moving()
             # The old password goes first, so no state pairs it with another account.
-            if credentials_changed:
+            if stored is None or (body.host, body.port, body.user) != (
+                    stored.host, stored.port, stored.user):
                 mailbox_secret.forget(password_file)
             update_mailbox_account(intake.root, body.host, body.port, body.user, body.folders,
                                    body.max_mails)
             if body.password:
                 mailbox_secret.store(password_file, body.password, settings.mailbox_key)
-
-        with mailbox.account_change() if moved else mailbox.credentials():
-            save()
         return mailbox_settings()
 
     @app.post("/mailbox/folders")

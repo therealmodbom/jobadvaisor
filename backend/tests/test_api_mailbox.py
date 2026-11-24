@@ -734,3 +734,28 @@ def test_every_password_write_holds_the_checks_lock_also_for_an_unchanged_accoun
     app.put(ACCOUNT | {"port": 994})
     app.put(ACCOUNT | {"host": "other.example.org", "password": "other password"})
     assert len(held) == 4 and all(held)
+
+
+def test_a_save_reads_the_stored_account_it_compares_against_under_the_checks_lock(
+        tmp_path, root, monkeypatch):
+    # Read before the lock, a save could wait behind another save that changed host and
+    # password, then restore the old host without forgetting the new password.
+    made = []
+
+    class Recorded(mailbox_checks.MailboxChecks):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            made.append(self)
+
+    monkeypatch.setattr(mailbox_checks, "MailboxChecks", Recorded)
+    app = api(tmp_path, root)
+    app.configure()
+    held = []
+    from jobadvaisor.api import app as module
+    read = module.read_mailbox
+    monkeypatch.setattr(module, "read_mailbox",
+                        lambda *args: held.append(made[0]._lock.locked()) or read(*args))
+    app.put(ACCOUNT | {"port": 994})
+    app.put(ACCOUNT | {"host": "other.example.org"})
+    # Each save compares under the lock; its answer is read afterwards, outside it.
+    assert held == [True, False, True, False]
