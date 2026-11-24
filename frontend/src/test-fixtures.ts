@@ -1,4 +1,4 @@
-import type { Counter, NextPass, Pool, PoolRow, RatingBody, Strength } from '@/api'
+import type { Counter, MailboxAccount, NextPass, Pool, PoolRow, RatingBody, Strength } from '@/api'
 
 /** A pool row: an open, scored posting unless `extra` says otherwise. */
 export const row = (posting_id: string, title: string, extra: Partial<PoolRow> = {}): PoolRow => ({
@@ -54,3 +54,14 @@ export function ratingAnswer(base: PoolRow, body: RatingBody, counter: Counter =
 
 /** `POOL` with `changes` applied on top. */
 export const poolWith = (changes: Partial<Pool>): Pool => ({ ...POOL, ...changes })
+
+/** A configured mailbox with a stored password, a usable key and no check yet. */
+export const MAILBOX: MailboxAccount = {
+  configured: true, host: 'imap.example.org', port: 993, user: 'name@example.org', folders: { all: true },
+  max_mails: 200, since: null, last_check_at: null, password: 'stored', key_configured: true, check_id: null,
+}
+
+/** The mailbox before any setup, as `GET /mailbox` answers it. */
+export const NO_MAILBOX: MailboxAccount = {
+  ...MAILBOX, configured: false, host: '', user: '', password: 'missing',
+}

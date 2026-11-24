@@ -2,7 +2,7 @@ import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, expect, test, vi } from 'vitest'
 import { stubApi } from '@/test-api'
-import { POOL } from '@/test-fixtures'
+import { NO_MAILBOX, POOL } from '@/test-fixtures'
 import { axe } from '@/test-axe'
 import App from './App.tsx'
 
@@ -192,7 +192,7 @@ test('the gear opens the settings page, marks itself current and leaves no navig
 })
 
 test('the sections are listed on the page, "Scoren" is the default and each has its address', async () => {
-  stubApi({ 'GET /pool': { body: POOL }, 'GET /mailbox': { body: { configured: false } } })
+  stubApi({ 'GET /pool': { body: POOL }, 'GET /mailbox': { body: NO_MAILBOX } })
   window.location.hash = '#/einstellungen'
   render(<App />)
   const sections = within(screen.getByRole('navigation', { name: 'Bereiche der Einstellungen' }))
@@ -207,11 +207,12 @@ test('the sections are listed on the page, "Scoren" is the default and each has 
 })
 
 test('the address of the section "Postfach" opens that section', async () => {
-  stubApi({ 'GET /pool': { body: POOL }, 'GET /mailbox': { body: { configured: false } } })
+  stubApi({ 'GET /pool': { body: POOL }, 'GET /mailbox': { body: NO_MAILBOX } })
   window.location.hash = '#/einstellungen/postfach'
   render(<App />)
   expect(await screen.findByRole('heading', { level: 2, name: 'Postfach' })).toBeVisible()
   expect(screen.getByRole('link', { name: 'Postfach' })).toHaveAttribute('aria-current', 'page')
+  expect(await screen.findByLabelText('Server')).toBeVisible()
 })
 
 test('an unknown section falls back to "Scoren"', async () => {

@@ -373,3 +373,41 @@ export type IntakeAnswer = {
   attempts: Attempt[] | null
   screening: boolean
 }
+
+/** The folder choice of the mailbox: every folder but the system folders, or exactly `names`. */
+export type MailboxFolders = { all: true; names?: undefined } | { names: string[]; all?: undefined }
+
+/** `GET /mailbox` and the answer of `PUT /mailbox`: the account without its password. `password`
+ * says whether one is `stored`, `missing` or `unreadable` (the key cannot open it, or there is
+ * none); `key_configured` is false when no usable key for the password exists. `since` is the
+ * start date (null before the first check), `last_check_at` the end of the last finished check.
+ * `check_id` names the running check, else the one whose pick list is not finished, else null.
+ * An unconfigured mailbox has empty `host` and `user`, port 993, all folders and 200 mails. */
+export type MailboxAccount = {
+  configured: boolean
+  host: string
+  port: number
+  user: string
+  folders: MailboxFolders
+  max_mails: number
+  since: string | null
+  last_check_at: string | null
+  password: 'stored' | 'missing' | 'unreadable'
+  key_configured: boolean
+  check_id: string | null
+}
+
+/** `PUT /mailbox` body. An absent or empty `password` keeps the stored one (unless host, port or
+ * user changed, which forgets it); an absent `folders` or `max_mails` keeps the stored value. */
+export type MailboxBody = {
+  host: string
+  port: number
+  user: string
+  password?: string
+  folders?: MailboxFolders
+  max_mails?: number
+}
+
+/** One folder of `POST /mailbox/folders`; a `system` folder (trash, junk, sent, drafts, all mail,
+ * flagged, important) is left out of „Alle Ordner“. */
+export type MailboxFolder = { name: string; system: boolean }

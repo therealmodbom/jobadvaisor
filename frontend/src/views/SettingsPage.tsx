@@ -1,3 +1,4 @@
+import { MailboxSettings } from '@/components/mailbox-settings'
 import { ScoringSettings } from '@/components/settings'
 import { SECTIONS, sectionHash, type SectionId } from '@/lib/sections'
 import { cn } from '@/lib/utils'
@@ -35,7 +36,11 @@ export function SettingsPage({ section, onSaved }: { section: SectionId; onSaved
           )}
           {section === 'postfach' && (
             <section aria-labelledby="settings-mailbox" className={PANEL}>
-              <h2 id="settings-mailbox" className="text-lg font-bold">Postfach</h2>
+              <div>
+                <h2 id="settings-mailbox" className="text-lg font-bold">Postfach</h2>
+                <p className="mt-0.5 text-[15px] text-muted-foreground">Das Postfach, aus dem die App Job-Alert-Mails liest.</p>
+              </div>
+              <MailboxSettings />
             </section>
           )}
         </div>
