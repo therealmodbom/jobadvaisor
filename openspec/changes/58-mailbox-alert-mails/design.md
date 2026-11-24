@@ -126,20 +126,22 @@ Rejected: keeping the record in the state directory. The state directory is not 
    - Per folder: select it read-only, search `SINCE`, drop the UIDs in `handled` and in `waiting` (the latter only while screening is off).
    - Fetch Message-ID, INTERNALDATE and size, and drop the IDs in those records.
    - Drop repeats within the check by ID hash.
-   - A mail over 4,000,000 bytes (`RFC822.SIZE`) goes into `skipped` and is marked handled without being downloaded.
-   - Sort all folders' candidates by INTERNALDATE. The 200 oldest are read. `total` is their number, and `remaining` counts the rest.
+   - Nothing is marked in this step, so a failure here leaves every record as it was.
+   - Sort all folders' candidates by INTERNALDATE, oversized ones included. The 200 oldest are read. `total` is their number, and `remaining` counts the rest.
 4. **Read each mail** (progress `read`):
-   - Fetch it with `BODY.PEEK[]` and parse it with `email.message_from_bytes(raw, policy=email.policy.default)`.
+   - A mail over 4,000,000 bytes (`RFC822.SIZE`) is never downloaded: only its display headers are fetched with `BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE)]`, and it goes into `skipped`, marked handled.
+   - Else fetch it with `BODY.PEEK[]` and parse it with `email.message_from_bytes(raw, policy=email.policy.default)`.
    - `mail_parts(message)` returns `(html, text)` from `get_body(("html",))` and `get_body(("plain",))`. A blank HTML part becomes `None`, as on the paste path.
    - A part over 2,000,000 characters puts the mail into `skipped`, marked handled.
    - Else `preview(intake, html, text, record)` runs, the same call as the paste.
    - Sender, subject and date come from the headers for display only and are never stored.
    - A `FinderError` puts the mail into `failed`, not marked, and the check goes on.
    - An answer with `model_skipped == "screening off"` puts the mail into `not_screened` and marks it `waiting`.
-   - Any other answer without entries, held or not, is marked handled at once.
+   - An answer with `held` puts the mail into `held`, marked handled at once.
+   - Any other answer without entries is marked handled at once and not reported.
    - A mail with entries goes into `mails`, the pick list.
 5. **End.**
-   - Log out and set `last_check_at`. The state is `done` with `mails` (each with its `key`, display headers and preview answer), `skipped`, `failed`, `not_screened`, `missing_folders` and `remaining`.
+   - Log out and set `last_check_at`. The state is `done` with `mails` (each with its `key`, display headers and preview answer), `skipped`, `failed`, `held`, `not_screened`, `missing_folders` and `remaining`. Each entry of `skipped`, `failed`, `held` and `not_screened` carries the mail's display headers (sender, subject, date) and folder, so the report can name it.
    - A connection error before step 4 makes the check `failed` with `reason` (D5).
    - A connection error during step 4 makes it `done` with what it read so far, `interrupted: <reason>`, and the unread mails left unmarked.
 
@@ -175,7 +177,7 @@ The mapping lives in one function around every IMAP call, so no IMAP exception r
 | `PUT /mailbox` | Body: `{host, port, user, password?, folders?}`. An absent or empty `password` keeps the stored one, unless the account changes (D3). It answers like `GET`. Errors: 409 `no key` when a password comes without a valid key, 409 `check in progress` on an account change during a check, or 422. |
 | `POST /mailbox/folders` | Logs in with the stored account: `{folders: [{name, system}]}`. Errors: 502 `{error: <reason>}`, 409 `no key`, `no password` or `password unreadable`. |
 | `POST /mailbox/checks` | Body: `{since?}`, required while `since` is unset. 202 `{check_id}`. Errors: 409 `check in progress` with `check_id`, or 409 `not configured`. |
-| `GET /mailbox/checks/{id}` | `{check_id, status: running\|done\|failed\|finished, reason, interrupted, total, read, remaining, mails, skipped, failed, not_screened, missing_folders}`, or 404. |
+| `GET /mailbox/checks/{id}` | `{check_id, status: running\|done\|failed\|finished, reason, interrupted, total, read, remaining, mails, skipped, failed, held, not_screened, missing_folders}`, or 404. |
 | `POST /mailbox/checks/{id}/finish` | Body: `{entries: [{url, title}]}`: 0 or more, each cleaned like `POST /alert-mails/runs` and checked against the check's offer. 202 `{run_id \| null}`. Errors: 409 `alert run in progress` with `run_id`, 409 `check not done`, or 422 for an entry the check did not offer. |
 
 „Verbinden und Ordner laden“ is `PUT /mailbox` followed by `POST /mailbox/folders`.

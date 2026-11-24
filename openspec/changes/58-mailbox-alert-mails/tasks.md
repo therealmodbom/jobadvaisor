@@ -33,15 +33,15 @@
 - [ ] 5.3 Write the folder list and the searched-folder rule, test first against the spec scenarios „Folders of an account“, „Folder name outside ASCII“, „Parent folder that holds no mails“, „Folder created later“, „Server without folder flags“ and „Chosen folder deleted“, plus `\All`, `\Flagged` and `\Important` as system folders
 - [ ] 5.4 Write the candidate search and `mail_parts`, test first:
   - `SINCE`; handled and waiting marks dropped; repeats deduplicated by ID hash; oldest 200; `remaining`;
-  - a mail over 4,000,000 bytes skipped by size before download;
+  - a mail over 4,000,000 bytes kept as a candidate by size, sorted with the rest, nothing marked in this step;
   - the spec scenarios „Older mail“, „Mail in two folders“, „Mail moved“, „Folder renumbered“, „Large first check“ and „Blank HTML part“;
   - an HTML, a plain-only and a quoted-printable mail
 
 ## 6. The check (D4)
 
 - [ ] 6.1 Write `MailboxChecks.start` and `read`, test first with the fake client and a stub finder:
-  - one at a time; `total` and `read`; the finder per mail; oversized parts skipped and marked;
-  - `FinderError` mails failed and unmarked; screening-off mails waiting; empty mails marked at once;
+  - one at a time; `total` and `read`; the finder per mail; an oversized mail among the 200 skipped with its headers only, never downloaded, and marked; an oversized mail beyond the 200 left unmarked; oversized parts skipped and marked;
+  - `FinderError` mails failed and unmarked; screening-off mails waiting; held mails in `held` with their headers and marked; other empty mails marked at once;
   - `since` stored after login; `last_check_at` set on `done`; the `pending` check kept;
   - the spec scenarios of „Each mail through the finder“, „Handled mails“, „Mails waiting for screening“, „One mailbox check at a time“ and „Oversized mails skipped“;
   - measure a 200-mail check over the demo persona and record the time in the PR
