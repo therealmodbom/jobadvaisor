@@ -17,8 +17,14 @@ from jobadvaisor import mailbox_secret
 from jobadvaisor.data.models import Folders, MailRef
 from jobadvaisor.data.writer import read_mailbox, update_mailbox, update_mailbox_account
 from jobadvaisor.intake.alert_mail import FinderError
+from jobadvaisor.intake.alert_runs import AlertRunBusyError, RunEntry
 from jobadvaisor.intake.mailbox import imap_errors
-from jobadvaisor.intake.mailbox_checks import CheckBusyError, MailboxChecks
+from jobadvaisor.intake.mailbox_checks import (
+    CheckBusyError,
+    CheckNotDoneError,
+    EntryNotOfferedError,
+    MailboxChecks,
+)
 from jobadvaisor.intake.postings import Intake
 from jobadvaisor.tools.guard import ContentGuard
 
@@ -333,6 +339,141 @@ def test_a_large_attachment_does_not_count(root):
     finder = StubFinder()
     state = run(make(root, imap(big_attachment), finder))
     assert len(finder.calls) == 1 and state["mails"] == [] and handled(root) == {1}
+
+
+# --- finish -------------------------------------------------------------------------------
+
+A, B, C = (f"https://jobs.example.org/{name}" for name in "abc")
+
+
+def offering(root, *, screening=True, runs=None):
+    """A done check over mails 1 (offers A and B), 2 (offers C), 3 (no posting), 4 (fails) and
+    5 (held): returns `(checks, check_id, runs, fake)`."""
+    finder = StubFinder({"mail 1": found(A, B), "mail 2": found(C), "mail 4": FinderError("x"),
+                         "mail 5": HELD})
+    fake = imap(*(mail(uid) for uid in range(1, 6)))
+    runs = runs or StubRuns()
+    checks = make(root, fake, finder, screening=screening, runs=runs)
+    return checks, checks.start(), runs, fake
+
+
+def test_finishing_with_no_entries_marks_the_offered_mails_and_starts_no_run(root):
+    checks, check_id, runs, _ = offering(root)
+    settle(checks, check_id)
+    assert handled(root) == {3, 5} and checks.current() == check_id
+    assert checks.finish(check_id, []) is None
+    assert runs.started == [] and handled(root) == {1, 2, 3, 5}
+    assert checks.read(check_id)["status"] == "finished" and checks.current() is None
+
+
+def test_finishing_starts_one_run_with_the_chosen_entries_and_marks_the_mails(root):
+    checks, check_id, runs, _ = offering(root)
+    settle(checks, check_id)
+    chosen = [RunEntry(A, "Job a"), RunEntry(C, "Job c", force=True)]
+    assert checks.finish(check_id, chosen) == "run-1"
+    assert runs.started == [chosen] and handled(root) == {1, 2, 3, 5}
+
+
+def test_more_than_a_hundred_entries_go_into_one_run(root):
+    urls = [f"https://jobs.example.org/job{n}" for n in range(140)]
+    checks = make(root, imap(mail(1)), StubFinder({"mail 1": found(*urls)}))
+    check_id = checks.start()
+    settle(checks, check_id)
+    runs = checks._alert_runs
+    assert checks.finish(check_id, [RunEntry(url, "t") for url in urls]) == "run-1"
+    assert len(runs.started) == 1 and len(runs.started[0]) == 140
+
+
+def test_a_failed_mail_and_a_screening_off_mail_are_never_marked_handled(root):
+    finder = StubFinder({"mail 1": found(A), "mail 2": NOT_SCREENED,
+                         "mail 3": FinderError("finder failed")})
+    checks = make(root, imap(mail(1), mail(2), mail(3)), finder, screening=False)
+    check_id = checks.start()
+    settle(checks, check_id)
+    checks.finish(check_id, [])
+    assert handled(root) == {1} and waiting(root) == {2}
+
+
+def test_a_link_the_check_did_not_offer_is_refused_and_nothing_changes(root):
+    checks, check_id, runs, _ = offering(root)
+    settle(checks, check_id)
+    with pytest.raises(EntryNotOfferedError):
+        checks.finish(check_id, [RunEntry(A, "a"), RunEntry("https://other.example.org/x", "x")])
+    assert runs.started == [] and handled(root) == {3, 5}
+    assert checks.read(check_id)["status"] == "done"
+
+
+def test_a_busy_alert_run_leaves_everything_unmarked_and_the_pick_list_open(root):
+    runs = StubRuns()
+    runs.error = AlertRunBusyError("run-0")
+    checks, check_id, _, _ = offering(root, runs=runs)
+    settle(checks, check_id)
+    with pytest.raises(AlertRunBusyError):
+        checks.finish(check_id, [RunEntry(A, "a")])
+    assert handled(root) == {3, 5} and checks.read(check_id)["status"] == "done"
+    runs.error = None
+    assert checks.finish(check_id, [RunEntry(A, "a")]) == "run-1"
+
+
+def test_a_second_finish_is_refused(root):
+    checks, check_id, runs, _ = offering(root)
+    settle(checks, check_id)
+    checks.finish(check_id, [RunEntry(A, "a")])
+    with pytest.raises(CheckNotDoneError):
+        checks.finish(check_id, [RunEntry(A, "a")])
+    assert len(runs.started) == 1
+
+
+def test_a_double_click_starts_exactly_one_run(root):
+    checks, check_id, runs, _ = offering(root)
+    settle(checks, check_id)
+    results = []
+
+    def click():
+        try:
+            results.append(checks.finish(check_id, [RunEntry(A, "a")]))
+        except CheckNotDoneError as refused:
+            results.append(refused)
+
+    threads = [threading.Thread(target=click) for _ in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(10)
+    assert len(runs.started) == 1 and results.count("run-1") == 1
+
+
+def test_a_check_that_is_running_failed_or_unknown_cannot_be_finished(root):
+    finder = StubFinder(hold=True)
+    checks = make(root, imap(mail(1)), finder)
+    check_id = checks.start()
+    assert finder.entered.wait(10)
+    with pytest.raises(CheckNotDoneError):
+        checks.finish(check_id, [])
+    finder.release.set()
+    settle(checks, check_id)
+    keyless = make(root, imap(mail(1)), key=None)
+    with pytest.raises(CheckNotDoneError):
+        keyless.finish(run(keyless)["check_id"], [])
+    with pytest.raises(KeyError):
+        checks.finish("nope", [])
+
+
+def test_an_unread_oversized_mail_is_marked_handled_by_the_finish(root):
+    big = mail(1, html="<p>" + "x" * 2_000_001 + "</p>")
+    checks = make(root, imap(big, mail(2)), StubFinder({"mail 2": found(A)}))
+    check_id = checks.start()
+    state = settle(checks, check_id)
+    assert [m["oversized"] for m in state["mails"]] == [True, False] and handled(root) == set()
+    checks.finish(check_id, [])
+    assert handled(root) == {1, 2}
+
+
+def test_the_next_check_does_not_offer_the_mails_of_a_finished_pick_list(root):
+    checks, check_id, _, fake = offering(root)
+    settle(checks, check_id)
+    checks.finish(check_id, [])
+    assert run(make(root, fake, StubFinder({"mail 4": found(A)})))["total"] == 1  # only mail 4
 
 
 # --- failure paths ------------------------------------------------------------------------

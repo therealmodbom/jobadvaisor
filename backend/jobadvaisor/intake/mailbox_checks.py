@@ -23,7 +23,7 @@ from jobadvaisor.data.models import Mailbox, MailRef
 from jobadvaisor.data.writer import mark_mails, read_mailbox, update_mailbox
 from jobadvaisor.intake import alert_mail
 from jobadvaisor.intake.alert_mail import FinderError
-from jobadvaisor.intake.alert_runs import AlertRuns
+from jobadvaisor.intake.alert_runs import AlertRuns, RunEntry
 from jobadvaisor.intake.mailbox import (
     Candidate,
     MailboxError,
@@ -58,6 +58,23 @@ class NotConfiguredError(LookupError):
 
 class SinceRequiredError(ValueError):
     """The first check needs a start date and got none."""
+
+
+class CheckNotDoneError(Exception):
+    """The check is not `done`: it still runs, failed, or its pick list is finished or closed."""
+
+
+class ReadInProgressError(Exception):
+    """An oversized mail of the pending pick list is being read, so it cannot be finished or
+    replaced yet."""
+
+
+class EntryNotOfferedError(ValueError):
+    """An entry's link is not one the check offered; `url` names it."""
+
+    def __init__(self, url: str):
+        self.url = url
+        super().__init__(f"the check did not offer {url}")
 
 
 @dataclass
@@ -165,13 +182,57 @@ class MailboxChecks:
             check = self._checks.get(check_id)
             return copy.deepcopy(check.state) if check else None
 
+    def finish(self, check_id: str, entries: list[RunEntry]) -> str | None:
+        """Finish the pick list of a `done` check: `entries` (none up to all offered, their
+        links already cleaned) go into one alert run, and the mails of the pick list, unread
+        oversized ones included, count as handled; a mail whose read on request failed stays
+        unmarked and one no model read waits. Answers the run's ID, or `None` without
+        entries. Everything runs under the lock, so a second finish (a double click) is
+        refused. Raises `KeyError` (unknown check), `CheckNotDoneError`, `ReadInProgressError`,
+        `EntryNotOfferedError`, and `AlertRunBusyError` with nothing marked."""
+        with self._lock:
+            check = self._open(check_id)
+            offered = {entry["url"] for mail in check.state["mails"] if mail["preview"]
+                       for entry in mail["preview"]["entries"]}
+            for entry in entries:
+                if entry.url not in offered:
+                    raise EntryNotOfferedError(entry.url)
+            run_id = self._alert_runs.start(entries) if entries else None
+            handled, waiting = [], []
+            for mail in check.state["mails"]:
+                if not mail["read_failed"]:
+                    preview = mail["preview"]
+                    (waiting if preview and _waits(preview) else handled).append(
+                        check.refs[mail["key"]])
+            mark_mails(self._root, handled=handled, waiting=waiting)
+            self._close(check_id)
+            return run_id
+
+    def _open(self, check_id: str) -> _Check:
+        """The `done` check whose pick list is open and has no mail being read. The lock is
+        held. Raises `KeyError`, `CheckNotDoneError` or `ReadInProgressError`."""
+        check = self._checks.get(check_id)
+        if check is None:
+            raise KeyError(check_id)
+        if check.state["status"] != "done":
+            raise CheckNotDoneError(f"check {check_id} is {check.state['status']}, not done")
+        if any(mail["reading"] for mail in check.state["mails"]):
+            raise ReadInProgressError(f"an oversized mail of check {check_id} is being read")
+        return check
+
+    def _close(self, check_id: str) -> None:
+        """End a check's pick list: drop its kept parts and mark it `finished`. The lock is
+        held."""
+        check = self._checks[check_id]
+        check.kept.clear()
+        check.state["status"] = "finished"
+        if self._pending == check_id:
+            self._pending = None
+
     def _drop_pending(self) -> None:
         """Close the pending pick list and its kept parts. The lock is held."""
         if self._pending:
-            pending = self._checks[self._pending]
-            pending.kept.clear()
-            pending.state["status"] = "finished"
-            self._pending = None
+            self._close(self._pending)
 
     def _run(self, check_id: str, account: Mailbox, since: date | None) -> None:
         check = self._checks[check_id]

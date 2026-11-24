@@ -48,7 +48,7 @@
   - `no key`, `no password`, `password unreadable`, `unreachable`, `certificate`, `login`, `folder` and `protocol`;
   - no login without a readable password and a valid key; no mail marked after a failure before reading; `since` not stored after a failed login;
   - a connection lost while reading ends `done` with the mails read so far and `interrupted`
-- [ ] 6.3 Write `finish`, test first against „Mailbox entries added like alert entries“:
+- [x] 6.3 Write `finish`, test first against „Mailbox entries added like alert entries“:
   - 0 to all offered entries, more than 100 included;
   - a link the check did not offer refused;
   - a busy run leaves everything unmarked;
