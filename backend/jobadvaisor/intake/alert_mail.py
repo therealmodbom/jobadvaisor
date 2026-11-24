@@ -103,9 +103,11 @@ DROP_PATHS = (
     "/hilfe", "/privacy", "/datenschutz", "/impressum", "/imprint", "/email/view", "/webversion",
     "/legal", "/terms", "/agb")
 OPAQUE_SEGMENT = re.compile(r"[A-Za-z0-9_=.%~-]{20,}")
-# A URL in a text: with a scheme, or without one when a path or query follows its host.
+# A URL in a text: with a scheme, or without one when a path or query follows its host. The
+# bare host starts at a token start (the lookbehind), so one long word is tried once, not at
+# every position: masking takes time linear in the text (#154).
 MASKED_URL = re.compile(r"(?i)https?://[^\s<>\"')\]]+"
-                        r"|(?:www\.)?[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}[/?][^\s<>\"')\]]*")
+                        r"|(?<![\w.-])(?:www\.)?[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}[/?][^\s<>\"')\]]*")
 URL_TEXT = re.compile(r"(?i)(https?://\S+|(www\.)?[\w-]+(\.[\w-]+)*\.[a-z]{2,}(/\S*)?)")
 
 

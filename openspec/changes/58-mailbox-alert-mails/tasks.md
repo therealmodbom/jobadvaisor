@@ -95,7 +95,7 @@
 
 - [x] 10.1 Write fictional `.eml` mails for the three rule senders and a regression test in the default pytest that runs them through `mail_parts` and `preview` with a model that fails when called; verify that the entries match
 - [x] 10.2 Write at least three fictional `.eml` eval cases of senders without a rule (hidden preheader, quoted-printable, multipart), let the alert-mail eval read `.eml`, and verify with `tests/test_eval_alert_mail.py` that the cases load (no paid run in this task)
-- [ ] 10.3 Make URL masking linear ([#154](https://github.com/therealmodbom/jobadvaisor/issues/154)): anchor the bare-domain alternative of `MASKED_URL` (`intake/alert_mail.py`) at token starts with the lookbehind `(?<![\w.-])`, test first: a regression test that a 2,000,000-character unbroken word, and one of the form `a.a.a.…`, are masked within one second each, and that `model_view` of every existing alert-mail fixture is unchanged
+- [x] 10.3 Make URL masking linear ([#154](https://github.com/therealmodbom/jobadvaisor/issues/154)): anchor the bare-domain alternative of `MASKED_URL` (`intake/alert_mail.py`) at token starts with the lookbehind `(?<![\w.-])`, test first: a regression test that a 2,000,000-character unbroken word, and one of the form `a.a.a.…`, are masked within one second each, and that `model_view` of every existing alert-mail fixture is unchanged
 
 ## 11. Documentation and wrap-up
 
