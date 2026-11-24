@@ -6,24 +6,31 @@ password only ever passes through `connect` into `login`; no reason, log line or
 carries it, and none carries text from the server, which may echo the user name.
 """
 
+import email
+import email.policy
 import imaplib
 import logging
 import socket
 import ssl
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
+from datetime import date, datetime
+from email.message import EmailMessage
 from typing import Literal
 
 from imapclient import IMAPClient
 from imapclient.exceptions import LoginError
 
-from jobadvaisor.data.models import Folders, Mailbox
+from jobadvaisor.data.models import Folders, Mailbox, MailRecord, MailRef, message_id_hash
 
 Reason = Literal["unreachable", "certificate", "login", "folder", "protocol", "no key",
                  "no password", "password unreadable"]
 REASONS: tuple[str, ...] = Reason.__args__
 TIMEOUT_SECONDS = 30
+HEADER_ITEM = "BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)]"
+# One FETCH names this many UIDs; a longer command line is refused by some servers.
+HEADER_BATCH = 200
 UNSELECTABLE_FLAGS = {"\\noselect", "\\nonexistent"}
 # \All, \Flagged and \Important are virtual folders that show mails of other folders again.
 SYSTEM_FLAGS = {"\\trash", "\\junk", "\\sent", "\\drafts", "\\all", "\\flagged", "\\important"}
@@ -114,6 +121,90 @@ def list_folders(client: IMAPClient) -> list[Folder]:
         if not flags & UNSELECTABLE_FLAGS:
             folders.append(Folder(name, bool(flags & SYSTEM_FLAGS)))
     return folders
+
+
+@dataclass(frozen=True)
+class Candidate(MailRef):
+    """A mail a check may read: where it sits and which mail it is (`MailRef`), and its
+    INTERNALDATE as `received`, which orders the check. Holds no sender, subject or text."""
+
+    received: datetime
+
+
+@dataclass(frozen=True)
+class Candidates:
+    """The outcome of the candidate search. `mails` are the `max_mails` oldest candidates,
+    oldest first; `total` is their number and `remaining` counts the unhandled candidates left
+    for the next check."""
+
+    mails: list[Candidate]
+    total: int
+    remaining: int
+
+
+def find_candidates(client: IMAPClient, folders: list[str], since: date,
+                    skip: Sequence[MailRecord], max_mails: int) -> Candidates:
+    """The mails of `folders` (see `searched_folders`) received on or after `since`, minus
+    every mail held by a record of `skip` (the handled record, and the waiting one while
+    screening is off), by UID under the folder's validity or by Message-ID hash. A mail in
+    several folders counts once, the first folder in `folders` winning; a mail without a
+    Message-ID relies on its UID. Folders are selected read-only and headers fetched with PEEK
+    in batches. Marks nothing, so a failure leaves every record as it was. Raises
+    `MailboxError`, with `folder` for a select that fails."""
+    found: list[Candidate] = []
+    seen: set[str] = set()
+    for name in folders:
+        with imap_errors("folder"):
+            validity = client.select_folder(name, readonly=True)[b"UIDVALIDITY"]
+        with imap_errors():
+            unmarked = [uid for uid in client.search(["SINCE", since])
+                        if not any(record.holds(MailRef(name, validity, uid, None))
+                                   for record in skip)]
+            for start in range(0, len(unmarked), HEADER_BATCH):
+                answer = client.fetch(unmarked[start:start + HEADER_BATCH],
+                                      [HEADER_ITEM, "INTERNALDATE"])
+                for uid, data in sorted(answer.items()):
+                    mail = Candidate(name, validity, uid, _id_hash(data), data[b"INTERNALDATE"])
+                    if mail.id_hash is not None and (
+                            mail.id_hash in seen or any(record.holds(mail) for record in skip)):
+                        continue
+                    if mail.id_hash is not None:
+                        seen.add(mail.id_hash)
+                    found.append(mail)
+    order = {name: place for place, name in enumerate(folders)}
+    found.sort(key=lambda mail: (mail.received, order[mail.folder], mail.uid))
+    return Candidates(found[:max_mails], min(len(found), max_mails),
+                      max(len(found) - max_mails, 0))
+
+
+def _id_hash(data: dict[bytes, object]) -> str | None:
+    """The `message_id_hash` of a fetched Message-ID header, or `None` when it has none."""
+    raw = next((value for key, value in data.items() if key.startswith(b"BODY[HEADER")), b"")
+    header = email.message_from_bytes(raw)["Message-ID"]
+    return message_id_hash(str(header)) if header and str(header).strip() else None
+
+
+def parse_mail(raw: bytes) -> EmailMessage:
+    """A fetched mail as an `EmailMessage` (the default policy, which decodes headers)."""
+    return email.message_from_bytes(raw, policy=email.policy.default)
+
+
+def mail_parts(message: EmailMessage) -> tuple[str | None, str]:
+    """The `(html, text)` the finder reads: the mail's HTML body part, decoded by its charset
+    and transfer encoding, or `None` when it has none or it is blank (as on the paste path),
+    and its plain-text part, `""` when it has none. Attachments are never read. A charset the
+    system does not know is decoded as UTF-8 with replacement characters."""
+    html_part, text_part = message.get_body(("html",)), message.get_body(("plain",))
+    html = _content(html_part) if html_part is not None else None
+    return (html if html and html.strip() else None,
+            _content(text_part) if text_part is not None else "")
+
+
+def _content(part: EmailMessage) -> str:
+    try:
+        return part.get_content()
+    except LookupError:
+        return (part.get_payload(decode=True) or b"").decode("utf-8", errors="replace")
 
 
 def searched_folders(listed: list[Folder], choice: Folders) -> tuple[list[str], list[str]]:

@@ -31,7 +31,7 @@
   - no reason holds the server text;
   - the factory leaves the `imapclient` logger at WARNING
 - [x] 5.3 Write the folder list and the searched-folder rule, test first against the spec scenarios „Folders of an account“, „Folder name outside ASCII“, „Parent folder that holds no mails“, „Folder created later“, „Server without folder flags“ and „Chosen folder deleted“, plus `\All`, `\Flagged` and `\Important` as system folders
-- [ ] 5.4 Write the candidate search and `mail_parts`, test first:
+- [x] 5.4 Write the candidate search and `mail_parts`, test first:
   - `SINCE`; handled and waiting marks dropped; repeats deduplicated by ID hash; the `max_mails` oldest; `remaining`; nothing marked in this step;
   - the spec scenarios „Older mail“, „Mail in two folders“, „Mail moved“, „Folder renumbered“, „Large first check“, „Limit changed“ and „Blank HTML part“;
   - an HTML, a plain-only and a quoted-printable mail
