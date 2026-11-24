@@ -576,6 +576,17 @@ When the connection fails after a check has read mails, the check SHALL end with
 - **WHEN** the connection drops after a check has read 5 of 12 mails
 - **THEN** the pick list holds the entries of those 5 mails, the result names the interruption, and the next check reads the other 7
 
+### Requirement: Cancel a mailbox check
+The user SHALL be able to cancel a running check. The check SHALL stop after the mail it reads, end with the mails read so far and name the cancel, and the mails it did not read SHALL stay unhandled. A cancel SHALL be refused for a check that is not running.
+
+#### Scenario: Cancelled after some mails
+- **WHEN** a check covering 200 mails has read 37 and the user cancels it
+- **THEN** it reads no further mail, the pick list holds the entries of those 37 mails, the result says it was cancelled after 37 of 200, and the next check reads the other 163
+
+#### Scenario: Cancel a check that has ended
+- **WHEN** the user cancels a check that is done or has failed
+- **THEN** the cancel is refused, and the answer says the check is not running
+
 ### Requirement: Mailbox password stored encrypted
 The system SHALL store the mailbox password only encrypted, in the state directory on the machine the backend runs on. The key SHALL come from the application's secret configuration, never from a file in the state directory or the data repository. Without a valid key, the system SHALL refuse to store a password.
 

@@ -867,6 +867,13 @@ While a check runs, the view SHALL show how many new mails it found and how many
 - **WHEN** a check ends because the server did not answer
 - **THEN** the view says the server is not reachable, and offers „Erneut versuchen“ and the settings
 
+### Requirement: Cancel button of a mailbox check
+While a check runs, the view SHALL offer „Prüfen abbrechen“, which cancels the check at once and without a confirm step. The view SHALL say that the check stops after the current mail and that the mails read so far stay in the pick list. When the cancelled check has stopped, the view SHALL show its pick list and report, with a note that it was cancelled after N of M mails.
+
+#### Scenario: Cancel a check
+- **WHEN** the user presses „Prüfen abbrechen“ after the check has read 37 of 200 mails
+- **THEN** the check stops after the current mail, and the view shows the pick list of the mails read with the note that the check was cancelled after 37 of 200 mails
+
 ### Requirement: Mailbox pick list grouped by mail
 A finished check SHALL show the entries of all its mails in one list, grouped by mail, with the rules of the alert mail pick list for each entry. Each mail head SHALL show the sender, and the subject, date and folder in one line below it, stacked at a phone's width. „N Anzeigen hinzufügen“ SHALL add all selected entries, and „Nichts hinzufügen“ none; the view SHALL say that the mails count as handled afterwards.
 

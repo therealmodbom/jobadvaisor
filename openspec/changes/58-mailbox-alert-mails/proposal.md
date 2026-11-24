@@ -27,7 +27,8 @@ Configuring a mailbox needs a place for app-wide settings. Today the header's ge
   - „Postfach prüfen“ starts a check in the background, one at a time. The check reports how many unhandled mails it found and how many it has read, at most 200 mails per check, oldest first.
   - Each mail goes through the existing finder: fixed rules first, the content guard and the model for other senders, and one line per mail in the record. Mails are read only. They are never moved, flagged or marked as read.
   - A mail that sits in several folders is read once. A mail over 4 MB is skipped and named.
-  - A connection, login or folder failure ends the check with its reason. A connection lost midway keeps the mails read so far. A stored password the key can no longer decrypt asks for the password again.
+  - A connection, login or folder failure ends the check with its reason. A connection lost midway keeps the mails read so far.
+  - „Prüfen abbrechen“ stops a running check after the current mail. The mails read so far stay in the pick list, and the unread ones come again in the next check. A stored password the key can no longer decrypt asks for the password again.
   - Above the pick list, short notes name what the check did not offer: mails left for the next check, missing folders, oversized, failed or held mails, and mails not read while screening is off.
   - Changing the server, port or user name without a new password removes the stored password, so it never goes to another server. Changing the server or user name also starts the handled-mail record afresh.
 - **Pick list grouped by mail.** The postings of all new mails appear in one list, grouped by mail.
@@ -54,7 +55,6 @@ Configuring a mailbox needs a place for app-wide settings. Today the header's ge
 - IMAP without TLS. STARTTLS on port 143 is also out: port 993 with implicit TLS.
 - A key file path or Docker secrets for `MAILBOX_KEY`: the key comes from the same configuration as every other secret.
 - Moving the login-walled hosts list to the settings page ([#148 (Move the login-walled hosts list to the settings page)](https://github.com/therealmodbom/jobadvaisor/issues/148)).
-- Cancelling a running check.
 
 ## Capabilities
 
@@ -67,12 +67,12 @@ None.
 - `posting-intake`: adds the following requirements.
   - Connection and folders: „Mailbox over IMAP with TLS“, „Mailbox folders listed“, „Folders a check searches“, „One mail read once per check“, „The mailbox is read only“.
   - Which mails a check reads: „Mails from the start date on“, „Handled mails“, „Mails waiting for screening“, „Handled mails are skipped“, „Each mail through the finder“, „Oversized mails skipped“, „At most 200 mails per check“.
-  - Running a check: „One mailbox check at a time“, „A failed check names its reason“, „An interrupted check keeps what it read“.
+  - Running a check: „One mailbox check at a time“, „A failed check names its reason“, „An interrupted check keeps what it read“, „Cancel a mailbox check“.
   - The password and the account: „Mailbox password stored encrypted“, „The mailbox password is never revealed“, „The password stays with its account“, „A new account starts fresh“, „Unreadable stored password“.
   - Adding: „Mailbox entries added like alert entries“.
 - `web-ui`: replaces „Settings in the header“ with „Settings page“, and modifies „Intake view“ (the mailbox source). Adds the following requirements.
   - Settings: „Mailbox settings form“, „Password field“, „Mailbox settings without a key“, „Folder choice“.
-  - The mailbox source: „Mailbox source“, „Mailbox check progress and outcome“, „Mailbox check report“, „Mailbox pick list kept when adding is refused“.
+  - The mailbox source: „Mailbox source“, „Mailbox check progress and outcome“, „Cancel button of a mailbox check“, „Mailbox check report“, „Mailbox pick list kept when adding is refused“.
   - The pick list: „Mailbox pick list grouped by mail“, „Select a mail's entries at once“, „Collapse a mail“.
 - `data-repository`: modifies „Documented schema per entity“ (the mailbox entity). Adds „Mailbox settings stored without the password“.
 - `deployment`: adds „Mailbox key from the host“.

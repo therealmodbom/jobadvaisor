@@ -56,6 +56,12 @@
   - a second finish refused;
   - only `mails` marked, never `failed` or `not_screened`
 - [ ] 6.4 Verify that a check never logs or answers the password: a test runs a whole check at DEBUG level with a known password and searches the log records and the state for it
+- [ ] 6.5 Write `cancel`, test first against „Cancel a mailbox check“:
+  - a cancel during reading stops after the current mail, ends `done` with `cancelled`, keeps the marks of the mails read and leaves the rest unmarked;
+  - a cancel before the first mail reads none;
+  - `cancel_requested` set while the current mail finishes;
+  - a cancelled check's pick list finishes like any other;
+  - `CheckNotRunningError` for a `done`, `failed` or `finished` check, `None` for an unknown ID
 
 ## 7. API (D6)
 
@@ -66,7 +72,7 @@
   - 409 `no key`, also for a malformed key;
   - the reasons as 502, never with exception text;
   - `check_id` names a running or pending check
-- [ ] 7.2 Add `POST /mailbox/checks`, `GET /mailbox/checks/{id}` and `POST /mailbox/checks/{id}/finish`, test first: 202, 409 for a running check, 409 `not configured`, `since` required on the first check, 409 for a busy alert run, 422 for an entry not offered, 404 for an unknown check
+- [ ] 7.2 Add `POST /mailbox/checks`, `GET /mailbox/checks/{id}`, `POST /mailbox/checks/{id}/cancel` and `POST /mailbox/checks/{id}/finish`, test first: 202, 409 for a running check, 409 `not configured`, `since` required on the first check, 409 for a busy alert run, 422 for an entry not offered, 404 for an unknown check, cancel 202 or 409 `check not running`
 
 ## 8. Frontend: settings page (D7)
 
@@ -76,7 +82,7 @@
 ## 9. Frontend: mailbox source (D7)
 
 - [ ] 9.1 Extract `AlertRunView` from `AlertMailView` without a behaviour change; verify that `AlertMailView.test.tsx` passes unchanged
-- [ ] 9.2 Add the source „Postfach“: not configured, summary, „Mails ab“ with the cost hint, check start, progress, nothing new, the failure reasons, the unreadable password, and attaching to `check_id` from `GET /mailbox`; verify with component tests for „Mailbox source“ and „Mailbox check progress and outcome“, including a reload and a second tab during a check
+- [ ] 9.2 Add the source „Postfach“: not configured, summary, „Mails ab“ with the cost hint, check start, progress, „Prüfen abbrechen“ and the cancelled note, nothing new, the failure reasons, the unreadable password, and attaching to `check_id` from `GET /mailbox`; verify with component tests for „Mailbox source“, „Mailbox check progress and outcome“ and „Cancel button of a mailbox check“, including a reload and a second tab during a check
 - [ ] 9.3 Build the report notes and the pick list grouped by mail (mail heads with the meta line and the per-mail notes, tri-state checkbox, „n von m ausgewählt“, collapse, „N Anzeigen hinzufügen“, „Nichts hinzufügen“) and hand the run to `AlertRunView`; verify with component tests for „Mailbox check report“, „Mailbox pick list kept when adding is refused“, „Mailbox pick list grouped by mail“, „Select a mail's entries at once“ and „Collapse a mail“
 
 ## 10. Eval and regression (D8)

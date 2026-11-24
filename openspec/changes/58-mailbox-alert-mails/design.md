@@ -129,6 +129,7 @@ Rejected: keeping the record in the state directory. The state directory is not 
    - Nothing is marked in this step, so a failure here leaves every record as it was.
    - Sort all folders' candidates by INTERNALDATE, oversized ones included. The 200 oldest are read. `total` is their number, and `remaining` counts the rest.
 4. **Read each mail** (progress `read`):
+   - Before each mail, a requested cancel ends the loop. A cancel that arrives during steps 1 to 3 takes effect here, before the first mail.
    - A mail over 4,000,000 bytes (`RFC822.SIZE`) is never downloaded: only its display headers are fetched with `BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE)]`, and it goes into `skipped`, marked handled.
    - Else fetch it with `BODY.PEEK[]` and parse it with `email.message_from_bytes(raw, policy=email.policy.default)`.
    - `mail_parts(message)` returns `(html, text)` from `get_body(("html",))` and `get_body(("plain",))`. A blank HTML part becomes `None`, as on the paste path.
@@ -144,6 +145,9 @@ Rejected: keeping the record in the state directory. The state directory is not 
    - Log out and set `last_check_at`. The state is `done` with `mails` (each with its `key`, display headers and preview answer), `skipped`, `failed`, `held`, `not_screened`, `missing_folders` and `remaining`. Each entry of `skipped`, `failed`, `held` and `not_screened` carries the mail's display headers (sender, subject, date) and folder, so the report can name it.
    - A connection error before step 4 makes the check `failed` with `reason` (D5).
    - A connection error during step 4 makes it `done` with what it read so far, `interrupted: <reason>`, and the unread mails left unmarked.
+   - A cancel makes it `done` with what it read so far, `cancelled: true`, and the unread mails left unmarked. Its pick list is finished like any other.
+
+`cancel(check_id)`, like `AvailabilityChecks.cancel`: it sets `cancel_requested` on a running check, which runs on to the end of its current mail. It raises `CheckNotRunningError` for a check that is `done`, `failed` or `finished`, and answers `None` for an unknown ID.
 
 `finish(check_id, entries)`:
 
@@ -177,7 +181,8 @@ The mapping lives in one function around every IMAP call, so no IMAP exception r
 | `PUT /mailbox` | Body: `{host, port, user, password?, folders?}`. An absent or empty `password` keeps the stored one, unless the account changes (D3). It answers like `GET`. Errors: 409 `no key` when a password comes without a valid key, 409 `check in progress` on an account change during a check, or 422. |
 | `POST /mailbox/folders` | Logs in with the stored account: `{folders: [{name, system}]}`. Errors: 502 `{error: <reason>}`, 409 `no key`, `no password` or `password unreadable`. |
 | `POST /mailbox/checks` | Body: `{since?}`, required while `since` is unset. 202 `{check_id}`. Errors: 409 `check in progress` with `check_id`, or 409 `not configured`. |
-| `GET /mailbox/checks/{id}` | `{check_id, status: running\|done\|failed\|finished, reason, interrupted, total, read, remaining, mails, skipped, failed, held, not_screened, missing_folders}`, or 404. |
+| `GET /mailbox/checks/{id}` | `{check_id, status: running\|done\|failed\|finished, reason, interrupted, cancel_requested, cancelled, total, read, remaining, mails, skipped, failed, held, not_screened, missing_folders}`, or 404. |
+| `POST /mailbox/checks/{id}/cancel` | 202, 404 for an unknown check, or 409 `check not running`. |
 | `POST /mailbox/checks/{id}/finish` | Body: `{entries: [{url, title}]}`: 0 or more, each cleaned like `POST /alert-mails/runs` and checked against the check's offer. 202 `{run_id \| null}`. Errors: 409 `alert run in progress` with `run_id`, 409 `check not done`, or 422 for an entry the check did not offer. |
 
 „Verbinden und Ordner laden“ is `PUT /mailbox` followed by `POST /mailbox/folders`.
@@ -197,6 +202,7 @@ The mapping lives in one function around every IMAP call, so no IMAP exception r
 - **Source „Postfach“** (`views/MailboxView.tsx`, a new entry in `SOURCES` after „Alert-Mail“):
   - It reads `GET /mailbox`. Not configured: a notice with the link „Postfach einrichten“. Configured: a summary line with a link to the settings, „Mails ab“ with the cost hint while `since` is unset, and „Postfach prüfen“.
   - It attaches to `check_id` from `GET /mailbox`, so another tab or a reload finds a running or unfinished check, and polls like the alert run.
+  - While a check runs, „Prüfen abbrechen“ sits beside the progress, as in `components/check.tsx`; once `cancel_requested` is set, the view says the check stops after the current mail.
   - The report notes use `AlertMailView`'s `Note`.
   - The pick list groups by mail. Each head has a tri-state checkbox (`indeterminate` set from a ref), „n von m ausgewählt“, and a collapse button with `aria-expanded` and `aria-controls`. The rows reuse `PickRow`.
 - **Shared run view.** The run part of `AlertMailView` moves into an exported `AlertRunView`, with its polling, the stored-anyway rows and `sessionStorage`. `AlertMailView` and `MailboxView` both use it, so a run started from the mailbox shows exactly like one from a paste.
@@ -225,8 +231,6 @@ The mailbox gives the finder a mail's original `text/html` MIME part, where a pa
 - **One repository load per mail.** `preview` loads the stored postings for each mail, so a 200-mail check loads them 200 times. That is acceptable at today's pool size. Task 6.1 measures a 200-mail check over the demo persona. Passing the postings in once is the upgrade if it is slow.
 - **A restart during the alert run.** The mails are handled once the run has started. A restart before the run ends loses the entries not yet added, as it does for a pasted mail. Pasting or re-adding those links recovers them.
 - **Root on the backend machine.** It reads the key and the password (ADR 0016). The app password limits the damage.
-- **A long check cannot be cancelled.** This is accepted for now (Non-goals). The progress line shows it is working.
-
 ## Open Questions
 
 None.
