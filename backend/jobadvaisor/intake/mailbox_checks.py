@@ -64,6 +64,10 @@ class CheckNotDoneError(Exception):
     """The check is not `done`: it still runs, failed, or its pick list is finished or closed."""
 
 
+class CheckNotRunningError(Exception):
+    """The check is `done`, `failed` or `finished`, so it takes no cancel."""
+
+
 class ReadInProgressError(Exception):
     """An oversized mail of the pending pick list is being read, so it cannot be finished or
     replaced yet."""
@@ -182,6 +186,22 @@ class MailboxChecks:
             check = self._checks.get(check_id)
             return copy.deepcopy(check.state) if check else None
 
+    def cancel(self, check_id: str) -> str | None:
+        """Ask the running check to stop; returns its ID at once. The worker looks for the
+        request before each mail, so the mail it works on is finished and filed, then the check
+        ends `done` with `cancelled` and the mails read so far, and the rest stay unmarked. A
+        request that arrives while the candidates are searched takes effect before the first
+        mail. Answers `None` for an unknown ID and raises `CheckNotRunningError` for a check
+        that has ended."""
+        with self._lock:
+            check = self._checks.get(check_id)
+            if check is None:
+                return None
+            if check.state["status"] != "running":
+                raise CheckNotRunningError(f"check {check_id} is {check.state['status']}")
+            check.state["cancel_requested"] = True
+            return check_id
+
     def finish(self, check_id: str, entries: list[RunEntry]) -> str | None:
         """Finish the pick list of a `done` check: `entries` (none up to all offered, their
         links already cleaned) go into one alert run, and the mails of the pick list, unread
@@ -291,6 +311,10 @@ class MailboxChecks:
         selected = None
         try:
             for index, candidate in enumerate(candidates.mails):
+                with self._lock:
+                    if state["cancel_requested"]:
+                        state["cancelled"] = True
+                        break
                 if selected != candidate.folder:
                     with imap_errors():
                         client.select_folder(candidate.folder, readonly=True)

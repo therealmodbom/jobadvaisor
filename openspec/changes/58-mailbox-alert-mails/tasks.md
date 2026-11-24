@@ -55,7 +55,7 @@
   - a second finish refused;
   - only `mails` marked, unread oversized ones included, never `failed` or `not_screened`
 - [x] 6.4 Verify that a check never logs or answers the password: a test runs a whole check at DEBUG level with a known password and searches the log records and the state for it
-- [ ] 6.5 Write `cancel`, test first against „Cancel a mailbox check“:
+- [x] 6.5 Write `cancel`, test first against „Cancel a mailbox check“:
   - a cancel during reading stops after the current mail, ends `done` with `cancelled`, keeps the marks of the mails read and leaves the rest unmarked;
   - a cancel before the first mail reads none;
   - `cancel_requested` set while the current mail finishes;

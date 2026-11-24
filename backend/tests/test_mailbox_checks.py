@@ -24,6 +24,7 @@ from jobadvaisor.intake.mailbox import imap_errors
 from jobadvaisor.intake.mailbox_checks import (
     CheckBusyError,
     CheckNotDoneError,
+    CheckNotRunningError,
     EntryNotOfferedError,
     MailboxChecks,
 )
@@ -476,6 +477,97 @@ def test_the_next_check_does_not_offer_the_mails_of_a_finished_pick_list(root):
     settle(checks, check_id)
     checks.finish(check_id, [])
     assert run(make(root, fake, StubFinder({"mail 4": found(A)})))["total"] == 1  # only mail 4
+
+
+# --- cancel -------------------------------------------------------------------------------
+
+
+def test_a_cancel_stops_after_the_current_mail_and_keeps_the_marks_of_the_mails_read(root):
+    finder = StubFinder({"mail 1": found(A)}, hold=True)
+    fake = imap(*(mail(uid) for uid in range(1, 5)))
+    checks = make(root, fake, finder)
+    check_id = checks.start()
+    assert finder.entered.wait(10)
+    assert checks.cancel(check_id) == check_id
+    assert checks.read(check_id)["cancel_requested"] is True  # while mail 1 finishes
+    finder.release.set()
+    state = settle(checks, check_id)
+    assert (state["status"], state["cancelled"], state["read"], state["total"]) == (
+        "done", True, 1, 4)
+    assert len(finder.calls) == 1 and [m["subject"] for m in state["mails"]] == ["Subject 1"]
+    assert handled(root) == set() and read_mailbox(root).last_check_at is not None
+
+
+def test_a_cancel_before_the_first_mail_reads_none(root):
+    release, entered = threading.Event(), threading.Event()
+    fake = imap(mail(1), mail(2))
+    inner = connector(fake)
+
+    def slow(account, password):
+        entered.set()
+        assert release.wait(10)
+        return inner(account, password)
+
+    finder = StubFinder()
+    checks = make(root, fake, finder)
+    checks._connect = slow
+    check_id = checks.start()
+    assert entered.wait(10)
+    checks.cancel(check_id)
+    release.set()
+    state = settle(checks, check_id)
+    assert (state["cancelled"], state["read"], state["total"]) == (True, 0, 2)
+    assert finder.calls == [] and handled(root) == set()
+
+
+def test_the_mails_a_cancelled_check_did_not_read_are_read_by_the_next_check(root):
+    finder = StubFinder(hold=True)
+    fake = imap(mail(1), mail(2), mail(3))
+    checks = make(root, fake, finder)
+    check_id = checks.start()
+    assert finder.entered.wait(10)
+    checks.cancel(check_id)
+    finder.release.set()
+    settle(checks, check_id)
+    assert handled(root) == {1}
+    assert run(make(root, fake, StubFinder()))["total"] == 2
+
+
+def test_a_cancelled_checks_pick_list_finishes_like_any_other(root):
+    finder = StubFinder({"mail 1": found(A)}, hold=True)
+    checks = make(root, imap(mail(1), mail(2)), finder)
+    check_id = checks.start()
+    assert finder.entered.wait(10)
+    checks.cancel(check_id)
+    finder.release.set()
+    settle(checks, check_id)
+    assert checks.current() == check_id
+    assert checks.finish(check_id, [RunEntry(A, "a")]) == "run-1" and handled(root) == {1}
+
+
+def test_a_cancel_after_the_last_mail_leaves_a_plain_done_check(root):
+    finder = StubFinder(hold=True)
+    checks = make(root, imap(mail(1)), finder)
+    check_id = checks.start()
+    assert finder.entered.wait(10)
+    checks.cancel(check_id)
+    finder.release.set()
+    state = settle(checks, check_id)
+    assert state["cancelled"] is False and state["read"] == 1
+
+
+def test_a_cancel_is_refused_for_a_check_that_is_not_running_and_unknown_for_a_stranger(root):
+    checks = make(root, imap(mail(1)), StubFinder({"mail 1": found(A)}))
+    done = run(checks)["check_id"]
+    with pytest.raises(CheckNotRunningError):
+        checks.cancel(done)
+    checks.finish(done, [])
+    with pytest.raises(CheckNotRunningError):
+        checks.cancel(done)  # finished
+    keyless = make(root, imap(mail(1)), key=None)
+    with pytest.raises(CheckNotRunningError):
+        keyless.cancel(run(keyless)["check_id"])  # failed
+    assert checks.cancel("nope") is None
 
 
 # --- the password never leaves ------------------------------------------------------------
