@@ -28,6 +28,28 @@
     "Folders": {
       "additionalProperties": false,
       "description": "The folder choice: `{\"all\": true}` for every folder but the system folders, or\n`{\"names\": [...]}` for exactly those. Exactly one of the two is set.",
+      "oneOf": [
+        {
+          "properties": {
+            "all": {
+              "const": true
+            }
+          },
+          "required": [
+            "all"
+          ]
+        },
+        {
+          "properties": {
+            "names": {
+              "type": "array"
+            }
+          },
+          "required": [
+            "names"
+          ]
+        }
+      ],
       "properties": {
         "all": {
           "anyOf": [

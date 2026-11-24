@@ -452,6 +452,11 @@ class Folders(Entity):
     """The folder choice: `{"all": true}` for every folder but the system folders, or
     `{"names": [...]}` for exactly those. Exactly one of the two is set."""
 
+    # The schema states the validator below: `all` is `true` or `names` is a list, not both.
+    model_config = ConfigDict(json_schema_extra={"oneOf": [
+        {"required": ["all"], "properties": {"all": {"const": True}}},
+        {"required": ["names"], "properties": {"names": {"type": "array"}}}]})
+
     all: Literal[True] | None = None
     names: list[str] | None = Field(default=None, min_length=1)
 
