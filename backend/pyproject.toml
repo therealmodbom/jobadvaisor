@@ -6,9 +6,11 @@ license = "MIT"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "chromadb>=1.5.9",
+    "cryptography>=50.0.2",
     "deepeval>=4.2,<4.3",
     "fastapi>=0.143.0",
     "httpx>=0.28.1",
+    "imapclient>=4.3.0",
     "langchain>=1.4.4",
     "langchain-openai>=1.7.0",
     "langfuse>=4.17.0",
