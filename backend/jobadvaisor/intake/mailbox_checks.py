@@ -177,10 +177,12 @@ class MailboxChecks:
         """The account's folders, read over a login with the stored password that is closed
         again (`intake.mailbox.list_folders`). Raises `NotConfiguredError` and `MailboxError`
         (`no key`, `no password`, `password unreadable`, or the connection's reason)."""
-        account = read_mailbox(self._root)
-        if account is None:
-            raise NotConfiguredError("no mailbox is configured")
-        client = self._connect(account, self._password())
+        with self._lock:  # account and password as one pair, never across a save
+            account = read_mailbox(self._root)
+            if account is None:
+                raise NotConfiguredError("no mailbox is configured")
+            password = self._password()
+        client = self._connect(account, password)
         try:
             return list_folders(client)
         finally:
@@ -259,6 +261,14 @@ class MailboxChecks:
             self._refuse_while_reading()
             yield
             self._drop_pending()
+
+    @contextmanager
+    def credentials(self) -> Iterator[None]:
+        """Hold the lock around a save that keeps host and user (port, password, folders), so
+        the folder list and a check read the account and its password as one pair. Code in the
+        block must not call another method of this object."""
+        with self._lock:
+            yield
 
     def _refuse_while_reading(self) -> None:
         """Raise `ReadInProgressError` while a mail of the pending pick list is being read. The
@@ -346,7 +356,9 @@ class MailboxChecks:
         check = self._checks[check_id]
         status, client = "done", None
         try:
-            client = self._connect(account, self._password())
+            with self._lock:  # a port or password saved since `start` comes as one pair
+                account, password = read_mailbox(self._root), self._password()
+            client = self._connect(account, password)
             if account.since is None:
                 update_mailbox(self._root, lambda current: current.model_copy(
                     update={"since": since}) if current.since is None else current)

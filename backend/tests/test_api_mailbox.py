@@ -21,7 +21,7 @@ from jobadvaisor import mailbox_secret
 from jobadvaisor.api.app import create_app
 from jobadvaisor.data.models import MailRef
 from jobadvaisor.data.writer import mark_mails, read_mailbox, update_mailbox
-from jobadvaisor.intake import mailbox
+from jobadvaisor.intake import mailbox, mailbox_checks
 from jobadvaisor.intake.alert_runs import AlertRunBusyError
 from jobadvaisor.intake.mailbox import imap_errors
 from jobadvaisor.intake.postings import Intake
@@ -711,3 +711,26 @@ def test_no_answer_holds_the_password_or_server_text(tmp_path, root):
     assert all(PASSWORD not in text and SERVER_TEXT not in text for text in app.seen)
     assert mailbox_secret.read(next((root.parent / "state").rglob("mailbox-password")), KEY) == (
         PASSWORD)
+
+
+def test_every_password_write_holds_the_checks_lock_also_for_an_unchanged_account(
+        tmp_path, root, monkeypatch):
+    made = []
+
+    class Recorded(mailbox_checks.MailboxChecks):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            made.append(self)
+
+    monkeypatch.setattr(mailbox_checks, "MailboxChecks", Recorded)
+    app = api(tmp_path, root)
+    app.configure()
+    held = []
+    for name in ("store", "forget"):
+        original = getattr(mailbox_secret, name)
+        monkeypatch.setattr(mailbox_secret, name, lambda *args, _original=original: (
+            held.append(made[0]._lock.locked()), _original(*args))[1])
+    app.put(ACCOUNT | {"password": "new password"})
+    app.put(ACCOUNT | {"port": 994})
+    app.put(ACCOUNT | {"host": "other.example.org", "password": "other password"})
+    assert len(held) == 4 and all(held)

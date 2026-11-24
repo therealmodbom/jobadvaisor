@@ -903,10 +903,7 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
             if body.password:
                 mailbox_secret.store(password_file, body.password, settings.mailbox_key)
 
-        if moved:
-            with mailbox.account_change():
-                save()
-        else:
+        with mailbox.account_change() if moved else mailbox.credentials():
             save()
         return mailbox_settings()
 

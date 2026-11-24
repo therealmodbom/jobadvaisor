@@ -989,3 +989,26 @@ def test_a_known_sender_is_read_by_its_rule_and_no_model_is_called(demo_copy):
     offered, = run(checks)["mails"]
     assert offered["preview"]["read_by"] == ["linkedin"]
     assert len(offered["preview"]["entries"]) == 6
+
+
+def test_the_folder_list_and_a_check_read_the_account_and_its_password_under_the_lock(
+        root, monkeypatch):
+    # The pair must not mix: a save between the two reads would send one account's password
+    # to the other's server. Saving the account holds the same lock (`credentials`).
+    checks = make(root, imap(mail(1)))
+    held = []
+    read = mailbox_secret.read
+    monkeypatch.setattr(mailbox_secret, "read",
+                        lambda *args: held.append(checks._lock.locked()) or read(*args))
+    checks.folders()
+    run(checks)
+    assert held == [True, True]
+
+
+def test_the_folder_list_waits_while_the_credentials_are_being_saved(root):
+    checks = make(root, imap())
+    listed = threading.Event()
+    with checks.credentials():
+        threading.Thread(target=lambda: (checks.folders(), listed.set()), daemon=True).start()
+        assert not listed.wait(0.2)
+    assert listed.wait(5)
