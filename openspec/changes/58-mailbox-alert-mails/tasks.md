@@ -15,8 +15,8 @@
 
 ## 4. Mailbox file and mail records (D3)
 
-- [ ] 4.1 Add the `Mailbox` model with its JSON Schema (`data/models.py`, `data/schemas.py`), `max_mails` included (1 to 1000, 200 when absent), and verify that the schema test and the published schema include it, that a repository without `mailbox.json` loads, and that 0 and 1001 are refused
-- [ ] 4.2 Add `read_mailbox` and the gated `update_mailbox`, with the handled and waiting marks, test first:
+- [x] 4.1 Add the `Mailbox` model with its JSON Schema (`data/models.py`, `data/schemas.py`), `max_mails` included (1 to 1000, 200 when absent), and verify that the schema test and the published schema include it, that a repository without `mailbox.json` loads, and that 0 and 1001 are refused
+- [x] 4.2 Add `read_mailbox` and the gated `update_mailbox`, with the handled and waiting marks, test first:
   - a mark written meanwhile survives a settings update;
   - a changed `UIDVALIDITY` replaces the folder's UIDs;
   - the Message-ID hash is the first 16 hex characters of SHA-256 over the trimmed lower-case ID;

@@ -9,7 +9,7 @@ import json
 import os
 import re
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -27,9 +27,13 @@ from jobadvaisor.data.models import (
     Company,
     Entity,
     ExtractionLabels,
+    Folders,
     Guard,
     ImportMapping,
     Label,
+    Mailbox,
+    MailRecord,
+    MailRef,
     PolicyPack,
     Pool,
     PoolPass,
@@ -199,6 +203,68 @@ def update_pool_settings(root: Path, settings: PoolSettings) -> Pool:
     pool.settings = settings
     write_pool(root, pool)
     return pool
+
+
+def read_mailbox(root: Path) -> Mailbox | None:
+    """`mailbox.json` under `root`, or `None` when no mailbox is configured. Raises
+    `DataRepositoryError` for an unreadable, invalid or unsupported-version file."""
+    return _read_entity(root, Path("mailbox.json"), Mailbox)
+
+
+@_gated
+def update_mailbox(root: Path, change: Callable[[Mailbox | None], Mailbox]) -> Mailbox:
+    """Replace `mailbox.json` under `root` by `change(current)` and return it; `current` is the
+    file as it stands under the write gate (`None` when missing), so no two writers (settings,
+    start date, check time, marks) drop each other's changes. The result is validated again and
+    swapped in by rename. Raises like `read_mailbox`; an invalid result raises `ValueError`."""
+    mailbox = Mailbox.model_validate(change(read_mailbox(root)).model_dump())
+    _replace(root / "mailbox.json", mailbox)
+    return mailbox
+
+
+def update_mailbox_account(root: Path, host: str, port: int, user: str,
+                           folders: Folders | None = None,
+                           max_mails: int | None = None) -> Mailbox:
+    """Save the account settings, creating `mailbox.json` with the defaults if missing, and
+    return the mailbox. `folders` and `max_mails` left `None` keep the stored value (all
+    folders and 200 for a new file). A change of `host` or `user` clears `since`,
+    `last_check_at`, `handled` and `waiting`; a change of `port` or the folder choice keeps
+    them. Raises `ValueError` for invalid values (`max_mails` outside 1 to 1000)."""
+    def change(current: Mailbox | None) -> Mailbox:
+        if current is None:
+            fresh = {"schema_version": "1", "host": host, "port": port, "user": user}
+            if folders is not None:
+                fresh["folders"] = folders
+            if max_mails is not None:
+                fresh["max_mails"] = max_mails
+            return Mailbox.model_validate(fresh)
+        updates: dict[str, object] = {"host": host, "port": port, "user": user}
+        if folders is not None:
+            updates["folders"] = folders
+        if max_mails is not None:
+            updates["max_mails"] = max_mails
+        if (host, user) != (current.host, current.user):
+            updates |= {"since": None, "last_check_at": None, "handled": MailRecord(),
+                        "waiting": MailRecord()}
+        return current.model_copy(update=updates)
+    return update_mailbox(root, change)
+
+
+def mark_mails(root: Path, handled: Iterable[MailRef] = (),
+               waiting: Iterable[MailRef] = ()) -> Mailbox:
+    """Record `handled` mails as never to be read again and `waiting` mails as waiting for
+    screening, and return the mailbox. A handled mail leaves `waiting`. Read-modify-write under
+    the write gate, so a change made meanwhile survives. Raises `ValueError` without a
+    configured mailbox."""
+    handled, waiting = list(handled), list(waiting)
+
+    def change(current: Mailbox | None) -> Mailbox:
+        if current is None:
+            raise ValueError("no mailbox is configured")
+        return current.model_copy(update={
+            "handled": current.handled.marked(handled),
+            "waiting": current.waiting.unmarked(handled).marked(waiting)})
+    return update_mailbox(root, change)
 
 
 def read_scores(root: Path) -> tuple[dict[str, Score], dict[str, str]]:

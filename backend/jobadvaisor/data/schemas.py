@@ -13,6 +13,7 @@ from jobadvaisor.data.models import (
     Company,
     ExtractionLabels,
     Label,
+    Mailbox,
     PolicyPack,
     Pool,
     Posting,
@@ -30,6 +31,7 @@ ENTITIES: dict[str, type[BaseModel]] = {
     "score": Score,
     "company": Company,
     "pool": Pool,
+    "mailbox": Mailbox,
     "extraction-labels": ExtractionLabels,
 }
 

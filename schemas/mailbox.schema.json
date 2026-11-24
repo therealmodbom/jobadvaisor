@@ -1,0 +1,178 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "FolderUids": {
+      "additionalProperties": false,
+      "description": "The UIDs recorded in one folder, valid only under that folder's `validity`.",
+      "properties": {
+        "validity": {
+          "minimum": 0,
+          "title": "Validity",
+          "type": "integer"
+        },
+        "uids": {
+          "default": [],
+          "items": {
+            "type": "integer"
+          },
+          "title": "Uids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "validity"
+      ],
+      "title": "FolderUids",
+      "type": "object"
+    },
+    "Folders": {
+      "additionalProperties": false,
+      "description": "The folder choice: `{\"all\": true}` for every folder but the system folders, or\n`{\"names\": [...]}` for exactly those. Exactly one of the two is set.",
+      "properties": {
+        "all": {
+          "anyOf": [
+            {
+              "const": true,
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "All"
+        },
+        "names": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Names"
+        }
+      },
+      "title": "Folders",
+      "type": "object"
+    },
+    "MailRecord": {
+      "additionalProperties": false,
+      "description": "A set of mails, by `uids` per folder name and by `ids` (Message-ID hashes). A mail is in\nthe record when its UID is listed under the folder's current validity, or its hash is in\n`ids`. Methods return a new record; lists stay sorted and without repeats.",
+      "properties": {
+        "uids": {
+          "additionalProperties": {
+            "$ref": "#/$defs/FolderUids"
+          },
+          "default": {},
+          "title": "Uids",
+          "type": "object"
+        },
+        "ids": {
+          "default": [],
+          "items": {
+            "pattern": "^[0-9a-f]{16}$",
+            "type": "string"
+          },
+          "title": "Ids",
+          "type": "array"
+        }
+      },
+      "title": "MailRecord",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "`mailbox.json`: the IMAP account without its password, the `folders` choice,\n`max_mails` per check (1 to 1000, 200 when absent), the `since` start date and the\n`last_check_at` time of the last finished check, the `handled` mails (never read again)\nand the `waiting` mails (no model read them because screening was off). A missing file\nmeans no mailbox is configured. Marks are numbers and hashes, never sender, subject or\ntext.",
+  "properties": {
+    "schema_version": {
+      "const": "1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "host": {
+      "minLength": 1,
+      "title": "Host",
+      "type": "string"
+    },
+    "port": {
+      "default": 993,
+      "maximum": 65535,
+      "minimum": 1,
+      "title": "Port",
+      "type": "integer"
+    },
+    "user": {
+      "minLength": 1,
+      "title": "User",
+      "type": "string"
+    },
+    "folders": {
+      "$ref": "#/$defs/Folders",
+      "default": {
+        "all": true,
+        "names": null
+      }
+    },
+    "max_mails": {
+      "default": 200,
+      "maximum": 1000,
+      "minimum": 1,
+      "title": "Max Mails",
+      "type": "integer"
+    },
+    "since": {
+      "anyOf": [
+        {
+          "format": "date",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Since"
+    },
+    "last_check_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Last Check At"
+    },
+    "handled": {
+      "$ref": "#/$defs/MailRecord",
+      "default": {
+        "uids": {},
+        "ids": []
+      }
+    },
+    "waiting": {
+      "$ref": "#/$defs/MailRecord",
+      "default": {
+        "uids": {},
+        "ids": []
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "host",
+    "user"
+  ],
+  "title": "Mailbox",
+  "type": "object"
+}

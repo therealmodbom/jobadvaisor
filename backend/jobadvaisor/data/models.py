@@ -7,6 +7,9 @@ Every file carries `schema_version`. A posting's ID is its file name (`postings/
 import hashlib
 import re
 import unicodedata
+from collections.abc import Iterable
+from dataclasses import dataclass
+from datetime import date
 from typing import Annotated, ClassVar, Literal, Self
 
 from pydantic import (
@@ -366,3 +369,115 @@ class Pool(Entity):
     schema_version: SchemaVersion
     settings: PoolSettings = PoolSettings()
     passes: list[PoolPass] = []
+
+
+ID_HASH_PATTERN = r"^[0-9a-f]{16}$"
+IdHash = Annotated[str, StringConstraints(pattern=ID_HASH_PATTERN)]
+
+
+def message_id_hash(message_id: str) -> str:
+    """The record of a mail's Message-ID: the first 16 hex characters of the SHA-256 of the ID,
+    trimmed and lower-cased. It recognises a moved or renumbered mail without storing the ID,
+    which names the sender's domain."""
+    return hashlib.sha256(message_id.strip().lower().encode()).hexdigest()[:16]
+
+
+@dataclass(frozen=True)
+class MailRef:
+    """Where one mail sits and which mail it is: `folder`, the folder's `validity`
+    (UIDVALIDITY), the mail's `uid`, and `id_hash` (`message_id_hash`; `None` for a mail without
+    a Message-ID, which then relies on its UID alone). Never holds sender, subject or text."""
+
+    folder: str
+    validity: int
+    uid: int
+    id_hash: str | None
+
+
+class FolderUids(Entity):
+    """The UIDs recorded in one folder, valid only under that folder's `validity`."""
+
+    validity: int = Field(ge=0)
+    uids: list[int] = []
+
+
+class MailRecord(Entity):
+    """A set of mails, by `uids` per folder name and by `ids` (Message-ID hashes). A mail is in
+    the record when its UID is listed under the folder's current validity, or its hash is in
+    `ids`. Methods return a new record; lists stay sorted and without repeats."""
+
+    uids: dict[str, FolderUids] = {}
+    ids: list[IdHash] = []
+
+    def holds(self, mail: MailRef) -> bool:
+        """Whether `mail` is in the record, by UID under the same validity or by hash."""
+        folder = self.uids.get(mail.folder)
+        return (folder is not None and folder.validity == mail.validity
+                and mail.uid in folder.uids) or (mail.id_hash is not None
+                                                 and mail.id_hash in self.ids)
+
+    def marked(self, mails: Iterable[MailRef]) -> Self:
+        """The record with `mails` added. A mail under a new validity of its folder replaces
+        that folder's UIDs, since the old ones mean nothing any more."""
+        uids = {name: set(folder.uids) for name, folder in self.uids.items()}
+        validity = {name: folder.validity for name, folder in self.uids.items()}
+        ids = set(self.ids)
+        for mail in mails:
+            if validity.get(mail.folder) != mail.validity:
+                validity[mail.folder], uids[mail.folder] = mail.validity, set()
+            uids[mail.folder].add(mail.uid)
+            if mail.id_hash:
+                ids.add(mail.id_hash)
+        return self.model_copy(update={
+            "uids": {name: FolderUids(validity=validity[name], uids=sorted(found))
+                     for name, found in uids.items()},
+            "ids": sorted(ids)})
+
+    def unmarked(self, mails: Iterable[MailRef]) -> Self:
+        """The record without `mails` (by UID under the same validity, and by hash)."""
+        mails = list(mails)
+        gone = {mail.id_hash for mail in mails}
+        uids = {}
+        for name, folder in self.uids.items():
+            drop = {mail.uid for mail in mails
+                    if mail.folder == name and mail.validity == folder.validity}
+            if kept := [uid for uid in folder.uids if uid not in drop]:
+                uids[name] = folder.model_copy(update={"uids": kept})
+        return self.model_copy(update={"uids": uids,
+                                       "ids": [hashed for hashed in self.ids
+                                               if hashed not in gone]})
+
+
+class Folders(Entity):
+    """The folder choice: `{"all": true}` for every folder but the system folders, or
+    `{"names": [...]}` for exactly those. Exactly one of the two is set."""
+
+    all: Literal[True] | None = None
+    names: list[str] | None = Field(default=None, min_length=1)
+
+    @model_validator(mode="after")
+    def exactly_one_choice(self) -> Self:
+        """Refuse neither choice and both."""
+        if (self.all is None) == (self.names is None):
+            raise ValueError("choose either all folders or a list of folder names")
+        return self
+
+
+class Mailbox(Entity):
+    """`mailbox.json`: the IMAP account without its password, the `folders` choice,
+    `max_mails` per check (1 to 1000, 200 when absent), the `since` start date and the
+    `last_check_at` time of the last finished check, the `handled` mails (never read again)
+    and the `waiting` mails (no model read them because screening was off). A missing file
+    means no mailbox is configured. Marks are numbers and hashes, never sender, subject or
+    text."""
+
+    schema_version: SchemaVersion
+    host: str = Field(min_length=1)
+    port: int = Field(default=993, ge=1, le=65535)
+    user: str = Field(min_length=1)
+    folders: Folders = Folders(all=True)
+    max_mails: int = Field(default=200, ge=1, le=1000)
+    since: date | None = None
+    last_check_at: AwareDatetime | None = None
+    handled: MailRecord = MailRecord()
+    waiting: MailRecord = MailRecord()
