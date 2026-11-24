@@ -114,7 +114,7 @@ Rejected: keeping the record in the state directory. The state directory is not 
 
 ### D4 The check
 
-`MailboxChecks` (in `intake/mailbox.py`) copies the shape of `AvailabilityChecks`: one worker, one computing check, state in memory, `CheckBusyError(check_id)`. It also keeps the last `done` check whose pick list is not finished, as `pending`. A new check replaces it.
+`MailboxChecks` (in `intake/mailbox_checks.py`; `intake/mailbox.py` holds the IMAP access) copies the shape of `AvailabilityChecks`: one worker, one computing check, state in memory, `CheckBusyError(check_id)`. It also keeps the last `done` check whose pick list is not finished, as `pending`. A new check replaces it.
 
 1. **Account.**
    - Read `mailbox.json`.
@@ -143,8 +143,8 @@ Rejected: keeping the record in the state directory. The state directory is not 
    - A mail with entries goes into `mails`, the pick list.
 5. **End.**
    - Log out and set `last_check_at`. The state is `done` with `mails` (each with its `key`, display headers, `oversized` and preview answer), `failed`, `held`, `not_screened`, `missing_folders` and `remaining`. Each entry of `failed`, `held` and `not_screened` carries the mail's display headers (sender, subject, date) and folder, so the report can name it.
-   - A connection error before step 4 makes the check `failed` with `reason` (D5).
-   - A connection error during step 4 makes it `done` with what it read so far, `interrupted: <reason>`, and the unread mails left unmarked.
+   - A connection error before the first mail is read makes the check `failed` with `reason` (D5).
+   - A connection error after the first mail was read makes it `done` with what it read so far, `interrupted: <reason>`, and the unread mails left unmarked.
    - A cancel makes it `done` with what it read so far, `cancelled: true`, and the unread mails left unmarked. Its pick list is finished like any other.
 
 `cancel(check_id)`, like `AvailabilityChecks.cancel`: it sets `cancel_requested` on a running check, which runs on to the end of its current mail. It raises `CheckNotRunningError` for a check that is `done`, `failed` or `finished`, and answers `None` for an unknown ID.
@@ -170,11 +170,11 @@ The same posting in two mails of one check appears twice in the pick list. The a
 
 The API answers English reason codes, and the frontend turns them into German text, as `AlertMailView.readFailure` does:
 
-- `unreachable`: DNS failure, refused connection or timeout.
+- `unreachable`: DNS failure, refused or reset connection, timeout, or a socket error that says there is no route to the host or network (`EHOSTUNREACH`, `ENETUNREACH`, `EHOSTDOWN`).
 - `certificate`: `ssl.SSLCertVerificationError`.
-- `login`: `LoginError`.
+- `login`: `LoginError`. IMAP `LOGIN` carries ASCII only, so a user or password outside ASCII logs in through SASL PLAIN (UTF-8). Any other unexpected exception of the login step is `login` too, never its text, which may quote the password.
 - `folder`: a select that fails for a folder that is listed.
-- `protocol`: every other `ssl.SSLError`, `OSError`, `imaplib.IMAP4.error` or `IMAPClientError`, for example a port without TLS.
+- `protocol`: every other `ssl.SSLError`, `OSError`, `imaplib.IMAP4.error` or `IMAPClientError`, for example a port without TLS. A malformed folder name or flag from the server, or any other unexpected exception of the connection or the folder list, is `protocol` too.
 - `no key`.
 - `no password`.
 - `password unreadable`.
