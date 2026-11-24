@@ -880,7 +880,8 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
     def save_mailbox_settings(body: MailboxBody) -> dict:
         """Save the account (`MailboxBody`) and answer like `GET /mailbox`. A non-empty password
         is stored encrypted; an empty or absent one keeps the stored password unless host, port
-        or user changed, which removes it (it must never reach another account). A host or user
+        or user changed, which removes it first (it must never reach another account, not even
+        between the steps; the order is forget, account, store). A host or user
         change also clears the start date and the handled and waiting records and drops an
         unfinished pick list. 409 `no key` for a password without a usable key, 409 `check in
         progress` (with `check_id`) or `read in progress` for a host or user change while a
@@ -894,12 +895,13 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
             stored.host, stored.port, stored.user)
 
         def save() -> None:
+            # The old password goes first, so no state pairs it with another account.
+            if credentials_changed:
+                mailbox_secret.forget(password_file)
             update_mailbox_account(intake.root, body.host, body.port, body.user, body.folders,
                                    body.max_mails)
             if body.password:
                 mailbox_secret.store(password_file, body.password, settings.mailbox_key)
-            elif credentials_changed:
-                mailbox_secret.forget(password_file)
 
         if moved:
             with mailbox.account_change():

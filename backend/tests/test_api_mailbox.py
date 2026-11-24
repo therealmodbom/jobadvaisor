@@ -212,6 +212,48 @@ def test_changing_the_server_with_a_new_password_stores_that_one(tmp_path, root)
     assert answer.json()["password"] == "stored"
 
 
+def stored_password_files(root):
+    return list((root.parent / "state").rglob("mailbox-password"))
+
+
+def test_a_failing_account_write_leaves_no_old_password_beside_the_new_host(
+        tmp_path, root, monkeypatch):
+    app = api(tmp_path, root)
+    app.configure()
+
+    def broken(*args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr("jobadvaisor.api.app.update_mailbox_account", broken)
+    assert app.put(ACCOUNT | {"host": "other.example.org"}).status_code == 500
+    assert stored_password_files(root) == []
+
+
+def test_a_failing_password_write_leaves_the_new_account_without_any_password(
+        tmp_path, root, monkeypatch):
+    app = api(tmp_path, root)
+    app.configure()
+
+    def broken(*args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(mailbox_secret, "store", broken)
+    answer = app.put(ACCOUNT | {"host": "other.example.org", "password": "new password"})
+    assert answer.status_code == 500
+    assert read_mailbox(root).host == "other.example.org"
+    assert stored_password_files(root) == []
+
+
+def test_a_failing_password_write_keeps_the_old_password_of_an_unchanged_account(
+        tmp_path, root, monkeypatch):
+    app = api(tmp_path, root)
+    app.configure()
+    monkeypatch.setattr(mailbox_secret, "store", lambda *args: (_ for _ in ()).throw(OSError()))
+    assert app.put(ACCOUNT | {"password": "new password"}).status_code == 500
+    assert len(stored_password_files(root)) == 1
+    assert app.get("/mailbox").json()["password"] == "stored"
+
+
 def test_a_host_or_user_change_resets_the_records_and_a_port_change_keeps_them(tmp_path, root):
     app = api(tmp_path, root)
     app.configure()
