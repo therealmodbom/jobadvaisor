@@ -11,7 +11,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 KEYCHAIN_SERVICE = "jobadvaisor"
-SECRETS = ("llm_api_key", "mistral_api_key", "search_api_key", "langfuse_secret_key")
+SECRETS = ("llm_api_key", "mistral_api_key", "search_api_key", "langfuse_secret_key",
+           "mailbox_key")
 
 
 def keychain_value(account: str) -> str | None:
@@ -45,6 +46,8 @@ class Settings(BaseSettings):
     `competitor_min_labels` is the training-label minimum of the logistic-regression eval.
     `langfuse_base_url` also reads the earlier name `LANGFUSE_HOST`; `LANGFUSE_BASE_URL` wins.
     `state_directory` holds the rebuildable local stores, outside this repository by default.
+    `mailbox_key` is the Fernet key that encrypts the mailbox password (`mailbox_secret.py`); a
+    key Fernet rejects counts as no key there, not here.
     """
 
     model_config = SettingsConfigDict(
@@ -81,6 +84,8 @@ class Settings(BaseSettings):
     langfuse_secret_key: str | None = None
     langfuse_base_url: str | None = Field(
         default=None, validation_alias=AliasChoices("langfuse_base_url", "langfuse_host"))
+
+    mailbox_key: str | None = None
 
     @classmethod
     def settings_customise_sources(cls, settings_cls, init_settings, env_settings,

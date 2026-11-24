@@ -39,7 +39,19 @@ def test_keychain_is_asked_for_secrets_only(monkeypatch):
     asked = []
     monkeypatch.setattr(settings_module, "keychain_value", asked.append)
     Settings(_env_file=None)
-    assert asked == ["llm-api-key", "mistral-api-key", "search-api-key", "langfuse-secret-key"]
+    assert asked == ["llm-api-key", "mistral-api-key", "search-api-key", "langfuse-secret-key",
+                     "mailbox-key"]
+
+
+def test_mailbox_key_is_read_from_the_environment(monkeypatch):
+    keychain(monkeypatch, {})
+    monkeypatch.setenv("MAILBOX_KEY", "key-from-env")
+    assert Settings(_env_file=None).mailbox_key == "key-from-env"
+
+
+def test_mailbox_key_is_read_from_the_keychain(monkeypatch):
+    keychain(monkeypatch, {"mailbox-key": "key-from-keychain"})
+    assert Settings(_env_file=None).mailbox_key == "key-from-keychain"
 
 
 @pytest.mark.parametrize("outcome", [FileNotFoundError("security"),

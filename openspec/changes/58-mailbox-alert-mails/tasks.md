@@ -7,7 +7,7 @@
 ## 2. Dependencies and configuration
 
 - [x] 2.1 Add `imapclient` and `cryptography` to `backend/pyproject.toml`, lock them, and verify that `uv sync --directory backend --frozen` installs both
-- [ ] 2.2 Add `mailbox_key` to `Settings` and `SECRETS`, and `MAILBOX_KEY` with its generate command to `env.example`; verify that `tests/test_env_example.py` passes and that a test reads the key from the environment
+- [x] 2.2 Add `mailbox_key` to `Settings` and `SECRETS`, and `MAILBOX_KEY` with its generate command to `env.example`; verify that `tests/test_env_example.py` passes and that a test reads the key from the environment
 
 ## 3. Password store (D1)
 
