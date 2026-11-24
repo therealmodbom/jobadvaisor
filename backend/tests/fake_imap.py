@@ -83,8 +83,20 @@ class FakeImap:
         raise AssertionError(f"{kind}: {message}")
 
     def login(self, user: str, password: str) -> None:
-        """Record the login (user only); `LoginError` for a password other than `password`."""
+        """Record the login (user only); `LoginError` for a password other than `password`.
+        Like imaplib's LOGIN it encodes both as ASCII, so a non-ASCII one raises
+        `UnicodeEncodeError`."""
         self._call("login", user)
+        (user + password).encode("ascii")
+        self._check_password(password)
+
+    def plain_login(self, user: str, password: str) -> None:
+        """Record a SASL PLAIN login (`("plain_login", user)`), which carries UTF-8; the same
+        `LoginError` as `login`."""
+        self._call("plain_login", user)
+        self._check_password(password)
+
+    def _check_password(self, password: str) -> None:
         if self.password is not None and password != self.password:
             raise LoginError("login refused")
 

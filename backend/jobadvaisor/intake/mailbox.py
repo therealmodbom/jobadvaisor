@@ -8,6 +8,7 @@ carries it, and none carries text from the server, which may echo the user name.
 
 import email
 import email.policy
+import errno
 import imaplib
 import logging
 import socket
@@ -31,7 +32,9 @@ TIMEOUT_SECONDS = 30
 HEADER_ITEM = "BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)]"
 # One FETCH names this many UIDs; a longer command line is refused by some servers.
 HEADER_BATCH = 200
-UNSELECTABLE_FLAGS = {"\\noselect", "\\nonexistent"}
+# Socket errors that say the host or network cannot be reached, with no DNS or refusal error.
+UNREACHABLE_ERRNOS = {errno.EHOSTUNREACH, errno.ENETUNREACH, errno.EHOSTDOWN}
+UNSELECTABLE_FLAGS ={"\\noselect", "\\nonexistent"}
 # \All, \Flagged and \Important are virtual folders that show mails of other folders again.
 SYSTEM_FLAGS = {"\\trash", "\\junk", "\\sent", "\\drafts", "\\all", "\\flagged", "\\important"}
 
@@ -48,14 +51,19 @@ class MailboxError(Exception):
 def reason_of(error: BaseException, imap_error: Reason = "protocol") -> Reason | None:
     """The reason code for an IMAP, TLS or socket `error`, or `None` for any other exception
     (a bug, not a mailbox problem). A failed certificate check is `certificate`; a timeout, a
-    DNS failure or a refused connection is `unreachable`; a refused login is `login`; a dropped
-    connection and every other TLS, socket or IMAP error is `protocol`. A plain IMAP error
-    answer (a NO or BAD to one command) gives `imap_error`, which a select passes as `folder`."""
+    DNS failure, a refused or reset connection, or a socket error that says the host or network
+    is not reachable (no route, network unreachable, host down) is `unreachable`; a refused login
+    is `login`; a dropped connection and every other TLS, socket or IMAP error is `protocol`. A
+    plain IMAP error answer (a NO or BAD to one command) gives `imap_error`, which a select
+    passes as `folder`."""
     if isinstance(error, ssl.SSLCertVerificationError):
         return "certificate"
     if isinstance(error, ssl.SSLError):
         return "protocol"
-    if isinstance(error, TimeoutError | socket.gaierror | ConnectionRefusedError):
+    if isinstance(error, TimeoutError | socket.gaierror | ConnectionRefusedError
+                  | ConnectionResetError):
+        return "unreachable"
+    if isinstance(error, OSError) and error.errno in UNREACHABLE_ERRNOS:
         return "unreachable"
     if isinstance(error, LoginError):
         return "login"
@@ -67,14 +75,16 @@ def reason_of(error: BaseException, imap_error: Reason = "protocol") -> Reason |
 
 
 @contextmanager
-def imap_errors(imap_error: Reason = "protocol") -> Iterator[None]:
+def imap_errors(imap_error: Reason = "protocol", unexpected: Reason | None = None
+                ) -> Iterator[None]:
     """Run IMAP calls so that no IMAP, TLS or socket exception leaves them: it becomes a
     `MailboxError` with its reason (`reason_of`), without the server's text. Any other exception
-    passes unchanged."""
+    passes unchanged, unless `unexpected` is given: then it becomes that reason too, because
+    its text may quote the password or server data (an encoding error does)."""
     try:
         yield
     except Exception as error:
-        reason = reason_of(error, imap_error)
+        reason = reason_of(error, imap_error) or unexpected
         if reason is None:
             raise
         raise MailboxError(reason) from None
@@ -84,19 +94,25 @@ def connect(account: Mailbox, password: str) -> IMAPClient:
     """A logged-in client for `account`'s host, port and user. TLS only, with the certificate and
     the host name verified, and a 30 second timeout; there is no plain or STARTTLS path. Sets
     the `imapclient` logger to WARNING first, because its DEBUG output logs protocol lines,
-    the login included. The client returns timezone-aware times. Raises `MailboxError`; a failed
-    login closes the connection."""
+    the login included. The client returns timezone-aware times. The login is IMAP LOGIN, which
+    carries ASCII only; a user or password outside ASCII logs in through SASL PLAIN (UTF-8).
+    Raises `MailboxError`, whatever else goes wrong (an unexpected error never leaves with its
+    text); a failed login closes the connection."""
     logging.getLogger("imapclient").setLevel(logging.WARNING)
-    with imap_errors():
+    with imap_errors(unexpected="protocol"):
         client = IMAPClient(account.host, account.port, ssl=True,
                             ssl_context=ssl.create_default_context(), timeout=TIMEOUT_SECONDS)
-        client.normalise_times = False
-        try:
-            client.login(account.user, password)
-        except BaseException:
-            with suppress(Exception):
-                client.shutdown()
-            raise
+    client.normalise_times = False
+    try:
+        with imap_errors(unexpected="login"):
+            if (account.user + password).isascii():
+                client.login(account.user, password)
+            else:
+                client.plain_login(account.user, password)
+    except BaseException:
+        with suppress(Exception):
+            client.shutdown()
+        raise
     return client
 
 
@@ -112,14 +128,13 @@ class Folder:
 def list_folders(client: IMAPClient) -> list[Folder]:
     """The account's folders that can hold mails, in the server's order, with names decoded.
     A folder flagged `\\Noselect` or `\\NonExistent` is left out. Flags compare without case.
-    Raises `MailboxError`."""
-    with imap_errors():
-        listed = client.list_folders()
+    Raises `MailboxError`, `protocol` for a name or flag the server sent malformed."""
     folders = []
-    for flags, _delimiter, name in listed:
-        flags = {flag.decode().lower() for flag in flags}
-        if not flags & UNSELECTABLE_FLAGS:
-            folders.append(Folder(name, bool(flags & SYSTEM_FLAGS)))
+    with imap_errors(unexpected="protocol"):
+        for flags, _delimiter, name in client.list_folders():
+            flags = {flag.decode().lower() for flag in flags}
+            if not flags & UNSELECTABLE_FLAGS:
+                folders.append(Folder(name, bool(flags & SYSTEM_FLAGS)))
     return folders
 
 

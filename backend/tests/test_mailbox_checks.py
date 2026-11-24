@@ -237,6 +237,20 @@ def test_a_finder_error_fails_the_mail_unmarked_and_the_check_goes_on(root):
     assert (state["status"], state["read"]) == ("done", 2) and handled(root) == {2}
 
 
+def test_an_unexpected_error_on_one_mail_fails_that_mail_unmarked_and_the_check_goes_on(
+        root, caplog):
+    finder = StubFinder({"mail 1": KeyError("secret mail text"), "mail 3": found(A)})
+    with caplog.at_level(logging.WARNING):
+        state = run(make(root, imap(mail(1), mail(2), mail(3)), finder))
+    failed, = state["failed"]
+    assert failed["reason"] == "finder failed" and failed["folder"] == "Posteingang"
+    assert (state["status"], state["read"]) == ("done", 3)
+    assert [mail["key"] for mail in state["mails"]] == ["2"]
+    assert handled(root) == {2}  # mail 3 is only offered; mail 1 stays unmarked
+    warnings = [record for record in caplog.records if record.levelno == logging.WARNING]
+    assert warnings and "secret mail text" not in caplog.text and "mail 1" not in caplog.text
+
+
 def test_a_mail_no_model_read_is_not_screened_and_waits(root):
     state = run(make(root, imap(mail(1)), StubFinder({"mail 1": NOT_SCREENED}), screening=False))
     not_screened, = state["not_screened"]
@@ -397,6 +411,32 @@ def test_a_failed_mail_and_a_screening_off_mail_are_never_marked_handled(root):
     settle(checks, check_id)
     checks.finish(check_id, [])
     assert handled(root) == {1} and waiting(root) == {2}
+
+
+def test_a_failing_mark_after_the_run_started_closes_the_pick_list(root, monkeypatch):
+    checks, check_id, runs, _ = offering(root)
+    settle(checks, check_id)
+
+    def broken(*args, **kwargs):
+        raise OSError("data repository is read-only")
+
+    monkeypatch.setattr("jobadvaisor.intake.mailbox_checks.mark_mails", broken)
+    with pytest.raises(OSError):
+        checks.finish(check_id, [RunEntry(A, "a")])
+    assert checks.read(check_id)["status"] == "finished" and checks.current() is None
+    with pytest.raises(CheckNotDoneError):  # a second finish starts no duplicate run
+        checks.finish(check_id, [RunEntry(A, "a")])
+    assert len(runs.started) == 1
+
+
+def test_a_failing_mark_without_a_run_leaves_the_pick_list_open(root, monkeypatch):
+    checks, check_id, runs, _ = offering(root)
+    settle(checks, check_id)
+    monkeypatch.setattr("jobadvaisor.intake.mailbox_checks.mark_mails",
+                        lambda *args, **kwargs: (_ for _ in ()).throw(OSError("read-only")))
+    with pytest.raises(OSError):
+        checks.finish(check_id, [])
+    assert checks.read(check_id)["status"] == "done" and runs.started == []
 
 
 def test_a_link_the_check_did_not_offer_is_refused_and_nothing_changes(root):
@@ -828,7 +868,7 @@ class Dropping(FakeImap):
     def fetch(self, uids, items):
         if items == ["BODY.PEEK[]"]:
             if self.allowed <= 0:
-                raise ConnectionResetError(SERVER_TEXT)
+                raise BrokenPipeError(SERVER_TEXT)
             self.allowed -= 1
         return super().fetch(uids, items)
 
@@ -862,7 +902,8 @@ def test_a_password_the_key_cannot_decrypt_is_unreadable_and_attempts_no_login(r
     (TimeoutError(SERVER_TEXT), "unreachable"),
     (ssl.SSLCertVerificationError(1, SERVER_TEXT), "certificate"),
     (ssl.SSLError(1, SERVER_TEXT), "protocol"),
-    (ConnectionResetError(SERVER_TEXT), "protocol")])
+    (BrokenPipeError(SERVER_TEXT), "protocol"),
+    (ConnectionResetError(SERVER_TEXT), "unreachable")])
 def test_a_connection_failure_names_its_reason_without_the_servers_text(root, error, reason):
     checks = make(root, imap(mail(1)))
     checks._connect = failing_connect(error)
@@ -886,7 +927,7 @@ def test_a_folder_that_cannot_be_selected_fails_the_check_and_marks_nothing(root
 
 
 def test_a_failure_while_listing_the_folders_fails_the_check(root):
-    fake = imap(mail(1), errors={"list_folders": ConnectionResetError(SERVER_TEXT)})
+    fake = imap(mail(1), errors={"list_folders": BrokenPipeError(SERVER_TEXT)})
     state = run(make(root, fake))
     assert (state["status"], state["reason"]) == ("failed", "protocol")
     assert SERVER_TEXT not in repr(state)

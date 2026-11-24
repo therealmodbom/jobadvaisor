@@ -48,6 +48,22 @@ def test_listing_failure_is_a_mailbox_error():
     assert caught.value.reason == "protocol"
 
 
+@pytest.mark.parametrize("error", [
+    UnicodeDecodeError("utf-7", b"Bad&AP", 3, 6, "illegal base64"),
+    ValueError("0xff in a folder flag")])
+def test_a_malformed_folder_name_or_flag_is_a_protocol_reason_never_its_text(error):
+    with pytest.raises(MailboxError) as caught:
+        list_folders(FakeImap({}, errors={"list_folders": error}))
+    assert caught.value.reason == "protocol" and caught.value.__suppress_context__
+    assert "0xff" not in str(caught.value) + repr(caught.value)
+
+
+def test_a_flag_that_is_not_utf8_is_a_protocol_reason():
+    with pytest.raises(MailboxError) as caught:
+        list_folders(account(Posteingang=(b"\\Has\xff",)))
+    assert caught.value.reason == "protocol"
+
+
 LISTED = [Folder("Posteingang", False), Folder("Jobs", False), Folder("Papierkorb", True),
           Folder("Alle Nachrichten", True)]
 

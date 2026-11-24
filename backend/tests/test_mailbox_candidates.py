@@ -157,7 +157,7 @@ def test_a_select_that_fails_for_a_listed_folder_is_the_folder_reason():
 
 
 def test_a_lost_connection_while_searching_is_a_mailbox_error():
-    imap = FakeImap({"A": folder(mail(1))}, errors={"fetch": ConnectionResetError("lost")})
+    imap = FakeImap({"A": folder(mail(1))}, errors={"fetch": BrokenPipeError("lost")})
     with pytest.raises(MailboxError) as caught:
         find_candidates(imap, ["A"], SINCE, [NOBODY], 200)
     assert caught.value.reason == "protocol"

@@ -21,6 +21,7 @@ from jobadvaisor import mailbox_secret
 from jobadvaisor.api.app import create_app
 from jobadvaisor.data.models import MailRef
 from jobadvaisor.data.writer import mark_mails, read_mailbox, update_mailbox
+from jobadvaisor.intake import mailbox
 from jobadvaisor.intake.alert_runs import AlertRunBusyError
 from jobadvaisor.intake.mailbox import imap_errors
 from jobadvaisor.intake.postings import Intake
@@ -344,7 +345,8 @@ def test_the_folder_list_names_a_missing_key_or_password_as_a_409(
 
 @pytest.mark.parametrize("error, reason", [
     (TimeoutError(SERVER_TEXT), "unreachable"),
-    (ConnectionResetError(SERVER_TEXT), "protocol")])
+    (ConnectionResetError(SERVER_TEXT), "unreachable"),
+    (OSError(32, SERVER_TEXT), "protocol")])
 def test_the_folder_list_answers_a_connection_failure_as_a_502_with_its_reason_only(
         tmp_path, root, error, reason):
     def failing(account, password):
@@ -362,6 +364,34 @@ def test_a_refused_login_for_the_folder_list_is_a_502_login(tmp_path, root):
     app = Api(tmp_path, root, FakeImap({}, password="another password"))
     app.configure()
     assert app.post("/mailbox/folders").json()["error"] == "login"
+
+
+def real_connect_over(fake, monkeypatch):
+    """The real `connect` (login choice and error mapping) over `fake` in place of IMAPClient."""
+    monkeypatch.setattr(mailbox, "IMAPClient", lambda *args, **kwargs: fake)
+    return mailbox.connect
+
+
+def test_the_folder_list_of_an_account_with_a_non_ascii_password_works(
+        tmp_path, root, monkeypatch):
+    fake = FakeImap({"Posteingang": FakeFolder()}, password="geheim§2026")
+    app = Api(tmp_path, root, fake, connect=real_connect_over(fake, monkeypatch))
+    app.put(ACCOUNT | {"password": "geheim§2026"})
+    answer = app.post("/mailbox/folders")
+    assert answer.status_code == 200, answer.text
+    assert fake.calls[0] == ("plain_login", "name@example.org")
+    assert not any("§" in text for text in app.seen[1:])
+
+
+@pytest.mark.parametrize("error", [
+    UnicodeDecodeError("utf-7", b"Bad&AP", 3, 6, "illegal base64"), ValueError("0xff")])
+def test_a_malformed_folder_name_is_a_502_never_a_500(tmp_path, root, monkeypatch, error):
+    fake = FakeImap({}, password=PASSWORD, errors={"list_folders": error})
+    app = Api(tmp_path, root, fake, connect=real_connect_over(fake, monkeypatch))
+    app.configure()
+    answer = app.post("/mailbox/folders")
+    assert answer.status_code == 502 and answer.json()["error"] == "protocol"
+    assert "0xff" not in answer.text and "Bad&AP" not in answer.text
 
 
 # --- the check routes ---------------------------------------------------------------------

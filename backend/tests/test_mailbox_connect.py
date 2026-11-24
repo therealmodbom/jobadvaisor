@@ -1,3 +1,4 @@
+import errno
 import imaplib
 import logging
 import socket
@@ -22,16 +23,22 @@ class Client(FakeImap):
     logins: list[str]
     fail_init: BaseException | None = None
     fail_login: BaseException | None = None
+    accepted: str | None = None
 
     def __init__(self, *args, **kwargs):
         type(self).built.append((args, kwargs))
         if self.fail_init is not None:
             raise self.fail_init
-        super().__init__()
+        super().__init__(password=type(self).accepted)
 
     def login(self, user, password):
         type(self).logins.append(user)
         super().login(user, password)
+        if self.fail_login is not None:
+            raise self.fail_login
+
+    def plain_login(self, user, password):
+        super().plain_login(user, password)
         if self.fail_login is not None:
             raise self.fail_login
 
@@ -61,7 +68,7 @@ CERTIFICATE = ssl.SSLCertVerificationError(1, "certificate verify failed: hostna
     ({"fail_init": ConnectionRefusedError(SERVER_TEXT)}, "unreachable"),
     ({"fail_login": LoginError(SERVER_TEXT)}, "login"),
     ({"fail_init": ssl.SSLError(1, "[SSL: WRONG_VERSION_NUMBER] " + SERVER_TEXT)}, "protocol"),
-    ({"fail_init": ConnectionResetError(SERVER_TEXT)}, "protocol"),
+    ({"fail_init": ConnectionResetError(SERVER_TEXT)}, "unreachable"),
     ({"fail_init": IMAPClientError(SERVER_TEXT)}, "protocol"),
     ({"fail_login": IMAPClientAbortError(SERVER_TEXT)}, "protocol"),
     ({"fail_login": imaplib.IMAP4.error(SERVER_TEXT)}, "protocol"),
@@ -135,3 +142,50 @@ def test_a_failing_select_gives_folder_but_a_lost_connection_stays_protocol():
     with pytest.raises(mailbox.MailboxError) as caught, mailbox.imap_errors("folder"):
         raise TimeoutError(SERVER_TEXT)
     assert caught.value.reason == "unreachable"
+
+
+# --- a password outside ASCII (review C1) -------------------------------------------------
+
+UMLAUT_PASSWORD = "geheim§2026ä"
+NOT_ASCII = UnicodeEncodeError("ascii", UMLAUT_PASSWORD, 6, 7, "ordinal not in range(128)")
+
+
+def test_a_password_outside_ascii_logs_in_through_sasl_plain(client_class):
+    client = mailbox.connect(ACCOUNT, UMLAUT_PASSWORD)
+    assert client.calls == [("plain_login", "name@example.org")]
+
+
+def test_an_ascii_password_keeps_the_login_command(client_class):
+    assert mailbox.connect(ACCOUNT, "app-password-1").calls == [("login", "name@example.org")]
+
+
+def test_a_refused_password_outside_ascii_is_a_login_reason(client_class):
+    client_class.accepted = "another-password"
+    with pytest.raises(mailbox.MailboxError) as caught:
+        mailbox.connect(ACCOUNT, UMLAUT_PASSWORD)
+    assert caught.value.reason == "login"
+
+
+@pytest.mark.parametrize(("failure", "reason"), [
+    ({"fail_init": NOT_ASCII}, "protocol"),
+    ({"fail_init": KeyError(UMLAUT_PASSWORD)}, "protocol"),
+    ({"fail_login": NOT_ASCII}, "login"),
+    ({"fail_login": ValueError(UMLAUT_PASSWORD)}, "login"),
+])
+def test_an_unexpected_error_of_connect_gives_a_fixed_reason_never_its_text(
+        client_class, caplog, failure, reason):
+    error = reason_of_connect(client_class, **failure)
+    assert error.reason == reason
+    assert "§" not in str(error) + repr(error) + caplog.text
+    assert error.__suppress_context__
+
+
+@pytest.mark.parametrize(("error", "reason"), [
+    (OSError(errno.EHOSTUNREACH, "no route to host"), "unreachable"),
+    (OSError(errno.ENETUNREACH, "network is unreachable"), "unreachable"),
+    (OSError(errno.EHOSTDOWN, "host is down"), "unreachable"),
+    (ConnectionResetError(errno.ECONNRESET, "reset by peer"), "unreachable"),
+    (OSError(errno.EPIPE, "broken pipe"), "protocol"),
+])
+def test_a_network_error_that_means_not_reachable_is_unreachable(client_class, error, reason):
+    assert reason_of_connect(client_class, fail_init=error).reason == reason

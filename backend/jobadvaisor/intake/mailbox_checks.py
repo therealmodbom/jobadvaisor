@@ -7,6 +7,7 @@ Lives next to `mailbox.py` (the IMAP access) because the check class outgrew tha
 """
 
 import copy
+import logging
 import threading
 import uuid
 from collections.abc import Callable, Iterator
@@ -43,6 +44,7 @@ from jobadvaisor.intake.postings import Intake
 Finder = Callable[[Intake, str | None, str, Path], dict]
 Connect = Callable[[Mailbox, str], IMAPClient]
 MAX_HEADER = 200  # characters of a displayed sender or subject
+log = logging.getLogger(__name__)
 
 
 class CheckBusyError(Exception):
@@ -303,7 +305,14 @@ class MailboxChecks:
                     preview = mail["preview"]
                     (waiting if preview and _waits(preview) else handled).append(
                         check.refs[mail["key"]])
-            mark_mails(self._root, handled=handled, waiting=waiting)
+            try:
+                mark_mails(self._root, handled=handled, waiting=waiting)
+            except BaseException:
+                if run_id:  # the run has started: a second finish would start another
+                    # ponytail: the mails stay unmarked and come again in the next check, whose
+                    # run reports their entries as duplicates by link; retry marking if it matters
+                    self._close(check_id)
+                raise
             self._close(check_id)
             return run_id
 
@@ -408,7 +417,16 @@ class MailboxChecks:
                     raw = client.fetch([candidate.uid], ["BODY.PEEK[]"]).get(
                         candidate.uid, {}).get(b"BODY[]")
                 if raw is not None:  # a mail deleted since the search is simply gone
-                    self._read_mail(check, str(index), candidate, raw)
+                    try:
+                        self._read_mail(check, str(index), candidate, raw)
+                    except Exception as crash:  # one mail never fails the check
+                        log.warning("mailbox check %s: mail %d failed unexpectedly (%s)",
+                                    state["check_id"], index, type(crash).__name__)
+                        with self._lock:
+                            state["failed"].append({
+                                "folder": candidate.folder, "sender": "", "subject": "",
+                                "date": candidate.received.isoformat(),
+                                "reason": "finder failed"})
                 with self._lock:
                     state["read"] += 1
         except MailboxError as error:
