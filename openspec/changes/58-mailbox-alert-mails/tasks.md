@@ -101,7 +101,7 @@
 
 - [x] 11.1 README: the mailbox as a way in next to the pasted alert mail, the key setup with its command, the app-password recommendation, what leaves the machine for unknown senders, and the deployment's `secrets.env` entry; verify that every command in it runs
 - [x] 11.2 Update „Current state“ in `AGENTS.md` with this change, dropping the oldest entry
-- [ ] 11.3 Add an e2e walkthrough (`test_mailbox_walkthrough.py`) over a demo copy with the fake IMAP client: set up the account, check, collapse a mail, clear a mail, add, then check again and see nothing new; verify with `uv run --directory backend pytest -m e2e`
+- [x] 11.3 Add an e2e walkthrough (`test_mailbox_walkthrough.py`) over a demo copy with the fake IMAP client: set up the account, check, collapse a mail, clear a mail, add, then check again and see nothing new; verify with `uv run --directory backend pytest -m e2e`
 - [ ] 11.4 Run the paid alert-mail eval on the `.eml` cases once, name its cost first, and record the figures in the PR
 - [ ] 11.5 Run the full suite, both linters and the frontend build, and click through the settings page and the source in the browser against a fake or test mailbox
 - [ ] 11.6 Check whether the README images changed (header gear); retake them with `scripts/readme_images.py` if they did

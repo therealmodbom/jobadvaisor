@@ -30,8 +30,7 @@ from jobadvaisor.triage.runs import Runs
 ACCOUNT = {"host": "imap.example.org", "port": 993, "user": "name@example.org"}
 LINKEDIN = [f"https://www.linkedin.com/jobs/view/{n}" for n in (4100000107, 4100000104)]
 BA_TEXT = fixture("ba-plain.txt")
-# 2,040,000 characters of words: over the 2,000,000 limit. Words, not one long run of letters,
-# because the finder's URL masking backtracks quadratically over a single multi-megabyte word.
+# 2,040,000 characters of words: over the 2,000,000 limit.
 FILLER = "lorem ipsum " * 170_000
 
 
