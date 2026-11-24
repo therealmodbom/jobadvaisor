@@ -87,6 +87,7 @@ class Found:
 
 
 MAX_ENTRIES = 100
+MAX_MAIL = 2_000_000  # characters per part of a pasted mail; a mailbox mail counts both parts
 MAX_UNREAD_HOSTS = 10
 # Navigation and account links, by a word of their text or a part of their path (lowercased).
 DROP_WORDS = {

@@ -101,17 +101,14 @@ class BatchBody(BaseModel):
     urls: list[StrictStr] = Field(min_length=1)
 
 
-MAX_MAIL = 2_000_000  # characters per part of a pasted mail
-
-
 class AlertMailBody(BaseModel):
     """`POST /alert-mails/preview` body: the pasted mail's `html` part (null when the clipboard
     had none) and its plain `text`; not both empty."""
 
     model_config = ConfigDict(extra="forbid")
 
-    html: StrictStr | None = Field(None, max_length=MAX_MAIL)
-    text: StrictStr = Field("", max_length=MAX_MAIL)
+    html: StrictStr | None = Field(None, max_length=alert_mail.MAX_MAIL)
+    text: StrictStr = Field("", max_length=alert_mail.MAX_MAIL)
 
     @model_validator(mode="after")
     def not_empty(self) -> Self:

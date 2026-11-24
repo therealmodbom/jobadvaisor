@@ -38,7 +38,7 @@
 
 ## 6. The check (D4)
 
-- [ ] 6.1 Write `MailboxChecks.start` and `read`, test first with the fake client and a stub finder:
+- [x] 6.1 Write `MailboxChecks.start` and `read`, test first with the fake client and a stub finder:
   - one at a time; `total` and `read`; the finder per mail; a mail whose parts hold more than 2,000,000 characters offered with `oversized`, no finder call, nothing marked; a large attachment does not count;
   - `FinderError` mails failed and unmarked; screening-off mails waiting; held mails in `held` with their headers and marked; other empty mails marked at once;
   - `since` stored after login; `last_check_at` set on `done`; the `pending` check kept;

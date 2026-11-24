@@ -1,0 +1,261 @@
+"""The background mailbox check (`design.md` D4): one check at a time reads the unhandled mails of
+the searched folders through the finder, reports what it found and marks what it handled. State
+lives in memory only. Lock order: this object's lock first, then `write_gate`; the finder and
+every IMAP call run outside the lock.
+
+Lives next to `mailbox.py` (the IMAP access) because the check class outgrew that file.
+"""
+
+import copy
+import threading
+import uuid
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import suppress
+from dataclasses import dataclass, field
+from datetime import UTC, date, datetime
+from pathlib import Path
+
+from imapclient import IMAPClient
+
+from jobadvaisor import mailbox_secret
+from jobadvaisor.data.models import Mailbox, MailRef
+from jobadvaisor.data.writer import mark_mails, read_mailbox, update_mailbox
+from jobadvaisor.intake import alert_mail
+from jobadvaisor.intake.alert_mail import FinderError
+from jobadvaisor.intake.alert_runs import AlertRuns
+from jobadvaisor.intake.mailbox import (
+    Candidate,
+    find_candidates,
+    imap_errors,
+    list_folders,
+    mail_parts,
+    parse_mail,
+    searched_folders,
+)
+from jobadvaisor.intake.mailbox import (
+    connect as real_connect,
+)
+from jobadvaisor.intake.postings import Intake
+
+Finder = Callable[[Intake, str | None, str, Path], dict]
+Connect = Callable[[Mailbox, str], IMAPClient]
+MAX_HEADER = 200  # characters of a displayed sender or subject
+
+
+class CheckBusyError(Exception):
+    """Another mailbox check computes; `check_id` names it."""
+
+    def __init__(self, check_id: str):
+        self.check_id = check_id
+        super().__init__(f"mailbox check {check_id} is still computing")
+
+
+class NotConfiguredError(LookupError):
+    """No mailbox is configured."""
+
+
+class SinceRequiredError(ValueError):
+    """The first check needs a start date and got none."""
+
+
+@dataclass
+class _Check:
+    """One check: the `state` that `read` answers, the `refs` of the mails in its pick list by
+    key, and the `kept` parts of its unread oversized mails by key. The last two never leave
+    this module."""
+
+    state: dict
+    refs: dict[str, MailRef] = field(default_factory=dict)
+    kept: dict[str, tuple[str | None, str]] = field(default_factory=dict)
+
+
+def _header(message, name: str) -> str:
+    try:
+        return " ".join(str(message[name] or "").split())[:MAX_HEADER]
+    except Exception:  # a malformed header shows as blank, it never fails the check
+        return ""
+
+
+def _display(message, candidate: Candidate) -> dict:
+    """The headers a report shows for a mail: its folder, sender, subject and date. Never stored."""
+    try:
+        sent = message["Date"].datetime.isoformat()
+    except Exception:  # missing or malformed: the server's own date stands in
+        sent = candidate.received.isoformat()
+    return {"folder": candidate.folder, "sender": _header(message, "From"),
+            "subject": _header(message, "Subject"), "date": sent}
+
+
+def _waits(answer: dict) -> bool:
+    """Whether an answer means no model read the mail because screening is off."""
+    return answer["model_skipped"] == "screening off"
+
+
+class MailboxChecks:
+    """Starts and reads mailbox checks over the data repository of `intake`, one at a time.
+    `alert_runs` adds the entries of a finished pick list. `record` is the finder's
+    `alert-mails.jsonl`, `password_file` the encrypted password, `key` its Fernet key. `connect`
+    (the real factory by default) and `finder` (`alert_mail.preview`) are replaced in tests."""
+
+    def __init__(self, intake: Intake, alert_runs: AlertRuns, *, record: Path,
+                 password_file: Path, key: str | None, connect: Connect = real_connect,
+                 finder: Finder = alert_mail.preview):
+        self._intake, self._alert_runs, self._record = intake, alert_runs, record
+        self._password_file, self._key = password_file, key
+        self._connect, self._finder = connect, finder
+        self._root = intake.root
+        self._executor = ThreadPoolExecutor(max_workers=1)
+        self._lock = threading.Lock()
+        self._checks: dict[str, _Check] = {}
+        self._computing: str | None = None
+        self._pending: str | None = None
+
+    def start(self, since: date | None = None) -> str:
+        """Check the mailbox in the background and return the check's ID at once; `read`
+        reports `total` once the candidates are known. `since` is the start date of the first
+        check: a stored one always wins, and it is stored only after a successful login. A
+        check that fails (no key, no password, the server) answers an ID too and ends `failed`
+        with its `reason`. Replaces the pending pick list. Raises `CheckBusyError`,
+        `NotConfiguredError` and `SinceRequiredError`."""
+        check_id = uuid.uuid4().hex
+        with self._lock:
+            if self._computing:
+                raise CheckBusyError(self._computing)
+            account = read_mailbox(self._root)
+            if account is None:
+                raise NotConfiguredError("no mailbox is configured")
+            if account.since is None and since is None:
+                raise SinceRequiredError("a start date is required for the first check")
+            self._drop_pending()
+            self._computing = check_id
+            self._checks[check_id] = _Check({
+                "check_id": check_id, "status": "running", "reason": None, "error": None,
+                "interrupted": None, "cancel_requested": False, "cancelled": False,
+                "total": 0, "read": 0, "remaining": 0, "mails": [], "failed": [], "held": [],
+                "not_screened": [], "missing_folders": []})
+        try:
+            self._executor.submit(self._run, check_id, account, since)
+        except Exception:
+            with self._lock:
+                self._computing = None
+                del self._checks[check_id]
+            raise
+        return check_id
+
+    def current(self) -> str | None:
+        """The ID of the running check, else of the pending one (a `done` check whose pick
+        list is not finished), else `None`."""
+        with self._lock:
+            return self._computing or self._pending
+
+    def read(self, check_id: str) -> dict | None:
+        """A copy of the check's state, or `None` for an unknown ID: `check_id`, `status`
+        (`running`, `done`, `failed`, `finished`), `reason` (a failed check's, one of
+        `intake.mailbox.REASONS`), `error` (the exception's type name when the worker crashed),
+        `interrupted` (the reason a `done` check lost its connection), `cancel_requested`,
+        `cancelled`, `total` (mails to read), `read`, `remaining` (unhandled mails left for the
+        next check), `missing_folders`, and the reports `mails` (the pick list), `failed`,
+        `held` and `not_screened`. A mail of `mails` is `{key, folder, sender, subject, date,
+        oversized, reading, read_failed, preview}` with `preview` the finder's answer or `None`
+        for an unread oversized mail; the other reports hold `{folder, sender, subject, date}`
+        and, for `failed`, `reason`. Never the kept parts of an oversized mail."""
+        with self._lock:
+            check = self._checks.get(check_id)
+            return copy.deepcopy(check.state) if check else None
+
+    def _drop_pending(self) -> None:
+        """Close the pending pick list and its kept parts. The lock is held."""
+        if self._pending:
+            pending = self._checks[self._pending]
+            pending.kept.clear()
+            pending.state["status"] = "finished"
+            self._pending = None
+
+    def _run(self, check_id: str, account: Mailbox, since: date | None) -> None:
+        check = self._checks[check_id]
+        status, client = "done", None
+        try:
+            client = self._connect(account, self._password())
+            if account.since is None:
+                update_mailbox(self._root, lambda current: current.model_copy(
+                    update={"since": since}) if current.since is None else current)
+            self._read_all(client, check, account)
+        except Exception as crash:  # the thread must not die silently
+            status = "failed"
+            with self._lock:
+                check.state["error"] = type(crash).__name__
+        finally:
+            if client is not None:
+                with suppress(Exception):
+                    client.logout()
+            if status == "done":
+                update_mailbox(self._root, lambda current: current.model_copy(
+                    update={"last_check_at": datetime.now(UTC)}))
+            with self._lock:
+                check.state["status"] = status
+                self._computing = None
+                if status == "done" and check.state["mails"]:
+                    self._pending = check_id
+
+    def _password(self) -> str:
+        return mailbox_secret.read(self._password_file, self._key) or ""
+
+    def _read_all(self, client: IMAPClient, check: _Check, account: Mailbox) -> None:
+        state = check.state
+        mailbox = read_mailbox(self._root)
+        screening = self._intake.guard.classifier is not None
+        skip = [mailbox.handled] + ([] if screening else [mailbox.waiting])
+        searched, missing = searched_folders(list_folders(client), account.folders)
+        candidates = find_candidates(client, searched, mailbox.since, skip, account.max_mails)
+        with self._lock:
+            state |= {"total": candidates.total, "remaining": candidates.remaining,
+                      "missing_folders": missing}
+        selected = None
+        for index, candidate in enumerate(candidates.mails):
+            if selected != candidate.folder:
+                with imap_errors():
+                    client.select_folder(candidate.folder, readonly=True)
+                selected = candidate.folder
+            with imap_errors():
+                raw = client.fetch([candidate.uid], ["BODY.PEEK[]"]).get(
+                    candidate.uid, {}).get(b"BODY[]")
+            if raw is not None:  # a mail deleted since the search is simply gone
+                self._read_mail(check, str(index), candidate, raw)
+            with self._lock:
+                state["read"] += 1
+
+    def _read_mail(self, check: _Check, key: str, candidate: Candidate, raw: bytes) -> None:
+        """Pass one fetched mail to the finder and file the answer in the check and the marks:
+        offered mails stay unmarked until the pick list is finished, failed ones stay unmarked,
+        held and empty ones are handled at once, and screening-off ones wait."""
+        message = parse_mail(raw)
+        html, text = mail_parts(message)
+        head = _display(message, candidate)
+        mail = head | {"key": key, "oversized": False, "reading": False, "read_failed": None,
+                       "preview": None}
+        if len(html or "") + len(text) > alert_mail.MAX_MAIL:
+            with self._lock:
+                mail["oversized"] = True
+                check.state["mails"].append(mail)
+                check.refs[key], check.kept[key] = candidate, (html, text)
+            return
+        try:
+            answer = self._finder(self._intake, html, text, self._record)
+        except FinderError as error:
+            with self._lock:
+                check.state["failed"].append(head | {"reason": str(error)})
+            return
+        if answer["entries"]:
+            with self._lock:
+                check.state["mails"].append(mail | {"preview": answer})
+                check.refs[key] = candidate
+        elif _waits(answer):
+            mark_mails(self._root, waiting=[candidate])
+            with self._lock:
+                check.state["not_screened"].append(head)
+        else:
+            mark_mails(self._root, handled=[candidate])
+            if answer["held"]:
+                with self._lock:
+                    check.state["held"].append(head)

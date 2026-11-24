@@ -1,0 +1,348 @@
+"""The mailbox check (`openspec/changes/58-mailbox-alert-mails/design.md` D4): the background run
+over the fake IMAP client with a stub finder, and what it reports and marks."""
+
+import threading
+import time
+from datetime import UTC, date, datetime, timedelta
+from email import message_from_bytes, policy
+
+import pytest
+from cryptography.fernet import Fernet
+from fake_imap import FakeFolder, FakeImap, FakeMail, build_mail
+from test_alert_mail import NoGuard, Untouchable, fixture
+
+from jobadvaisor import mailbox_secret
+from jobadvaisor.data.models import Folders, MailRef
+from jobadvaisor.data.writer import read_mailbox, update_mailbox, update_mailbox_account
+from jobadvaisor.intake.alert_mail import FinderError
+from jobadvaisor.intake.mailbox import imap_errors
+from jobadvaisor.intake.mailbox_checks import CheckBusyError, MailboxChecks
+from jobadvaisor.intake.postings import Intake
+from jobadvaisor.tools.guard import ContentGuard
+
+KEY = Fernet.generate_key().decode()
+PASSWORD = "correct horse battery staple"
+SINCE = date(2026, 10, 24)
+DAY = datetime(2026, 11, 1, 9, 0, tzinfo=UTC)
+ACCOUNT = ("imap.example.org", 993, "name@example.org")
+EMPTY = {"entries": [], "read_by": [], "unread_hosts": [], "held": False, "model_skipped": None,
+         "truncated": False}
+
+
+def found(*urls: str) -> dict:
+    """A preview answer with one entry per URL."""
+    entries = [{"url": url, "title": f"Job {url[-1]}", "ambiguous": False, "duplicate": None,
+                "login_walled": False} for url in urls]
+    return EMPTY | {"entries": entries, "read_by": ["stub"]}
+
+
+HELD = EMPTY | {"held": True}
+NOT_SCREENED = EMPTY | {"model_skipped": "screening off"}
+
+
+class StubFinder:
+    """A finder in place of `alert_mail.preview`: the answer (or exception) for a mail is looked
+    up by its plain text; every call is recorded as `(html, text)`. With `hold` set, a call
+    signals `entered` and waits for `release` (the test's own events, never a sleep)."""
+
+    def __init__(self, answers: dict[str, object] | None = None, hold: bool = False):
+        self.answers, self.calls, self.hold = answers or {}, [], hold
+        self.entered, self.release = threading.Event(), threading.Event()
+
+    def __call__(self, intake, html, text, record):
+        self.calls.append((html, text))
+        if self.hold:
+            self.entered.set()
+            assert self.release.wait(10), "the test never released the finder"
+        answer = self.answers.get(text.strip(), EMPTY)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+
+class StubRuns:
+    """An alert-run starter that records its entries and answers a fixed run ID."""
+
+    def __init__(self):
+        self.started, self.error = [], None
+
+    def start(self, entries):
+        if self.error:
+            raise self.error
+        self.started.append(list(entries))
+        return "run-1"
+
+
+def mail(uid: int, text: str | None = None, received: datetime | None = None, **parts) -> FakeMail:
+    """A fake mail `uid` whose plain text is `mail <uid>` (or `text`), received an hour per UID
+    after `DAY`; `parts` replace the text (`html=...`)."""
+    body = {"text": text or f"mail {uid}"} | parts
+    return FakeMail(uid, build_mail(f"<m{uid}@example.org>", subject=f"Subject {uid}", **body),
+                    received or DAY + timedelta(hours=uid))
+
+
+def imap(*mails: FakeMail, **options) -> FakeImap:
+    return FakeImap({"Posteingang": FakeFolder(validity=7, mails=list(mails))},
+                    password=PASSWORD, **options)
+
+
+def connector(fake: FakeImap):
+    """The `connect` factory over `fake`: the login runs through the real error mapping."""
+    def connect(account, password):
+        with imap_errors():
+            fake.login(account.user, password)
+        return fake
+    return connect
+
+
+def configure(root, since: date | None = SINCE, password: str | None = PASSWORD):
+    update_mailbox_account(root, *ACCOUNT)
+    if since is not None:
+        update_mailbox(root, lambda current: current.model_copy(update={"since": since}))
+    if password is not None:
+        mailbox_secret.store(root / "pw", password, KEY)
+
+
+@pytest.fixture
+def root(tmp_path):
+    configure(tmp_path)
+    return tmp_path
+
+
+def make(root, fake, finder=None, *, screening=True, key=KEY, runs=None, **options):
+    guard = NoGuard() if screening else ContentGuard(None, {})
+    intake = Intake(root, Untouchable(), guard)
+    return MailboxChecks(intake, runs or StubRuns(), record=root / "record.jsonl",
+                         password_file=root / "pw", key=key, connect=connector(fake),
+                         finder=finder or StubFinder(), **options)
+
+
+def settle(checks: MailboxChecks, check_id: str) -> dict:
+    """The check's state once its worker has ended."""
+    deadline = time.monotonic() + 10
+    while (state := checks.read(check_id))["status"] == "running":
+        assert time.monotonic() < deadline, "the check never ended"
+        time.sleep(0.002)
+    return state
+
+
+def run(checks: MailboxChecks, since: date | None = None) -> dict:
+    return settle(checks, checks.start(since))
+
+
+def ref(uid: int, folder: str = "Posteingang") -> MailRef:
+    return MailRef(folder, 7, uid, None)
+
+
+def marked(record) -> set[int]:
+    folder = record.uids.get("Posteingang")
+    return set(folder.uids) if folder else set()
+
+
+def handled(root) -> set[int]:
+    return marked(read_mailbox(root).handled)
+
+
+def waiting(root) -> set[int]:
+    return marked(read_mailbox(root).waiting)
+
+
+# --- start and read -----------------------------------------------------------------------
+
+
+def test_a_check_reads_every_mail_oldest_first_through_the_finder(root):
+    finder = StubFinder()
+    state = run(make(root, imap(mail(3), mail(1), mail(2)), finder))
+    assert state["status"] == "done" and (state["total"], state["read"]) == (3, 3)
+    assert [text for _, text in finder.calls] == ["mail 1\n", "mail 2\n", "mail 3\n"]
+
+
+def test_total_and_read_are_reported_while_the_check_runs(root):
+    finder = StubFinder(hold=True)
+    checks = make(root, imap(mail(1), mail(2)), finder)
+    check_id = checks.start()
+    assert finder.entered.wait(10)
+    state = checks.read(check_id)
+    assert (state["status"], state["total"], state["read"]) == ("running", 2, 0)
+    finder.release.set()
+    assert settle(checks, check_id)["read"] == 2
+
+
+def test_a_second_check_is_refused_while_one_runs_and_names_it(root):
+    finder = StubFinder(hold=True)
+    checks = make(root, imap(mail(1)), finder)
+    check_id = checks.start()
+    assert finder.entered.wait(10)
+    with pytest.raises(CheckBusyError) as busy:
+        checks.start()
+    assert busy.value.check_id == check_id
+    finder.release.set()
+    settle(checks, check_id)
+
+
+def test_an_unknown_check_reads_as_none(root):
+    assert make(root, imap()).read("nope") is None
+
+
+def test_the_html_part_goes_to_the_finder_and_a_blank_one_falls_back_to_the_text(root):
+    finder = StubFinder()
+    run(make(root, imap(mail(1, html="<p>hello</p>", text="plain 1"),
+                        mail(2, html="  \n ", text="plain 2")), finder))
+    assert [(html and html.strip(), text.strip()) for html, text in finder.calls] == [
+        ("<p>hello</p>", "plain 1"), (None, "plain 2")]
+
+
+def test_a_mail_with_entries_is_offered_with_its_headers_and_marked_nothing(root):
+    finder = StubFinder({"mail 1": found("https://jobs.example.org/a")})
+    state = run(make(root, imap(mail(1), mail(2)), finder))
+    offered, = state["mails"]
+    assert (offered["folder"], offered["sender"], offered["subject"]) == (
+        "Posteingang", "jobs@example.org", "Subject 1")
+    assert offered["oversized"] is False and offered["read_failed"] is None
+    assert offered["preview"]["entries"][0]["url"] == "https://jobs.example.org/a"
+    assert handled(root) == {2}  # the empty mail at once; the offered one waits for the finish
+
+
+def test_a_mail_without_postings_is_marked_handled_at_once_and_not_reported(root):
+    state = run(make(root, imap(mail(1))))
+    assert handled(root) == {1} and state["mails"] == [] and state["held"] == []
+
+
+def test_a_held_mail_is_named_with_its_headers_and_marked_handled(root):
+    state = run(make(root, imap(mail(1)), StubFinder({"mail 1": HELD})))
+    held, = state["held"]
+    assert (held["folder"], held["sender"], held["subject"]) == (
+        "Posteingang", "jobs@example.org", "Subject 1")
+    assert handled(root) == {1} and state["mails"] == []
+
+
+def test_a_finder_error_fails_the_mail_unmarked_and_the_check_goes_on(root):
+    finder = StubFinder({"mail 1": FinderError("finder failed")})
+    state = run(make(root, imap(mail(1), mail(2)), finder))
+    failed, = state["failed"]
+    assert (failed["subject"], failed["reason"]) == ("Subject 1", "finder failed")
+    assert (state["status"], state["read"]) == ("done", 2) and handled(root) == {2}
+
+
+def test_a_mail_no_model_read_is_not_screened_and_waits(root):
+    state = run(make(root, imap(mail(1)), StubFinder({"mail 1": NOT_SCREENED}), screening=False))
+    not_screened, = state["not_screened"]
+    assert not_screened["subject"] == "Subject 1"
+    assert waiting(root) == {1} and handled(root) == set()
+
+
+def test_waiting_mails_are_skipped_while_screening_is_off_and_read_when_it_is_on(root):
+    fake = imap(mail(1))
+    run(make(root, fake, StubFinder({"mail 1": NOT_SCREENED}), screening=False))
+    skipped = StubFinder()
+    assert run(make(root, fake, skipped, screening=False))["total"] == 0 and skipped.calls == []
+    reading = StubFinder()
+    state = run(make(root, fake, reading, screening=True))
+    assert state["total"] == 1 and len(reading.calls) == 1
+    assert handled(root) == {1} and waiting(root) == set()  # read now: handled, no longer waiting
+
+
+def test_handled_mails_are_not_read_again(root):
+    fake = imap(mail(1), mail(2))
+    run(make(root, fake))
+    again = StubFinder()
+    assert run(make(root, fake, again))["total"] == 0 and again.calls == []
+
+
+def test_a_mail_that_is_offered_but_not_finished_is_offered_again(root):
+    fake = imap(mail(1))
+    finder = StubFinder({"mail 1": found("https://jobs.example.org/a")})
+    run(make(root, fake, finder))
+    assert [m["subject"] for m in run(make(root, fake, finder))["mails"]] == ["Subject 1"]
+
+
+def test_mails_older_than_the_start_date_are_not_read(root):
+    old = mail(1, received=datetime(2026, 10, 20, 9, 0, tzinfo=UTC))
+    finder = StubFinder()
+    assert run(make(root, imap(old, mail(2)), finder))["total"] == 1
+
+
+def test_the_first_check_stores_the_start_date_after_the_login(tmp_path):
+    configure(tmp_path, since=None)
+    fake = imap(mail(1))
+    state = run(make(tmp_path, fake), since=SINCE)
+    assert state["status"] == "done" and read_mailbox(tmp_path).since == SINCE
+
+
+def test_a_stored_start_date_wins_over_the_one_given(root):
+    run(make(root, imap(mail(1))), since=date(2026, 1, 1))
+    assert read_mailbox(root).since == SINCE
+
+
+def test_the_first_check_without_a_start_date_is_refused(tmp_path):
+    configure(tmp_path, since=None)
+    with pytest.raises(ValueError, match="start date"):
+        make(tmp_path, imap(mail(1))).start()
+
+
+def test_a_check_without_a_mailbox_is_refused(tmp_path):
+    with pytest.raises(LookupError, match="configured"):
+        make(tmp_path, imap(mail(1))).start()
+
+
+def test_the_time_of_the_last_check_is_set_when_it_is_done(root):
+    assert read_mailbox(root).last_check_at is None
+    run(make(root, imap(mail(1))))
+    assert read_mailbox(root).last_check_at is not None
+
+
+def test_remaining_and_missing_folders_are_reported(root):
+    update_mailbox(root, lambda current: current.model_copy(update={
+        "max_mails": 2, "folders": Folders(names=["Posteingang", "Jobs"])}))
+    state = run(make(root, imap(mail(1), mail(2), mail(3))))
+    assert (state["total"], state["remaining"], state["missing_folders"]) == (2, 1, ["Jobs"])
+
+
+def test_the_mailbox_is_only_read(root):
+    fake = imap(mail(1), mail(2))
+    run(make(root, fake))
+    assert fake.violations == [] and fake.calls[-1] == ("logout",)
+
+
+# --- oversized mails ----------------------------------------------------------------------
+
+
+def test_an_oversized_mail_is_offered_unread_and_not_marked(root):
+    big = mail(1, html="<p>" + "x" * 2_000_001 + "</p>")
+    finder = StubFinder()
+    state = run(make(root, imap(big), finder))
+    offered, = state["mails"]
+    assert offered["oversized"] is True and offered["preview"] is None
+    assert finder.calls == [] and handled(root) == set() and waiting(root) == set()
+
+
+def test_both_parts_count_together_toward_the_limit(root):
+    half = "x" * 1_000_001
+    state = run(make(root, imap(mail(1, html=f"<p>{half}</p>", text=half)), StubFinder()))
+    assert state["mails"][0]["oversized"] is True
+
+
+def test_a_large_attachment_does_not_count(root):
+    message = message_from_bytes(mail(1, html="<p>" + "y" * 80_000 + "</p>").raw,
+                                 policy=policy.default)
+    message.add_attachment(b"z" * 3_000_000, maintype="application", subtype="pdf",
+                           filename="cv.pdf")
+    big_attachment = FakeMail(1, message.as_bytes(), DAY)
+    finder = StubFinder()
+    state = run(make(root, imap(big_attachment), finder))
+    assert len(finder.calls) == 1 and state["mails"] == [] and handled(root) == {1}
+
+
+# --- the real finder ----------------------------------------------------------------------
+
+
+def test_a_known_sender_is_read_by_its_rule_and_no_model_is_called(demo_copy):
+    configure(demo_copy)
+    raw = build_mail("<linkedin@example.org>", html=fixture("linkedin-digest.html"))
+    fake = imap(FakeMail(1, raw, DAY))
+    intake = Intake(demo_copy, Untouchable(), NoGuard())
+    checks = MailboxChecks(intake, StubRuns(), record=demo_copy / "record.jsonl",
+                           password_file=demo_copy / "pw", key=KEY, connect=connector(fake))
+    offered, = run(checks)["mails"]
+    assert offered["preview"]["read_by"] == ["linkedin"]
+    assert len(offered["preview"]["entries"]) == 6
