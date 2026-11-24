@@ -1,6 +1,8 @@
 """The mailbox check (`openspec/changes/58-mailbox-alert-mails/design.md` D4): the background run
 over the fake IMAP client with a stub finder, and what it reports and marks."""
 
+import imaplib
+import ssl
 import threading
 import time
 from datetime import UTC, date, datetime, timedelta
@@ -331,6 +333,119 @@ def test_a_large_attachment_does_not_count(root):
     finder = StubFinder()
     state = run(make(root, imap(big_attachment), finder))
     assert len(finder.calls) == 1 and state["mails"] == [] and handled(root) == {1}
+
+
+# --- failure paths ------------------------------------------------------------------------
+
+SERVER_TEXT = "Hello name@example.org, your secret is unknown to us"
+
+
+def failing_connect(error: BaseException):
+    """A `connect` whose attempt raises `error` through the real error mapping."""
+    def connect(account, password):
+        with imap_errors():
+            raise error
+    return connect
+
+
+class Dropping(FakeImap):
+    """A fake whose connection drops on every mail body fetch after the first `allowed`."""
+
+    def __init__(self, *args, allowed: int, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.allowed = allowed
+
+    def fetch(self, uids, items):
+        if items == ["BODY.PEEK[]"]:
+            if self.allowed <= 0:
+                raise ConnectionResetError(SERVER_TEXT)
+            self.allowed -= 1
+        return super().fetch(uids, items)
+
+
+def logged_in(fake: FakeImap) -> bool:
+    return any(call[0] == "login" for call in fake.calls)
+
+
+@pytest.mark.parametrize("key", [None, "", "not-a-fernet-key"])
+def test_without_a_valid_key_the_check_fails_with_no_key_and_attempts_no_login(root, key):
+    fake = imap(mail(1))
+    state = run(make(root, fake, key=key))
+    assert (state["status"], state["reason"]) == ("failed", "no key") and fake.calls == []
+
+
+def test_without_a_password_the_check_fails_with_no_password_and_attempts_no_login(tmp_path):
+    configure(tmp_path, password=None)
+    fake = imap(mail(1))
+    state = run(make(tmp_path, fake))
+    assert (state["status"], state["reason"]) == ("failed", "no password") and fake.calls == []
+
+
+def test_a_password_the_key_cannot_decrypt_is_unreadable_and_attempts_no_login(root):
+    fake = imap(mail(1))
+    state = run(make(root, fake, key=Fernet.generate_key().decode()))
+    assert (state["status"], state["reason"]) == ("failed", "password unreadable")
+    assert fake.calls == []
+
+
+@pytest.mark.parametrize("error, reason", [
+    (TimeoutError(SERVER_TEXT), "unreachable"),
+    (ssl.SSLCertVerificationError(1, SERVER_TEXT), "certificate"),
+    (ssl.SSLError(1, SERVER_TEXT), "protocol"),
+    (ConnectionResetError(SERVER_TEXT), "protocol")])
+def test_a_connection_failure_names_its_reason_without_the_servers_text(root, error, reason):
+    checks = make(root, imap(mail(1)))
+    checks._connect = failing_connect(error)
+    state = run(checks)
+    assert (state["status"], state["reason"]) == ("failed", reason)
+    assert SERVER_TEXT not in repr(state) and handled(root) == set()
+
+
+def test_a_refused_login_fails_the_check_and_stores_no_start_date(tmp_path):
+    configure(tmp_path, since=None, password="wrong password")
+    state = run(make(tmp_path, imap(mail(1))), since=SINCE)
+    assert (state["status"], state["reason"]) == ("failed", "login")
+    assert read_mailbox(tmp_path).since is None and handled(tmp_path) == set()
+
+
+def test_a_folder_that_cannot_be_selected_fails_the_check_and_marks_nothing(root):
+    fake = imap(mail(1), errors={"select_folder": imaplib.IMAP4.error(SERVER_TEXT)})
+    state = run(make(root, fake))
+    assert (state["status"], state["reason"]) == ("failed", "folder")
+    assert handled(root) == set() and read_mailbox(root).last_check_at is None
+
+
+def test_a_failure_while_listing_the_folders_fails_the_check(root):
+    fake = imap(mail(1), errors={"list_folders": ConnectionResetError(SERVER_TEXT)})
+    state = run(make(root, fake))
+    assert (state["status"], state["reason"]) == ("failed", "protocol")
+    assert SERVER_TEXT not in repr(state)
+
+
+def test_a_failed_check_does_not_set_the_time_of_the_last_check(root):
+    run(make(root, imap(mail(1)), key=None))
+    assert read_mailbox(root).last_check_at is None
+
+
+def test_a_connection_lost_while_reading_keeps_what_was_read(root):
+    fake = Dropping({"Posteingang": FakeFolder(validity=7, mails=[mail(1), mail(2), mail(3)])},
+                    password=PASSWORD, allowed=2)
+    finder = StubFinder({"mail 1": found("https://jobs.example.org/a")})
+    state = run(make(root, fake, finder))
+    assert (state["status"], state["interrupted"], state["read"], state["total"]) == (
+        "done", "protocol", 2, 3)
+    assert [m["subject"] for m in state["mails"]] == ["Subject 1"] and handled(root) == {2}
+    assert SERVER_TEXT not in repr(state)
+    again = StubFinder()
+    assert run(make(root, imap(mail(1), mail(2), mail(3)), again))["total"] == 2  # 1 offered, 3 new
+
+
+def test_a_connection_lost_before_the_first_mail_is_a_failed_check(root):
+    fake = Dropping({"Posteingang": FakeFolder(validity=7, mails=[mail(1)])},
+                    password=PASSWORD, allowed=0)
+    state = run(make(root, fake))
+    assert (state["status"], state["reason"], state["interrupted"]) == ("failed", "protocol", None)
+    assert handled(root) == set()
 
 
 # --- the real finder ----------------------------------------------------------------------

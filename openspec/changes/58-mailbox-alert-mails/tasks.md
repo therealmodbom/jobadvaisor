@@ -44,7 +44,7 @@
   - `since` stored after login; `last_check_at` set on `done`; the `pending` check kept;
   - the spec scenarios of „Each mail through the finder“, „Handled mails“, „Mails waiting for screening“, „One mailbox check at a time“, and „Oversized mail“ and „Large attachment“ of „Oversized mails offered unread“;
   - measure a 200-mail check over the demo persona and record the time in the PR
-- [ ] 6.2 Write the failure paths, test first:
+- [x] 6.2 Write the failure paths, test first:
   - `no key`, `no password`, `password unreadable`, `unreachable`, `certificate`, `login`, `folder` and `protocol`;
   - no login without a readable password and a valid key; no mail marked after a failure before reading; `since` not stored after a failed login;
   - a connection lost while reading ends `done` with the mails read so far and `interrupted`

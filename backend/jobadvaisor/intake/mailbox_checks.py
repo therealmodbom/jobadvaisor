@@ -26,6 +26,7 @@ from jobadvaisor.intake.alert_mail import FinderError
 from jobadvaisor.intake.alert_runs import AlertRuns
 from jobadvaisor.intake.mailbox import (
     Candidate,
+    MailboxError,
     find_candidates,
     imap_errors,
     list_folders,
@@ -181,6 +182,10 @@ class MailboxChecks:
                 update_mailbox(self._root, lambda current: current.model_copy(
                     update={"since": since}) if current.since is None else current)
             self._read_all(client, check, account)
+        except MailboxError as error:
+            status = "failed"
+            with self._lock:
+                check.state["reason"] = error.reason
         except Exception as crash:  # the thread must not die silently
             status = "failed"
             with self._lock:
@@ -199,7 +204,18 @@ class MailboxChecks:
                     self._pending = check_id
 
     def _password(self) -> str:
-        return mailbox_secret.read(self._password_file, self._key) or ""
+        """The stored password in plain text, for the one login that needs it: it is never kept
+        on this object, never logged and never part of an exception. Raises `MailboxError`
+        (`no key`, `password unreadable`, `no password`) before any login is attempted."""
+        if not mailbox_secret.key_configured(self._key):
+            raise MailboxError("no key")
+        try:
+            password = mailbox_secret.read(self._password_file, self._key)
+        except mailbox_secret.PasswordUnreadable:
+            raise MailboxError("password unreadable") from None
+        if password is None:
+            raise MailboxError("no password")
+        return password
 
     def _read_all(self, client: IMAPClient, check: _Check, account: Mailbox) -> None:
         state = check.state
@@ -212,18 +228,24 @@ class MailboxChecks:
             state |= {"total": candidates.total, "remaining": candidates.remaining,
                       "missing_folders": missing}
         selected = None
-        for index, candidate in enumerate(candidates.mails):
-            if selected != candidate.folder:
+        try:
+            for index, candidate in enumerate(candidates.mails):
+                if selected != candidate.folder:
+                    with imap_errors():
+                        client.select_folder(candidate.folder, readonly=True)
+                    selected = candidate.folder
                 with imap_errors():
-                    client.select_folder(candidate.folder, readonly=True)
-                selected = candidate.folder
-            with imap_errors():
-                raw = client.fetch([candidate.uid], ["BODY.PEEK[]"]).get(
-                    candidate.uid, {}).get(b"BODY[]")
-            if raw is not None:  # a mail deleted since the search is simply gone
-                self._read_mail(check, str(index), candidate, raw)
+                    raw = client.fetch([candidate.uid], ["BODY.PEEK[]"]).get(
+                        candidate.uid, {}).get(b"BODY[]")
+                if raw is not None:  # a mail deleted since the search is simply gone
+                    self._read_mail(check, str(index), candidate, raw)
+                with self._lock:
+                    state["read"] += 1
+        except MailboxError as error:
+            if not state["read"]:
+                raise  # nothing read yet: the check fails with the reason
             with self._lock:
-                state["read"] += 1
+                state["interrupted"] = error.reason
 
     def _read_mail(self, check: _Check, key: str, candidate: Candidate, raw: bytes) -> None:
         """Pass one fetched mail to the finder and file the answer in the check and the marks:
