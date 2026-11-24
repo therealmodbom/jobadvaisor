@@ -80,7 +80,7 @@ None.
 ## Impact
 
 - **Backend:**
-  - New `intake/mailbox.py`: IMAP access over IMAPClient, the folder rules, the check runner and the handled-mail record.
+  - New `intake/mailbox.py`: IMAP access over IMAPClient, the folder rules and the candidate search. New `intake/mailbox_checks.py`: the check runner. The handled-mail record lives in `data/models.py` and `data/writer.py`.
   - New `secrets_store.py` (or similar): encrypt and decrypt the password with Fernet.
   - `settings.py`: `mailbox_key` in `SECRETS`.
   - `data/models.py` and `data/schemas.py`: the `Mailbox` entity and `mailbox.json`.

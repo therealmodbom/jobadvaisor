@@ -34,7 +34,7 @@ HEADER_ITEM = "BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)]"
 HEADER_BATCH = 200
 # Socket errors that say the host or network cannot be reached, with no DNS or refusal error.
 UNREACHABLE_ERRNOS = {errno.EHOSTUNREACH, errno.ENETUNREACH, errno.EHOSTDOWN}
-UNSELECTABLE_FLAGS ={"\\noselect", "\\nonexistent"}
+UNSELECTABLE_FLAGS = {"\\noselect", "\\nonexistent"}
 # \All, \Flagged and \Important are virtual folders that show mails of other folders again.
 SYSTEM_FLAGS = {"\\trash", "\\junk", "\\sent", "\\drafts", "\\all", "\\flagged", "\\important"}
 
