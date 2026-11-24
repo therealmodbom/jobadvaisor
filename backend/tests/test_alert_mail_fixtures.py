@@ -9,6 +9,7 @@ from urllib.parse import parse_qsl, urlsplit
 
 import pytest
 
+from jobadvaisor.intake.mailbox import mail_parts, parse_mail
 from jobadvaisor.settings import REPOSITORY_ROOT
 
 FIXTURES = REPOSITORY_ROOT / "fixtures" / "intake" / "alert-mails"
@@ -19,7 +20,17 @@ EXAMPLE = re.compile(r"(^|\.)example\.(com|org|net)$")
 
 
 def mails() -> list[Path]:
-    return sorted(p for p in FIXTURES.iterdir() if p.suffix in (".html", ".txt"))
+    return sorted(p for p in FIXTURES.iterdir() if p.suffix in (".html", ".txt", ".eml"))
+
+
+def readable(mail: Path) -> str:
+    """The text a fixture shows once decoded: its own text, or for an `.eml` its headers and
+    both body parts (the encoded form breaks addresses and query values with `=3D`)."""
+    if mail.suffix != ".eml":
+        return mail.read_text()
+    message = parse_mail(mail.read_bytes())
+    html, text = mail_parts(message)
+    return "\n".join([*(f"{name}: {value}" for name, value in message.items()), html or "", text])
 
 
 def leaks(text: str) -> list[str]:
@@ -57,7 +68,7 @@ def test_case_has_its_expectation(mail):
 
 @pytest.mark.parametrize("mail", mails(), ids=lambda p: p.name)
 def test_fixture_holds_no_real_value(mail):
-    assert leaks(mail.read_text()) == []
+    assert leaks(readable(mail)) == []
 
 
 def test_the_check_finds_planted_values():

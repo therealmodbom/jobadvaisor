@@ -720,7 +720,7 @@ export function PoolView({ active = true, reloadKey = 0 }: { active?: boolean; r
 
   useEffect(() => {
     /** The pool's shortcuts (`design.md` "Rating without a run"): off while a text field, select,
-     * editable element, menu (the pass variant menu), dialog (the header settings), alert dialog
+     * editable element, menu (the pass variant menu), dialog, alert dialog
      * (the delete confirmation, which renders outside its row) or the check column has focus, while a modifier other than Shift is held and while the view is hidden. A held key repeats only j and k, so it never rates or
      * toggles twice. */
     function onKey(event: KeyboardEvent) {

@@ -1,0 +1,47 @@
+From: Karriere <karriere@example.org>
+To: erika@example.org
+Subject: Neue Positionen =?utf-8?q?f=C3=BCr?= dich
+Date: Mon, 23 Nov 2026 07:00:00 +0100
+Message-ID: <career-site-mime-1@example.org>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="===============8459511042679312326=="
+
+--===============8459511042679312326==
+Content-Type: multipart/alternative;
+ boundary="===============1688962168258951475=="
+
+--===============1688962168258951475==
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 8bit
+
+Neue Positionen für dich.
+
+--===============1688962168258951475==
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: base64
+MIME-Version: 1.0
+
+PGh0bWw+PGJvZHk+CjxwPkhpZXIgc2luZCBkaWUgbmV1ZXN0ZW4gUG9zaXRpb25lbiwgZGllIGRl
+aW5lbiBLcml0ZXJpZW4gIlByb3plc3NlIE11c3RlcnN0YWR0IiBlbnRzcHJlY2hlbjo8L3A+Cjxh
+IGhyZWY9Imh0dHBzOi8vY2FyZWVycy5leGFtcGxlLmNvbS9qb2IvTXVzdGVyc3RhZHQtTGVpdHVu
+Zy1Qcm96ZXNzbWFuYWdlbWVudC8yMDAwMDAwMTAxLz9yZWZpZD1UT0tFTi0xJmFtcDtlaWQ9VE9L
+RU4tMiI+TGVpdHVuZyBQcm96ZXNzbWFuYWdlbWVudCAobS93L2QpIC0gTXVzdGVyc3RhZHQsIERF
+PC9hPgo8YSBocmVmPSJodHRwczovL2NhcmVlcnMuZXhhbXBsZS5jb20vam9iL0JlaXNwaWVsc3Rh
+ZHQtUmVmZXJlbnQtQ29tcGxpYW5jZS8yMDAwMDAwMTAyLz9yZWZpZD1UT0tFTi0zJmFtcDtlaWQ9
+VE9LRU4tMiI+UmVmZXJlbnQgQ29tcGxpYW5jZSAobS93L2QpIC0gQmVpc3BpZWxzdGFkdCwgREU8
+L2E+CjxwPkR1IGVyaMOkbHRzdCBkaWVzZSBFLU1haWwsIHdlaWwgZHUgZGljaCByZWdpc3RyaWVy
+dCBoYXN0LjwvcD4KPGEgaHJlZj0iaHR0cHM6Ly9jYXJlZXJzLmV4YW1wbGUuY29tL3Vuc3Vic2Ny
+aWJlLz9yZWZpZD1UT0tFTi00Ij5BYm9ubmVtZW50IHN0b3JuaWVyZW48L2E+CjwvYm9keT48L2h0
+bWw+Cg==
+
+--===============1688962168258951475==--
+
+--===============8459511042679312326==
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+Content-Disposition: attachment; filename="notiz.txt"
+MIME-Version: 1.0
+
+Notiz: https://www.linkedin.com/jobs/view/4100000299 (nicht lesen)
+
+--===============8459511042679312326==--

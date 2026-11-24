@@ -4,6 +4,7 @@ import { api, ApiError, type Attempt, type BatchResult, type IntakeAnswer, type 
 import { AttemptList } from '@/components/attempts'
 import { PostingFields } from '@/components/posting'
 import { AlertMailView } from '@/views/AlertMailView'
+import { MailboxView } from '@/views/MailboxView'
 import { ImportView } from '@/views/ImportView'
 import { ErrorWithRetry, Loading } from '@/components/states'
 import { Button } from '@/components/ui/button'
@@ -11,7 +12,7 @@ import { Input, Textarea } from '@/components/ui/input'
 import { categoryNames } from '@/lib/german'
 import { cn } from '@/lib/utils'
 
-type Source = 'url' | 'text' | 'pdf' | 'mail'
+type Source = 'url' | 'text' | 'pdf' | 'mail' | 'mailbox'
 type Status =
   | { kind: 'idle' }
   | { kind: 'running' }
@@ -21,7 +22,7 @@ type Status =
   | { kind: 'done'; answer: IntakeAnswer }
   | { kind: 'batch'; results: BatchResult[] }
 
-const SOURCES: [Source, string][] = [['url', 'Link(s)'], ['text', 'Text einfügen'], ['pdf', 'PDF'], ['mail', 'Alert-Mail']]
+const SOURCES: [Source, string][] = [['url', 'Link(s)'], ['text', 'Text einfügen'], ['pdf', 'PDF'], ['mail', 'Alert-Mail'], ['mailbox', 'Postfach']]
 
 /** German text for a failed intake request; the API's own detail is English and stays out. */
 function intakeError(error: unknown): string {
@@ -34,7 +35,8 @@ function intakeError(error: unknown): string {
 }
 
 /** The intake view: submit a posting by link (several at once, one per line), text or PDF, or by a
- * pasted job alert mail (the source "Alert-Mail", `AlertMailView`), check the fields the app
+ * pasted job alert mail (the source "Alert-Mail", `AlertMailView`) or a check of the mailbox (the
+ * source "Postfach", `MailboxView`), check the fields the app
  * filled, release a flagged posting, and edit the hosts that are never fetched anonymously.
  * With `list` (route `#/importieren`) it shows the source "Liste", the list import
  * (`ImportView`). Both views stay mounted while another source shows, so an import or an alert
@@ -90,8 +92,8 @@ export function IntakeView({ list = false }: { list?: boolean }) {
       <div>
         <h1 className="text-3xl leading-tight font-bold tracking-tight">Anzeige hinzufügen</h1>
         <p className="mt-1.5 text-muted-foreground">
-          Gib einen Link, den Anzeigentext oder ein PDF an, füge eine Alert-Mail ein oder importiere
-          eine ganze Liste. Titel, Firma und Ort werden ausgefüllt, du prüfst sie danach.
+          Gib einen Link, den Anzeigentext oder ein PDF an, füge eine Alert-Mail ein, prüfe dein
+          Postfach oder importiere eine ganze Liste. Titel, Firma und Ort werden ausgefüllt, du prüfst sie danach.
         </p>
       </div>
 
@@ -114,7 +116,11 @@ export function IntakeView({ list = false }: { list?: boolean }) {
         <AlertMailView onUrl={() => switchTo('url')} onText={() => switchTo('text')} onPdf={() => switchTo('pdf')} />
       </div>
 
-      <div hidden={list || source === 'mail'} className="flex flex-col gap-6">
+      <div hidden={list || source !== 'mailbox'}>
+        <MailboxView active={!list && source === 'mailbox'} onText={() => switchTo('text')} onPdf={() => switchTo('pdf')} />
+      </div>
+
+      <div hidden={list || source === 'mail' || source === 'mailbox'} className="flex flex-col gap-6">
         <form onSubmit={submit} className="flex flex-col gap-4 rounded-xl border bg-card p-5 shadow-card">
           {source === 'url' && (
             <div className="flex flex-col gap-1.5">

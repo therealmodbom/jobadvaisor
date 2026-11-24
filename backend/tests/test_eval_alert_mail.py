@@ -15,7 +15,8 @@ from jobadvaisor.intake.alert_mail import Entry, Found
 from jobadvaisor.llm import ModelNotConfiguredError
 from jobadvaisor.tools.guard import ContentGuard
 
-MODEL_CASES = {"unknown-jobid", "unknown-redirect", "injection"}
+MIME_MODEL_CASES = {"unknown-preheader", "unknown-quoted-printable", "unknown-multipart"}
+MODEL_CASES = {"unknown-jobid", "unknown-redirect", "injection"} | MIME_MODEL_CASES
 
 
 def not_configured():
@@ -67,7 +68,21 @@ def test_model_cases_are_scored_with_a_model(deepeval):
 
     report = alert_mail.run(Picker, ContentGuard(StubClassifier(), THRESHOLDS), "m", deepeval)
     figures = report["figures"]
-    assert figures["cases"] == 3 and 0 < figures["links_correct"] < 1
+    assert figures["cases"] == len(MODEL_CASES) and 0 < figures["links_correct"] < 1
+
+
+def test_the_mime_cases_are_read_as_mime_and_reach_the_model():
+    """The `.eml` cases come in as their decoded HTML part, with the hidden preheader and a link
+    split over quoted-printable lines intact, and no rule reads them."""
+    cases = {case.name: case for case in alert_mail.load_cases()}
+    assert MIME_MODEL_CASES <= set(cases)
+    assert all(alert_mail.needs_model(cases[name]) for name in MIME_MODEL_CASES)
+    assert "Embedded-Entwicklerin, Teamleitung Fertigung" in cases["unknown-preheader"].html
+    quoted = cases["unknown-quoted-printable"]
+    assert "leiter-it-betrieb-und-infrastruktur-musterstadt-4811?source=" in quoted.html
+    multipart = cases["unknown-multipart"]
+    assert "Datenarchitekt (m/w/d)" in multipart.html
+    assert "HTML-Ansicht" in multipart.text
 
 
 def test_alert_mail_is_registered():

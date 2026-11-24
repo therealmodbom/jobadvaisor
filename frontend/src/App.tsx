@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react'
 import { BackupControl, BackupStrip } from '@/components/backup'
-import { SettingsControl } from '@/components/settings'
+import { SettingsLink } from '@/components/settings'
 import { StaleBanner, VersionFooter } from '@/components/version'
 import { useBackupStatus } from '@/lib/backup'
+import { SECTIONS, SETTINGS_HASH } from '@/lib/sections'
 import { cn } from '@/lib/utils'
 import { useBackendVersion } from '@/lib/version'
 import { ChatView } from '@/views/ChatView'
 import { IntakeView } from '@/views/IntakeView'
 import { PoolView } from '@/views/PoolView'
 import { PostingPage } from '@/views/PostingPage'
+import { SettingsPage } from '@/views/SettingsPage'
 
 /** The three views by URL hash; the first is the default for an empty or unknown hash. Hash
  * routing keeps every view reachable after a reload without the backend having to tell app
@@ -38,7 +40,7 @@ function postingIdOf(hash: string): string | null {
 }
 
 /** The app shell: the stale-page banner (only when the server runs another version), the header
- * with the main navigation, the backup control and the settings button, the open view and the version footer; the three main
+ * with the main navigation, the backup control and the settings link, the open view (a main view, a posting page or the settings page) and the version footer; the three main
  * views stay mounted but hidden (so an import keeps polling), a posting page mounts only while
  * its route is open and keeps "Anzeigen" current in the navigation. The page sets its own
  * document title. */
@@ -51,10 +53,12 @@ function App() {
   }, [])
   const postingId = postingIdOf(hash)
   const importing = hash === IMPORT_HASH
+  const settings = hash === SETTINGS_HASH || hash.startsWith(`${SETTINGS_HASH}/`)
+  const section = SECTIONS.find((entry) => hash === `${SETTINGS_HASH}/${entry.id}`)?.id ?? SECTIONS[0].id
   const view: View = importing ? VIEWS[1] : VIEWS.find((entry) => entry.hash === hash) ?? VIEWS[0]
   useEffect(() => {
-    document.title = `${postingId ? 'Anzeige' : view.title} – JobAdvAIsor`
-  }, [view, postingId])
+    document.title = `${settings ? 'Einstellungen' : postingId ? 'Anzeige' : view.title} – JobAdvAIsor`
+  }, [view, postingId, settings])
 
   /** Counts the saved settings; the pool view reloads its hint when it changes. */
   const [settingsSaved, setSettingsSaved] = useState(0)
@@ -62,7 +66,7 @@ function App() {
   const backup = useBackupStatus()
 
   const content = {
-    '#/pool': <PoolView active={view === VIEWS[0] && postingId === null} reloadKey={settingsSaved} />,
+    '#/pool': <PoolView active={view === VIEWS[0] && postingId === null && !settings} reloadKey={settingsSaved} />,
     '#/hinzufuegen': <IntakeView list={importing} />,
     '#/fragen': <ChatView />,
   }
@@ -79,24 +83,25 @@ function App() {
           <nav aria-label="Hauptnavigation"
                className="order-4 flex basis-full flex-wrap gap-1 sm:order-2 sm:flex-auto sm:basis-auto">
             {VIEWS.map((item) => (
-              <a key={item.hash} href={item.hash} aria-current={item === view ? 'page' : undefined}
+              <a key={item.hash} href={item.hash} aria-current={item === view && !settings ? 'page' : undefined}
                  className={cn('rounded-lg px-3.5 py-2.5 no-underline',
-                   item === view ? 'bg-muted font-bold text-foreground'
+                   item === view && !settings ? 'bg-muted font-bold text-foreground'
                      : 'font-medium text-muted-foreground hover:text-foreground')}>
                 {item.label}
               </a>
             ))}
           </nav>
           <BackupControl state={backup} />
-          <SettingsControl onSaved={() => setSettingsSaved((count) => count + 1)} />
+          <SettingsLink current={settings} />
         </div>
       </header>
       <BackupStrip status={backup.status} />
       <main className="mx-auto box-border max-w-[1200px] px-6 pt-8 pb-16">
         {/* Every view stays mounted and only the open one shows, so a conversation, an intake
             result or a computing pass survives a look at another view. */}
-        {VIEWS.map((item) => <div key={item.hash} hidden={postingId !== null || item !== view}>{content[item.hash]}</div>)}
-        {postingId !== null && <PostingPage postingId={postingId} />}
+        {VIEWS.map((item) => <div key={item.hash} hidden={settings || postingId !== null || item !== view}>{content[item.hash]}</div>)}
+        {settings && <SettingsPage section={section} onSaved={() => setSettingsSaved((count) => count + 1)} />}
+        {postingId !== null && !settings && <PostingPage postingId={postingId} />}
       </main>
       <VersionFooter backend={backendVersion} />
     </>

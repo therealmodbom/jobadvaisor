@@ -1,4 +1,4 @@
-import type { Counter, NextPass, Pool, PoolRow, RatingBody, Strength } from '@/api'
+import type { Counter, MailboxAccount, MailboxCheckState, MailboxMail, NextPass, Pool, PoolRow, RatingBody, Strength } from '@/api'
 
 /** A pool row: an open, scored posting unless `extra` says otherwise. */
 export const row = (posting_id: string, title: string, extra: Partial<PoolRow> = {}): PoolRow => ({
@@ -54,3 +54,35 @@ export function ratingAnswer(base: PoolRow, body: RatingBody, counter: Counter =
 
 /** `POOL` with `changes` applied on top. */
 export const poolWith = (changes: Partial<Pool>): Pool => ({ ...POOL, ...changes })
+
+/** A configured mailbox with a stored password, a usable key and no check yet. */
+export const MAILBOX: MailboxAccount = {
+  configured: true, host: 'imap.example.org', port: 993, user: 'name@example.org', folders: { all: true },
+  max_mails: 200, since: null, last_check_at: null, password: 'stored', key_configured: true, check_id: null,
+}
+
+/** The mailbox before any setup, as `GET /mailbox` answers it. */
+export const NO_MAILBOX: MailboxAccount = {
+  ...MAILBOX, configured: false, host: '', user: '', password: 'missing',
+}
+
+/** A mailbox check state: `running` and empty unless `over` says otherwise. */
+export const mailCheck = (over: Partial<MailboxCheckState> = {}): MailboxCheckState => ({
+  check_id: 'c1', status: 'running', reason: null, error: null, interrupted: null, cancel_requested: false,
+  cancelled: false, total: 0, read: 0, remaining: 0, mails: [], failed: [], held: [], not_screened: [],
+  missing_folders: [], ...over,
+})
+
+/** The entries of a mailbox mail's preview: `n` new LinkedIn postings, numbered from `from`. */
+export const mailEntries = (n: number, from = 1) => Array.from({ length: n }, (_, i) => ({
+  url: `https://www.linkedin.com/jobs/view/42000${from + i}`, title: `Stelle ${from + i}`,
+  duplicate: null, login_walled: false, ambiguous: false,
+}))
+
+/** A mail of a pick list with `n` new entries (from `from`), read by the LinkedIn rule. */
+export const mailItem = (key: string, n: number, over: Partial<MailboxMail> = {}, from = 1): MailboxMail => ({
+  key, folder: 'Posteingang', sender: 'LinkedIn Job Alerts <jobalerts@linkedin.com>',
+  subject: `Neue Stellen ${key}`, date: '2026-11-22T08:15:00+01:00', oversized: false, reading: false, read_failed: null,
+  preview: { entries: mailEntries(n, from), read_by: ['linkedin'], unread_hosts: [], held: false, model_skipped: null, truncated: false },
+  ...over,
+})

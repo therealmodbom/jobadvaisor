@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { axe } from '@/test-axe'
 import { pending, stubApi } from '@/test-api'
+import { MAILBOX } from '@/test-fixtures'
 import { IntakeView } from './IntakeView'
 import { POLL_MS } from './PoolView'
 
@@ -210,6 +211,19 @@ test('the alert-mail source shows the paste field and hides the link form', asyn
   expect(screen.getByLabelText('Alert-Mail', { selector: 'textarea' })).toBeVisible()
   expect(screen.queryByLabelText('Link zur Anzeige')).not.toBeInTheDocument()
   expect(screen.queryByRole('button', { name: 'Hinzufügen' })).not.toBeInTheDocument()
+})
+
+test('the mailbox source offers the mailbox check instead of an input field, and asks nothing before it is chosen', async () => {
+  const calls = stubApi({ ...HOSTS, 'GET /mailbox': { body: MAILBOX } })
+  render(<IntakeView />)
+  expect(calls.some((call) => call.path === '/mailbox')).toBe(false)
+  await userEvent.click(screen.getByRole('button', { name: 'Postfach' }))
+  expect(screen.getByRole('button', { name: 'Postfach' })).toHaveAttribute('aria-pressed', 'true')
+  expect(await screen.findByRole('button', { name: 'Postfach prüfen' })).toBeVisible()
+  expect(screen.queryByLabelText('Link zur Anzeige')).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Hinzufügen' })).not.toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: 'Link(s)' }))
+  expect(screen.getByRole('button', { name: 'Postfach prüfen', hidden: true })).not.toBeVisible()
 })
 
 test('the alert-mail field stays hidden while another source shows', () => {

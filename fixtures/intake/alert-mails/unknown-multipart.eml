@@ -1,0 +1,49 @@
+From: Beispiel Jobs <hallo@example.org>
+To: erika@example.org
+Subject: Neu =?utf-8?q?f=C3=BCr?= dich: Datenarchitekt und mehr
+Date: Mon, 23 Nov 2026 07:00:00 +0100
+Message-ID: <unknown-multipart-1@example.org>
+MIME-Version: 1.0
+Content-Type: multipart/alternative;
+ boundary="===============4849177476948128756=="
+
+--===============4849177476948128756==
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 8bit
+
+Neu für dich bei Beispiel Jobs. Die Stellen sehen Sie in der HTML-Ansicht.
+
+--===============4849177476948128756==
+MIME-Version: 1.0
+Content-Type: multipart/related;
+ boundary="===============4599704788228882535=="
+
+--===============4599704788228882535==
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+
+<html><body>
+<img src=3D"cid:image-1" alt=3D"Logo">
+<p>Neu f=C3=BCr dich bei Beispiel Jobs:</p>
+<p><a href=3D"https://app.example.net/jobs/datenarchitekt-4821?trk=3DTOKEN-1"=
+>Datenarchitekt (m/w/d)</a><br>Datenwerk Beispiel GmbH =C2=B7 Remote</p>
+<p><a href=3D"https://app.example.net/jobs/produktmanagerin-plattform-4822?tr=
+k=3DTOKEN-2">Produktmanagerin Plattform (m/w/d)</a><br>Plattformhaus Muster =
+=C2=B7 Musterstadt</p>
+<p><a href=3D"https://app.example.net/profil?trk=3DTOKEN-3">Dein Profil</a></=
+p>
+</body></html>
+
+--===============4599704788228882535==
+Content-Type: image/png
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="logo.png"
+Content-ID: <image-1>
+MIME-Version: 1.0
+
+iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmM
+IQAAAABJRU5ErkJggg==
+
+--===============4599704788228882535==--
+
+--===============4849177476948128756==--

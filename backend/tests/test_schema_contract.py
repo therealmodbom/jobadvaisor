@@ -28,6 +28,7 @@ def test_demo_fixture_conforms_to_the_published_schemas():
 
 RULE = {"id": "r", "field": "text", "operator": "equals", "value": "x"}
 FEATURE = {"id": "f", "description": "d", "type": "boolean"}
+MAILBOX = {"schema_version": "1", "host": "imap.example.org", "user": "name@example.org"}
 COMPANY = {"schema_version": "1", "name": "Acme", "size_class": "51-200", "founded": 2019,
            "source": "linkedin", "source_url": "https://www.linkedin.com/company/acme",
            "fetched_at": AT}
@@ -52,6 +53,11 @@ REJECTED = [
     ("company", {**COMPANY, "founded": 20190}),
     ("company", {**COMPANY, "size_class": "51-200 employees"}),
     ("company", {**COMPANY, "source": "crunchbase"}),
+    ("mailbox", {**MAILBOX, "folders": {}}),
+    ("mailbox", {**MAILBOX, "folders": {"all": True, "names": ["Jobs"]}}),
+    ("mailbox", {**MAILBOX, "folders": {"all": None, "names": None}}),
+    ("mailbox", {**MAILBOX, "folders": {"names": []}}),
+    ("mailbox", {**MAILBOX, "folders": {"all": False}}),
 ]
 
 
@@ -79,6 +85,11 @@ ACCEPTED = [
     ("company", {key: value for key, value in COMPANY.items()
                  if key not in ("size_class", "founded")}),
     ("company", {**COMPANY, "size_class": "10,001+"}),
+    ("mailbox", MAILBOX),
+    ("mailbox", {**MAILBOX, "folders": {"all": True}}),
+    ("mailbox", {**MAILBOX, "folders": {"names": ["Jobs"]}}),
+    ("mailbox", {**MAILBOX, "folders": {"all": True, "names": None}}),
+    ("mailbox", {**MAILBOX, "folders": {"all": None, "names": ["Jobs"]}}),
 ]
 
 

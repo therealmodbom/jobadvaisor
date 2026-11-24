@@ -373,3 +373,87 @@ export type IntakeAnswer = {
   attempts: Attempt[] | null
   screening: boolean
 }
+
+/** The folder choice of the mailbox: every folder but the system folders, or exactly `names`. */
+export type MailboxFolders = { all: true; names?: undefined } | { names: string[]; all?: undefined }
+
+/** `GET /mailbox` and the answer of `PUT /mailbox`: the account without its password. `password`
+ * says whether one is `stored`, `missing` or `unreadable` (the key cannot open it, or there is
+ * none); `key_configured` is false when no usable key for the password exists. `since` is the
+ * start date (null before the first check), `last_check_at` the end of the last finished check.
+ * `check_id` names the running check, else the one whose pick list is not finished, else null.
+ * An unconfigured mailbox has empty `host` and `user`, port 993, all folders and 200 mails. */
+export type MailboxAccount = {
+  configured: boolean
+  host: string
+  port: number
+  user: string
+  folders: MailboxFolders
+  max_mails: number
+  since: string | null
+  last_check_at: string | null
+  password: 'stored' | 'missing' | 'unreadable'
+  key_configured: boolean
+  check_id: string | null
+}
+
+/** `PUT /mailbox` body. An absent or empty `password` keeps the stored one (unless host, port or
+ * user changed, which forgets it); an absent `folders` or `max_mails` keeps the stored value. */
+export type MailboxBody = {
+  host: string
+  port: number
+  user: string
+  password?: string
+  folders?: MailboxFolders
+  max_mails?: number
+}
+
+/** One folder of `POST /mailbox/folders`; a `system` folder (trash, junk, sent, drafts, all mail,
+ * flagged, important) is left out of „Alle Ordner“. */
+export type MailboxFolder = { name: string; system: boolean }
+
+/** What the finder found in one mailbox mail (the shape of `AlertPreview` without `screening`). */
+export type MailboxPreview = Omit<AlertPreview, 'screening'>
+
+/** The headers of a mail a check reports, for display only: its `folder`, the `sender` and
+ * `subject` (blank when missing) and its `date` (ISO). */
+export type MailboxMailHead = { folder: string; sender: string; subject: string; date: string }
+
+/** A mail of a check's pick list. `key` is its position in the check, URL-safe. `oversized` is a
+ * mail too large to read unasked: its `preview` stays null until `POST …/mails/{key}/read`
+ * answers it. `reading` is true while that read runs (maybe in another tab); `read_failed`
+ * (`screening failed` or `finder failed`) is left by a failed read, which may be retried. */
+export type MailboxMail = MailboxMailHead & {
+  key: string
+  oversized: boolean
+  reading: boolean
+  read_failed: string | null
+  preview: MailboxPreview | null
+}
+
+/** `GET /mailbox/checks/{id}`. `status` is `running`, `done`, `failed` or `finished` (the pick
+ * list was finished, replaced or dropped by an account change). `reason` names a failed check's
+ * cause (`unreachable`, `certificate`, `login`, `folder`, `protocol`, `no key`, `no password`,
+ * `password unreadable`); `error` is the exception type of a crashed worker (never shown).
+ * `interrupted` is the reason a `done` check lost its connection after reading some mails.
+ * `total` mails are to be read and `read` are processed, `remaining` unhandled mails wait for the
+ * next check. `mails` is the pick list; `failed` (with `reason` `screening failed` or `finder
+ * failed`), `held` and `not_screened` are reports; `missing_folders` names chosen folders the
+ * server no longer has. */
+export type MailboxCheckState = {
+  check_id: string
+  status: 'running' | 'done' | 'failed' | 'finished'
+  reason: string | null
+  error: string | null
+  interrupted: string | null
+  cancel_requested: boolean
+  cancelled: boolean
+  total: number
+  read: number
+  remaining: number
+  mails: MailboxMail[]
+  failed: (MailboxMailHead & { reason: string })[]
+  held: MailboxMailHead[]
+  not_screened: MailboxMailHead[]
+  missing_folders: string[]
+}

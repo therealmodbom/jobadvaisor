@@ -2,12 +2,15 @@
 link numbers, hosts and paths only, and answers link numbers and titles."""
 
 import re
+import time
 
 import pytest
 from conftest import FakeStructuredModel
 from test_alert_mail import NoGuard, Untouchable, fixture
 from test_guard import THRESHOLDS, StubClassifier
 
+from jobadvaisor.evals.alert_mail import load_cases
+from jobadvaisor.intake import alert_mail
 from jobadvaisor.intake.alert_mail import FinderError, find_postings, model_view, read_mail
 from jobadvaisor.tools.guard import ContentGuard
 
@@ -146,3 +149,32 @@ def test_model_input_holds_no_dotted_path_token():
     html = f'<a href="https://jobs.example.org/job/{token}">Produktmanager</a>'
     text, _ = model_view(read_mail(html, ""))
     assert "eyJ" not in text and "dBjft" not in text
+
+
+# The pattern before #154: its bare-domain alternative had no anchor, so one long unbroken word
+# took quadratic time. Kept here so the fixtures can show that the new one masks the same text.
+QUADRATIC_MASKED_URL = re.compile(
+    r"(?i)https?://[^\s<>\"')\]]+|(?:www\.)?[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}[/?][^\s<>\"')\]]*")
+LONG_WORD = 2_000_000
+
+
+@pytest.mark.parametrize("word", ["a" * LONG_WORD, "a." * (LONG_WORD // 2)],
+                         ids=["unbroken", "dotted"])
+def test_masking_one_long_word_takes_linear_time(word):
+    """#154: a 2,000,000-character word without a space, or one of the form `a.a.a.…`, is masked
+    in well under a second (the quadratic pattern needed hours). The bound is generous for a
+    slow machine, not a benchmark."""
+    started = time.perf_counter()
+    model_view([word])
+    assert time.perf_counter() - started < 1
+
+
+@pytest.mark.parametrize("case", [case.name for case in load_cases()])
+def test_masking_leaves_the_model_view_of_every_fixture_unchanged(case, monkeypatch):
+    """The anchored pattern gives the same model view as the quadratic one on every alert-mail
+    fixture, `.eml` ones included."""
+    mail = next(mail for mail in load_cases() if mail.name == case)
+    items = read_mail(mail.html, mail.text)
+    anchored = model_view(items)
+    monkeypatch.setattr(alert_mail, "MASKED_URL", QUADRATIC_MASKED_URL)
+    assert model_view(items) == anchored
