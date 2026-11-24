@@ -2,6 +2,7 @@
 over the fake IMAP client with a stub finder, and what it reports and marks."""
 
 import imaplib
+import logging
 import ssl
 import threading
 import time
@@ -16,6 +17,7 @@ from test_alert_mail import NoGuard, Untouchable, fixture
 from jobadvaisor import mailbox_secret
 from jobadvaisor.data.models import Folders, MailRef
 from jobadvaisor.data.writer import read_mailbox, update_mailbox, update_mailbox_account
+from jobadvaisor.intake import mailbox
 from jobadvaisor.intake.alert_mail import FinderError
 from jobadvaisor.intake.alert_runs import AlertRunBusyError, RunEntry
 from jobadvaisor.intake.mailbox import imap_errors
@@ -474,6 +476,46 @@ def test_the_next_check_does_not_offer_the_mails_of_a_finished_pick_list(root):
     settle(checks, check_id)
     checks.finish(check_id, [])
     assert run(make(root, fake, StubFinder({"mail 4": found(A)})))["total"] == 1  # only mail 4
+
+
+# --- the password never leaves ------------------------------------------------------------
+
+
+class Chatty(FakeImap):
+    """The class the real `connect` builds in place of `IMAPClient`, with imaplib's debug output
+    on: its login logs the whole LOGIN line, password included, at DEBUG like the real one."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__({"Posteingang": FakeFolder(validity=7, mails=[mail(1), mail(2)])},
+                         password=PASSWORD)
+
+    def login(self, user, password):
+        logging.getLogger("imapclient.imaplib").debug("> LOGIN %s %s", user, password)
+        super().login(user, password)
+
+
+def everything_written(root) -> bytes:
+    return b"".join(path.read_bytes() for path in root.rglob("*") if path.is_file())
+
+
+@pytest.mark.parametrize("stored", [PASSWORD, "wrong-password-marker"])
+def test_a_whole_check_at_debug_level_never_logs_or_answers_the_password(
+        root, caplog, monkeypatch, stored):
+    monkeypatch.setattr(mailbox, "IMAPClient", Chatty)
+    mailbox_secret.store(root / "pw", stored, KEY)
+    checks = MailboxChecks(Intake(root, Untouchable(), NoGuard()), StubRuns(),
+                           record=root / "record.jsonl", password_file=root / "pw", key=KEY,
+                           finder=StubFinder({"mail 1": found(A)}))
+    caplog.set_level(logging.DEBUG)
+    state = run(checks)
+    assert state["status"] == ("done" if stored == PASSWORD else "failed")
+    logged = caplog.text + "".join(repr(record.args) for record in caplog.records)
+    for place in (logged, repr(state), repr(checks.read(state["check_id"])),
+                  everything_written(root).decode(errors="replace")):
+        assert stored not in place
+    if stored == PASSWORD:
+        checks.finish(state["check_id"], [])
+        assert PASSWORD not in everything_written(root).decode(errors="replace")
 
 
 # --- failure paths ------------------------------------------------------------------------
