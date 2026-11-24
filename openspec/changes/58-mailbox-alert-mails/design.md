@@ -75,7 +75,7 @@ The app uses only these calls:
   - The flags `\Trash`, `\Junk`, `\Sent`, `\Drafts`, `\All`, `\Flagged` and `\Important` mark a system folder. The last three are virtual folders that show mails again from other folders.
 - `select_folder(name, readonly=True)`, which answers `UIDVALIDITY`;
 - `search(["SINCE", since])`;
-- `fetch(uids, ["BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)]", "INTERNALDATE", "RFC822.SIZE"])` to find the candidates;
+- `fetch(uids, ["BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)]", "INTERNALDATE"])` to find the candidates;
 - `fetch(uid, ["BODY.PEEK[]"])` to read one mail.
 
 The read-only select and `BODY.PEEK` together guarantee that no flag changes (requirement „The mailbox is read only“). The fake client records every call and fails a test on a select without `readonly=True` or a fetch item without `PEEK`.
@@ -86,7 +86,7 @@ The read-only select and `BODY.PEEK` together guarantee that no flag changes (re
 
 ```json
 {"schema_version": "1", "host": "imap.example.org", "port": 993, "user": "name@example.org",
- "folders": {"all": true} | {"names": ["Posteingang", "Jobs"]},
+ "folders": {"all": true} | {"names": ["Posteingang", "Jobs"]}, "max_mails": 200,
  "since": "2026-10-24", "last_check_at": "2026-11-22T18:04:00Z",
  "handled": {"uids": {"Posteingang": {"validity": 1700000000, "uids": [101, 102]}},
              "ids": ["3f2a9c0d1b7e4a56"]},
@@ -94,6 +94,7 @@ The read-only select and `BODY.PEEK` together guarantee that no flag changes (re
 ```
 
 - A missing file means no mailbox is configured.
+- **`max_mails`.** „Höchstens Mails pro Prüfung“, an integer from 1 to 1000 (Pydantic `Field(ge=1, le=1000)`), 200 when absent. An account change keeps it.
 - **Writes.** Every change goes through one gated read-modify-write, `update_mailbox(root, change)` under `write_gate`, like `update_pool_settings`. That covers the settings, the start date, `last_check_at`, the handled marks and the waiting marks. No two writers can drop each other's changes.
 - **Which record holds a mail.** A mail is in a record when its `(folder, UIDVALIDITY, UID)` is in `uids`, or when the hash of its Message-ID is in `ids`.
   - The hash is the first 16 hex characters of the SHA-256 of the Message-ID, trimmed and lower-cased. It recognises a mail that was moved or renumbered, without storing the ID, which names the sender's domain.
@@ -124,16 +125,15 @@ Rejected: keeping the record in the state directory. The state directory is not 
    - Store `since` now if it is unset.
 3. **Candidates.**
    - Per folder: select it read-only, search `SINCE`, drop the UIDs in `handled` and in `waiting` (the latter only while screening is off).
-   - Fetch Message-ID, INTERNALDATE and size, and drop the IDs in those records.
+   - Fetch Message-ID and INTERNALDATE, and drop the IDs in those records.
    - Drop repeats within the check by ID hash.
    - Nothing is marked in this step, so a failure here leaves every record as it was.
-   - Sort all folders' candidates by INTERNALDATE, oversized ones included. The 200 oldest are read. `total` is their number, and `remaining` counts the rest.
+   - Sort all folders' candidates by INTERNALDATE. The `max_mails` oldest are read. `total` is their number, and `remaining` counts the rest.
 4. **Read each mail** (progress `read`):
    - Before each mail, a requested cancel ends the loop. A cancel that arrives during steps 1 to 3 takes effect here, before the first mail.
-   - A mail over 4,000,000 bytes (`RFC822.SIZE`) is never downloaded: only its display headers are fetched with `BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE)]`, and it goes into `skipped`, marked handled.
-   - Else fetch it with `BODY.PEEK[]` and parse it with `email.message_from_bytes(raw, policy=email.policy.default)`.
+   - Fetch it with `BODY.PEEK[]` and parse it with `email.message_from_bytes(raw, policy=email.policy.default)`. Attachments are downloaded with it but never read; the provider's own size limit for incoming mail bounds the download.
    - `mail_parts(message)` returns `(html, text)` from `get_body(("html",))` and `get_body(("plain",))`. A blank HTML part becomes `None`, as on the paste path.
-   - A part over 2,000,000 characters puts the mail into `skipped`, marked handled.
+   - **Oversized.** When `html` and `text` together hold more than 2,000,000 characters (`MAX_MAIL`, the paste limit), the finder does not run. The mail goes into `mails` with `oversized: true`, its display headers and no preview answer, and nothing is marked. The check keeps its `(html, text)` in memory for a read on request.
    - Else `preview(intake, html, text, record)` runs, the same call as the paste.
    - Sender, subject and date come from the headers for display only and are never stored.
    - A `FinderError` puts the mail into `failed`, not marked, and the check goes on.
@@ -142,18 +142,25 @@ Rejected: keeping the record in the state directory. The state directory is not 
    - Any other answer without entries is marked handled at once and not reported.
    - A mail with entries goes into `mails`, the pick list.
 5. **End.**
-   - Log out and set `last_check_at`. The state is `done` with `mails` (each with its `key`, display headers and preview answer), `skipped`, `failed`, `held`, `not_screened`, `missing_folders` and `remaining`. Each entry of `skipped`, `failed`, `held` and `not_screened` carries the mail's display headers (sender, subject, date) and folder, so the report can name it.
+   - Log out and set `last_check_at`. The state is `done` with `mails` (each with its `key`, display headers, `oversized` and preview answer), `failed`, `held`, `not_screened`, `missing_folders` and `remaining`. Each entry of `failed`, `held` and `not_screened` carries the mail's display headers (sender, subject, date) and folder, so the report can name it.
    - A connection error before step 4 makes the check `failed` with `reason` (D5).
    - A connection error during step 4 makes it `done` with what it read so far, `interrupted: <reason>`, and the unread mails left unmarked.
    - A cancel makes it `done` with what it read so far, `cancelled: true`, and the unread mails left unmarked. Its pick list is finished like any other.
 
 `cancel(check_id)`, like `AvailabilityChecks.cancel`: it sets `cancel_requested` on a running check, which runs on to the end of its current mail. It raises `CheckNotRunningError` for a check that is `done`, `failed` or `finished`, and answers `None` for an unknown ID.
 
+`read_oversized(check_id, key)`: the user ticked an oversized mail.
+
+- It accepts only a `done` check that is not finished yet, and only the key of an oversized mail in its `mails` that has no preview answer yet (a failed read may be retried); else it raises, which the API answers as 404 or 409.
+- It runs `preview` on the kept `(html, text)` in the request thread, like `POST /alert-mails/preview`, and stores the answer on that mail. Its entries join the check's offer.
+- The answer counts like one from step 4, applied when the pick list is finished: a `FinderError` leaves the mail with `read_failed: <reason>` and unmarked; `screening off` marks it `waiting`; any other answer, held or empty included, marks it handled.
+- The kept parts are dropped once the mail is read, and all of them when the check is finished or replaced.
+
 `finish(check_id, entries)`:
 
 - It accepts only a `done` check that is not finished yet, and only entries whose cleaned URL is one the check offered. It takes 0 entries up to all of them.
 - When there are entries, it calls `AlertRuns.start(entries)`. An `AlertRunBusyError` propagates, and nothing is marked.
-- Otherwise it marks handled exactly the mails in `mails`, never `failed` or `not_screened`. It sets the check to `finished` and answers the run ID or `None`.
+- Otherwise it marks handled exactly the mails in `mails`, unread oversized ones included, never `failed` or `not_screened`. An oversized mail read on request follows its answer (above). It sets the check to `finished` and answers the run ID or `None`.
 - A second finish answers 409, so a double click starts one run.
 
 The same posting in two mails of one check appears twice in the pick list. The alert run stores it once and reports the second as a duplicate by link, which is the existing behaviour.
@@ -177,12 +184,13 @@ The mapping lives in one function around every IMAP call, so no IMAP exception r
 
 | Route | Answer |
 |---|---|
-| `GET /mailbox` | `{configured, host, port, user, folders, since, last_check_at, password: "missing"\|"stored"\|"unreadable", key_configured, check_id}`. `check_id` names the running check, or the `pending` one, else null. Never the password. |
-| `PUT /mailbox` | Body: `{host, port, user, password?, folders?}`. An absent or empty `password` keeps the stored one, unless the account changes (D3). It answers like `GET`. Errors: 409 `no key` when a password comes without a valid key, 409 `check in progress` on an account change during a check, or 422. |
+| `GET /mailbox` | `{configured, host, port, user, folders, max_mails, since, last_check_at, password: "missing"\|"stored"\|"unreadable", key_configured, check_id}`. `check_id` names the running check, or the `pending` one, else null. Never the password. |
+| `PUT /mailbox` | Body: `{host, port, user, password?, folders?, max_mails?}`; `max_mails` outside 1 to 1000 is a 422. An absent or empty `password` keeps the stored one, unless the account changes (D3). It answers like `GET`. Errors: 409 `no key` when a password comes without a valid key, 409 `check in progress` on an account change during a check, or 422. |
 | `POST /mailbox/folders` | Logs in with the stored account: `{folders: [{name, system}]}`. Errors: 502 `{error: <reason>}`, 409 `no key`, `no password` or `password unreadable`. |
 | `POST /mailbox/checks` | Body: `{since?}`, required while `since` is unset. 202 `{check_id}`. Errors: 409 `check in progress` with `check_id`, or 409 `not configured`. |
-| `GET /mailbox/checks/{id}` | `{check_id, status: running\|done\|failed\|finished, reason, interrupted, cancel_requested, cancelled, total, read, remaining, mails, skipped, failed, held, not_screened, missing_folders}`, or 404. |
+| `GET /mailbox/checks/{id}` | `{check_id, status: running\|done\|failed\|finished, reason, interrupted, cancel_requested, cancelled, total, read, remaining, mails, failed, held, not_screened, missing_folders}`, or 404. Never the kept parts of an oversized mail. |
 | `POST /mailbox/checks/{id}/cancel` | 202, 404 for an unknown check, or 409 `check not running`. |
+| `POST /mailbox/checks/{id}/mails/{key}/read` | Reads an oversized mail on request and answers that mail with its preview answer (200). Errors: 404 for an unknown check or key, 409 `check not done`, 409 `not oversized` for a mail that is not oversized or already has a preview answer, 502 `screening failed` or `finder failed`. |
 | `POST /mailbox/checks/{id}/finish` | Body: `{entries: [{url, title}]}`: 0 or more, each cleaned like `POST /alert-mails/runs` and checked against the check's offer. 202 `{run_id \| null}`. Errors: 409 `alert run in progress` with `run_id`, 409 `check not done`, or 422 for an entry the check did not offer. |
 
 „Verbinden und Ordner laden“ is `PUT /mailbox` followed by `POST /mailbox/folders`.
@@ -198,12 +206,14 @@ The mapping lives in one function around every IMAP call, so no IMAP exception r
   - the password input with an eye toggle (`type` password or text, `aria-pressed`);
   - a stored password as the placeholder `••••••••`, labelled „Passwort · gespeichert“;
   - without a valid key, the disabled field with `WhyDisabled`;
-  - after connecting, the folder hint, then the folder choice as two radios and a checkbox list.
+  - after connecting, the folder hint, then the folder choice as two radios and a checkbox list;
+  - „Höchstens Mails pro Prüfung“ as `<input type="number" min="1" max="1000">`, preset to 200, saved with the account.
 - **Source „Postfach“** (`views/MailboxView.tsx`, a new entry in `SOURCES` after „Alert-Mail“):
   - It reads `GET /mailbox`. Not configured: a notice with the link „Postfach einrichten“. Configured: a summary line with a link to the settings, „Mails ab“ with the cost hint while `since` is unset, and „Postfach prüfen“.
   - It attaches to `check_id` from `GET /mailbox`, so another tab or a reload finds a running or unfinished check, and polls like the alert run.
   - While a check runs, „Prüfen abbrechen“ sits beside the progress, as in `components/check.tsx`; once `cancel_requested` is set, the view says the check stops after the current mail.
   - The report notes use `AlertMailView`'s `Note`.
+  - An oversized mail's head shows „Zu groß, nicht gelesen“ and an unticked checkbox; ticking it calls the read route, shows „Wird gelesen …“, then its entries below the head. A 502 shows the reason at the head and unticks the box.
   - The pick list groups by mail. Each head has a tri-state checkbox (`indeterminate` set from a ref), „n von m ausgewählt“, and a collapse button with `aria-expanded` and `aria-controls`. The rows reuse `PickRow`.
 - **Shared run view.** The run part of `AlertMailView` moves into an exported `AlertRunView`, with its polling, the stored-anyway rows and `sessionStorage`. `AlertMailView` and `MailboxView` both use it, so a run started from the mailbox shows exactly like one from a paste.
 - **Design.** The Design canvas [Postfach: Auswahlliste A oder B](https://claude.ai/artifact/DQFSqGkSPBcyqQ6wpSw932) holds the approved boards, approved on 2026-11-23:
@@ -227,8 +237,9 @@ The mailbox gives the finder a mail's original `text/html` MIME part, where a pa
 
 - **A server without SPECIAL-USE flags.** With „Alle Ordner“, trash and junk are searched too. Junk mail goes through the content guard and the rules like any mail, so the worst case is model cost. The user can switch to a selection.
 - **What leaves the machine.** The text of every searched mail that no rule reads goes to the screening classifier, the model provider and the trace, newsletters and private mail included. A folder selection limits it. The proposal names it as a side effect.
-- **The cost of the first check.** Up to 200 unknown-sender mails is up to 200 model and screening calls. „Mails ab“ (30 days back by default), the cap and the hint bound it.
-- **One repository load per mail.** `preview` loads the stored postings for each mail, so a 200-mail check loads them 200 times. That is acceptable at today's pool size. Task 6.1 measures a 200-mail check over the demo persona. Passing the postings in once is the upgrade if it is slow.
+- **The cost of the first check.** Up to `max_mails` unknown-sender mails (200 by default) is as many model and screening calls. „Mails ab“ (30 days back by default), the limit, the cancel and the hint bound it.
+- **Kept parts of oversized mails.** A pending check holds the text of its unread oversized mails in memory until it is finished or replaced, each over 2,000,000 characters. Such mails are rare; if they are not, the upgrade is re-fetching the mail by UID on request instead.
+- **One repository load per mail.** `preview` loads the stored postings for each mail, so a 200-mail check loads them 200 times, and one at the 1000-mail limit 1000 times. That is acceptable at today's pool size. Task 6.1 measures a 200-mail check over the demo persona. Passing the postings in once is the upgrade if it is slow.
 - **A restart during the alert run.** The mails are handled once the run has started. A restart before the run ends loses the entries not yet added, as it does for a pasted mail. Pasting or re-adding those links recovers them.
 - **Root on the backend machine.** It reads the key and the password (ADR 0016). The app password limits the damage.
 ## Open Questions

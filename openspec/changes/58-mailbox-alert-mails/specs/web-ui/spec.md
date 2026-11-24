@@ -92,6 +92,17 @@ After connecting, the section SHALL offer „Alle Ordner“, which includes fold
 - **WHEN** the section shows the folder choice
 - **THEN** the hint to choose only folders holding job alert mails stands above it
 
+### Requirement: Mails per check setting
+The section „Postfach“ SHALL offer „Höchstens Mails pro Prüfung“, a whole number from 1 to 1000, preset to 200. Saving SHALL store it, and the next check SHALL use it. A value outside that range SHALL be refused with a message beside the field.
+
+#### Scenario: Limit set
+- **WHEN** the user sets „Höchstens Mails pro Prüfung“ to 50 and saves
+- **THEN** the next check reads at most 50 mails
+
+#### Scenario: Limit out of range
+- **WHEN** the user enters 5000 and saves
+- **THEN** nothing is stored, and the field says that the number must be from 1 to 1000
+
 ### Requirement: Mailbox source
 The intake source „Postfach“ SHALL point to the section „Postfach“ while no mailbox is configured. Once one is, it SHALL show the account, the folder choice and the time of the last check, and „Postfach prüfen“. Before the first check it SHALL show „Mails ab“, a date preset to 30 days back, with a hint that older mails are never read and that each mail from a sender without a fixed rule costs a model call.
 
@@ -140,8 +151,19 @@ A finished check SHALL show the entries of all its mails in one list, grouped by
 - **WHEN** the user presses „Nichts hinzufügen“
 - **THEN** no entry is added, and the mails of the check are not offered again
 
+### Requirement: Oversized mail in the pick list
+A mail the check did not read because it is too large SHALL appear in the pick list as its own mail head with sender, subject, date and folder, the note „Zu groß, nicht gelesen“ and a checkbox that is not ticked. Ticking it SHALL read the mail, show that it is being read, and then show its entries below the head like those of any other mail. A failed reading SHALL show its reason at the head and leave the checkbox unticked.
+
+#### Scenario: Oversized mail ticked
+- **WHEN** the user ticks the checkbox of an oversized mail
+- **THEN** the view shows that the mail is being read, and then its entries appear below the head
+
+#### Scenario: Oversized mail not ticked
+- **WHEN** the user presses „N Anzeigen hinzufügen“ without ticking an oversized mail
+- **THEN** no entry of that mail is added, and the mail is not offered again
+
 ### Requirement: Mailbox check report
-Above the pick list, the view SHALL name, each as a short note: the number of mails left for the next check, chosen folders that no longer exist, mails that were too large, mails whose reading failed, mails held by the content guard, mails not read while screening is off, and an interrupted connection. A mail head SHALL carry the notes of the pasted alert mail for that mail (hosts not read, more than 100 entries).
+Above the pick list, the view SHALL name, each as a short note: the number of mails left for the next check, chosen folders that no longer exist, mails whose reading failed, mails held by the content guard, mails not read while screening is off, and an interrupted connection. A mail head SHALL carry the notes of the pasted alert mail for that mail (hosts not read, more than 100 entries).
 
 #### Scenario: Mails left
 - **WHEN** a check read 200 mails and 60 remain

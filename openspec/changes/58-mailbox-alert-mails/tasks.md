@@ -15,7 +15,7 @@
 
 ## 4. Mailbox file and mail records (D3)
 
-- [ ] 4.1 Add the `Mailbox` model with its JSON Schema (`data/models.py`, `data/schemas.py`) and verify that the schema test and the published schema include it, and that a repository without `mailbox.json` loads
+- [ ] 4.1 Add the `Mailbox` model with its JSON Schema (`data/models.py`, `data/schemas.py`), `max_mails` included (1 to 1000, 200 when absent), and verify that the schema test and the published schema include it, that a repository without `mailbox.json` loads, and that 0 and 1001 are refused
 - [ ] 4.2 Add `read_mailbox` and the gated `update_mailbox`, with the handled and waiting marks, test first:
   - a mark written meanwhile survives a settings update;
   - a changed `UIDVALIDITY` replaces the folder's UIDs;
@@ -32,18 +32,17 @@
   - the factory leaves the `imapclient` logger at WARNING
 - [ ] 5.3 Write the folder list and the searched-folder rule, test first against the spec scenarios „Folders of an account“, „Folder name outside ASCII“, „Parent folder that holds no mails“, „Folder created later“, „Server without folder flags“ and „Chosen folder deleted“, plus `\All`, `\Flagged` and `\Important` as system folders
 - [ ] 5.4 Write the candidate search and `mail_parts`, test first:
-  - `SINCE`; handled and waiting marks dropped; repeats deduplicated by ID hash; oldest 200; `remaining`;
-  - a mail over 4,000,000 bytes kept as a candidate by size, sorted with the rest, nothing marked in this step;
-  - the spec scenarios „Older mail“, „Mail in two folders“, „Mail moved“, „Folder renumbered“, „Large first check“ and „Blank HTML part“;
+  - `SINCE`; handled and waiting marks dropped; repeats deduplicated by ID hash; the `max_mails` oldest; `remaining`; nothing marked in this step;
+  - the spec scenarios „Older mail“, „Mail in two folders“, „Mail moved“, „Folder renumbered“, „Large first check“, „Limit changed“ and „Blank HTML part“;
   - an HTML, a plain-only and a quoted-printable mail
 
 ## 6. The check (D4)
 
 - [ ] 6.1 Write `MailboxChecks.start` and `read`, test first with the fake client and a stub finder:
-  - one at a time; `total` and `read`; the finder per mail; an oversized mail among the 200 skipped with its headers only, never downloaded, and marked; an oversized mail beyond the 200 left unmarked; oversized parts skipped and marked;
+  - one at a time; `total` and `read`; the finder per mail; a mail whose parts hold more than 2,000,000 characters offered with `oversized`, no finder call, nothing marked; a large attachment does not count;
   - `FinderError` mails failed and unmarked; screening-off mails waiting; held mails in `held` with their headers and marked; other empty mails marked at once;
   - `since` stored after login; `last_check_at` set on `done`; the `pending` check kept;
-  - the spec scenarios of „Each mail through the finder“, „Handled mails“, „Mails waiting for screening“, „One mailbox check at a time“ and „Oversized mails skipped“;
+  - the spec scenarios of „Each mail through the finder“, „Handled mails“, „Mails waiting for screening“, „One mailbox check at a time“, and „Oversized mail“ and „Large attachment“ of „Oversized mails offered unread“;
   - measure a 200-mail check over the demo persona and record the time in the PR
 - [ ] 6.2 Write the failure paths, test first:
   - `no key`, `no password`, `password unreadable`, `unreachable`, `certificate`, `login`, `folder` and `protocol`;
@@ -54,7 +53,7 @@
   - a link the check did not offer refused;
   - a busy run leaves everything unmarked;
   - a second finish refused;
-  - only `mails` marked, never `failed` or `not_screened`
+  - only `mails` marked, unread oversized ones included, never `failed` or `not_screened`
 - [ ] 6.4 Verify that a check never logs or answers the password: a test runs a whole check at DEBUG level with a known password and searches the log records and the state for it
 - [ ] 6.5 Write `cancel`, test first against „Cancel a mailbox check“:
   - a cancel during reading stops after the current mail, ends `done` with `cancelled`, keeps the marks of the mails read and leaves the rest unmarked;
@@ -62,28 +61,34 @@
   - `cancel_requested` set while the current mail finishes;
   - a cancelled check's pick list finishes like any other;
   - `CheckNotRunningError` for a `done`, `failed` or `finished` check, `None` for an unknown ID
+- [ ] 6.6 Write `read_oversized`, test first against „Oversized mails offered unread“:
+  - its entries join the offer and can be finished;
+  - a `FinderError` leaves it readable again and unmarked after finishing; `screening off` marks it `waiting`; held or empty marks it handled;
+  - refused for an unknown key, a mail that is not oversized or already read, and a check not `done`;
+  - the kept parts dropped after the read and when the check is finished or replaced
 
 ## 7. API (D6)
 
 - [ ] 7.1 Add `GET`/`PUT /mailbox` and `POST /mailbox/folders` to `create_app` (with the `connect` parameter), test first:
   - the password never in an answer; an empty password keeps the stored one;
+  - `max_mails` answered, stored, and 422 outside 1 to 1000;
   - a host, port or user change without a password forgets it (spec „Server changed“);
   - a host or user change resets the records and answers 409 during a check;
   - 409 `no key`, also for a malformed key;
   - the reasons as 502, never with exception text;
   - `check_id` names a running or pending check
-- [ ] 7.2 Add `POST /mailbox/checks`, `GET /mailbox/checks/{id}`, `POST /mailbox/checks/{id}/cancel` and `POST /mailbox/checks/{id}/finish`, test first: 202, 409 for a running check, 409 `not configured`, `since` required on the first check, 409 for a busy alert run, 422 for an entry not offered, 404 for an unknown check, cancel 202 or 409 `check not running`
+- [ ] 7.2 Add `POST /mailbox/checks`, `GET /mailbox/checks/{id}`, `POST /mailbox/checks/{id}/cancel`, `POST /mailbox/checks/{id}/mails/{key}/read` and `POST /mailbox/checks/{id}/finish`, test first: 202, 409 for a running check, 409 `not configured`, `since` required on the first check, 409 for a busy alert run, 422 for an entry not offered, 404 for an unknown check, cancel 202 or 409 `check not running`, read 200, 404, 409 `not oversized` or 502 without exception text, and no kept mail text in any answer
 
 ## 8. Frontend: settings page (D7)
 
 - [ ] 8.1 Add the routes `#/einstellungen` and `#/einstellungen/<section>`, the gear as a link, and the page with the sections „Scoren“ and „Postfach“; move `SettingsForm` into „Scoren“ and remove the popover; verify with component tests (section by address, gear current, hint settings still save, spec scenario „Pool keys off“) and the scenario „Phone width“ in the browser
-- [ ] 8.2 Build the section „Postfach“: fields, eye toggle, stored password as eight dots, the empty field after an account change, the no-key state with `WhyDisabled`, „Verbinden und Ordner laden“, the folder hint and the folder choice; verify with component tests for each spec scenario of „Mailbox settings form“, „Password field“, „Mailbox settings without a key“ and „Folder choice“
+- [ ] 8.2 Build the section „Postfach“: fields, eye toggle, stored password as eight dots, the empty field after an account change, the no-key state with `WhyDisabled`, „Verbinden und Ordner laden“, the folder hint, the folder choice and „Höchstens Mails pro Prüfung“; verify with component tests for each spec scenario of „Mailbox settings form“, „Password field“, „Mailbox settings without a key“, „Folder choice“ and „Mails per check setting“
 
 ## 9. Frontend: mailbox source (D7)
 
 - [ ] 9.1 Extract `AlertRunView` from `AlertMailView` without a behaviour change; verify that `AlertMailView.test.tsx` passes unchanged
 - [ ] 9.2 Add the source „Postfach“: not configured, summary, „Mails ab“ with the cost hint, check start, progress, „Prüfen abbrechen“ and the cancelled note, nothing new, the failure reasons, the unreadable password, and attaching to `check_id` from `GET /mailbox`; verify with component tests for „Mailbox source“, „Mailbox check progress and outcome“ and „Cancel button of a mailbox check“, including a reload and a second tab during a check
-- [ ] 9.3 Build the report notes and the pick list grouped by mail (mail heads with the meta line and the per-mail notes, tri-state checkbox, „n von m ausgewählt“, collapse, „N Anzeigen hinzufügen“, „Nichts hinzufügen“) and hand the run to `AlertRunView`; verify with component tests for „Mailbox check report“, „Mailbox pick list kept when adding is refused“, „Mailbox pick list grouped by mail“, „Select a mail's entries at once“ and „Collapse a mail“
+- [ ] 9.3 Build the report notes and the pick list grouped by mail (mail heads with the meta line and the per-mail notes, tri-state checkbox, „n von m ausgewählt“, collapse, the oversized mail head with its read on ticking, „N Anzeigen hinzufügen“, „Nichts hinzufügen“) and hand the run to `AlertRunView`; verify with component tests for „Mailbox check report“, „Mailbox pick list kept when adding is refused“, „Mailbox pick list grouped by mail“, „Oversized mail in the pick list“, „Select a mail's entries at once“ and „Collapse a mail“
 
 ## 10. Eval and regression (D8)
 
