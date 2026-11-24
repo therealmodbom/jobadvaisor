@@ -106,7 +106,7 @@ The read-only select and `BODY.PEEK` together guarantee that no flag changes (re
 - **Account change.** A `PUT /mailbox` that changes `host` or `user`:
   - clears `since`, `last_check_at`, `handled` and `waiting`;
   - drops an unfinished check;
-  - answers 409 `check in progress` while a check runs.
+  - answers 409 `check in progress` while a check runs, and 409 `read in progress` while an oversized mail is being read (D4).
 
   A change of `host`, `port` or `user` without a new password also calls `forget` (D1).
 
@@ -153,6 +153,7 @@ Rejected: keeping the record in the state directory. The state directory is not 
 
 - It accepts only a `done` check that is not finished yet, and only the key of an oversized mail in its `mails` that has no preview answer yet (a failed read may be retried); else it raises, which the API answers as 404 or 409.
 - It runs `preview` on the kept `(html, text)` in the request thread, like `POST /alert-mails/preview`, and stores the answer on that mail. Its entries join the check's offer.
+- **No overlap.** Under the checks' lock it first sets `reading: true` on the mail, runs `preview` outside the lock, then stores the answer and clears `reading` under the lock, also when `preview` raised. While any mail of the pending check is `reading`, `finish`, a second read of that mail, a new check (`start`) and an account change (`PUT /mailbox`) are refused with `ReadInProgressError`, so no other request can mark, replace or drop the mail before its answer lands.
 - The answer counts like one from step 4, applied when the pick list is finished: a `FinderError` leaves the mail with `read_failed: <reason>` and unmarked; `screening off` marks it `waiting`; any other answer, held or empty included, marks it handled.
 - The kept parts are dropped once the mail is read, and all of them when the check is finished or replaced.
 
@@ -185,13 +186,13 @@ The mapping lives in one function around every IMAP call, so no IMAP exception r
 | Route | Answer |
 |---|---|
 | `GET /mailbox` | `{configured, host, port, user, folders, max_mails, since, last_check_at, password: "missing"\|"stored"\|"unreadable", key_configured, check_id}`. `check_id` names the running check, or the `pending` one, else null. Never the password. |
-| `PUT /mailbox` | Body: `{host, port, user, password?, folders?, max_mails?}`; `max_mails` outside 1 to 1000 is a 422. An absent or empty `password` keeps the stored one, unless the account changes (D3). It answers like `GET`. Errors: 409 `no key` when a password comes without a valid key, 409 `check in progress` on an account change during a check, or 422. |
+| `PUT /mailbox` | Body: `{host, port, user, password?, folders?, max_mails?}`; `max_mails` outside 1 to 1000 is a 422. An absent or empty `password` keeps the stored one, unless the account changes (D3). It answers like `GET`. Errors: 409 `no key` when a password comes without a valid key, 409 `check in progress` on an account change during a check, 409 `read in progress` on an account change while an oversized mail is being read, or 422. |
 | `POST /mailbox/folders` | Logs in with the stored account: `{folders: [{name, system}]}`. Errors: 502 `{error: <reason>}`, 409 `no key`, `no password` or `password unreadable`. |
-| `POST /mailbox/checks` | Body: `{since?}`, required while `since` is unset. 202 `{check_id}`. Errors: 409 `check in progress` with `check_id`, or 409 `not configured`. |
+| `POST /mailbox/checks` | Body: `{since?}`, required while `since` is unset. 202 `{check_id}`. Errors: 409 `check in progress` with `check_id`, 409 `read in progress` while an oversized mail of the pending check is being read, or 409 `not configured`. |
 | `GET /mailbox/checks/{id}` | `{check_id, status: running\|done\|failed\|finished, reason, interrupted, cancel_requested, cancelled, total, read, remaining, mails, failed, held, not_screened, missing_folders}`, or 404. Never the kept parts of an oversized mail. |
 | `POST /mailbox/checks/{id}/cancel` | 202, 404 for an unknown check, or 409 `check not running`. |
-| `POST /mailbox/checks/{id}/mails/{key}/read` | Reads an oversized mail on request and answers that mail with its preview answer (200). Errors: 404 for an unknown check or key, 409 `check not done`, 409 `not oversized` for a mail that is not oversized or already has a preview answer, 502 `screening failed` or `finder failed`. |
-| `POST /mailbox/checks/{id}/finish` | Body: `{entries: [{url, title}]}`: 0 or more, each cleaned like `POST /alert-mails/runs` and checked against the check's offer. 202 `{run_id \| null}`. Errors: 409 `alert run in progress` with `run_id`, 409 `check not done`, or 422 for an entry the check did not offer. |
+| `POST /mailbox/checks/{id}/mails/{key}/read` | Reads an oversized mail on request and answers that mail with its preview answer (200). Errors: 404 for an unknown check or key, 409 `check not done`, 409 `not oversized` for a mail that is not oversized or already has a preview answer, 409 `read in progress` while that mail is being read, 502 `screening failed` or `finder failed`. |
+| `POST /mailbox/checks/{id}/finish` | Body: `{entries: [{url, title}]}`: 0 or more, each cleaned like `POST /alert-mails/runs` and checked against the check's offer. 202 `{run_id \| null}`. Errors: 409 `alert run in progress` with `run_id`, 409 `check not done`, 409 `read in progress` while an oversized mail of the check is being read, or 422 for an entry the check did not offer. |
 
 „Verbinden und Ordner laden“ is `PUT /mailbox` followed by `POST /mailbox/folders`.
 
@@ -213,7 +214,7 @@ The mapping lives in one function around every IMAP call, so no IMAP exception r
   - It attaches to `check_id` from `GET /mailbox`, so another tab or a reload finds a running or unfinished check, and polls like the alert run.
   - While a check runs, „Prüfen abbrechen“ sits beside the progress, as in `components/check.tsx`; once `cancel_requested` is set, the view says the check stops after the current mail.
   - The report notes use `AlertMailView`'s `Note`.
-  - An oversized mail's head shows „Zu groß, nicht gelesen“ and an unticked checkbox; ticking it calls the read route, shows „Wird gelesen …“, then its entries below the head. A 502 shows the reason at the head and unticks the box.
+  - An oversized mail's head shows „Zu groß, nicht gelesen“ and an unticked checkbox; ticking it calls the read route, shows „Wird gelesen …“, then its entries below the head. A 502 shows the reason at the head and unticks the box. While it is being read, „N Anzeigen hinzufügen“ and „Nichts hinzufügen“ are disabled with `WhyDisabled`; a 409 `read in progress` from another tab is shown as that state.
   - The pick list groups by mail. Each head has a tri-state checkbox (`indeterminate` set from a ref), „n von m ausgewählt“, and a collapse button with `aria-expanded` and `aria-controls`. The rows reuse `PickRow`.
 - **Shared run view.** The run part of `AlertMailView` moves into an exported `AlertRunView`, with its polling, the stored-anyway rows and `sessionStorage`. `AlertMailView` and `MailboxView` both use it, so a run started from the mailbox shows exactly like one from a paste.
 - **Design.** The Design canvas [Postfach: Auswahlliste A oder B](https://claude.ai/artifact/DQFSqGkSPBcyqQ6wpSw932) holds the approved boards, approved on 2026-11-23:

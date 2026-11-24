@@ -131,11 +131,18 @@ A check SHALL pass each unhandled mail to the same finder as a pasted mail, with
 - **THEN** the finder reads the plain-text part
 
 ### Requirement: Oversized mails offered unread
-A mail whose HTML and plain-text parts together hold more than 2,000,000 characters SHALL NOT be read by the check; attachments SHALL NOT count. The check SHALL offer it in the pick list unread and not selected. When the user selects it, the system SHALL read it like any other mail and offer its entries. Finishing the pick list SHALL count it as handled whether or not the user selected it, unless reading it on request failed.
+A mail whose HTML and plain-text parts together hold more than 2,000,000 characters SHALL NOT be read by the check; attachments SHALL NOT count. The check SHALL offer it in the pick list unread and not selected.
 
 #### Scenario: Oversized mail
 - **WHEN** a mail's HTML part holds more than 2,000,000 characters
 - **THEN** the check does not read it and offers it in the pick list as too large, not selected
+
+#### Scenario: Large attachment
+- **WHEN** a mail carries a 10 MB attachment and an HTML part of 80,000 characters
+- **THEN** the check reads it like any other mail
+
+### Requirement: Oversized mail read on request
+When the user selects an oversized mail, the system SHALL read it like any other mail and offer its entries. Finishing the pick list SHALL count an oversized mail as handled whether or not the user selected it, unless reading it on request failed. While it is being read, the pick list SHALL NOT be finished, and no new check SHALL replace it.
 
 #### Scenario: Oversized mail read on request
 - **WHEN** the user selects an oversized mail in the pick list
@@ -149,9 +156,9 @@ A mail whose HTML and plain-text parts together hold more than 2,000,000 charact
 - **WHEN** reading an oversized mail on request fails
 - **THEN** the pick list names the failure, and the mail does not count as handled when the pick list is finished
 
-#### Scenario: Large attachment
-- **WHEN** a mail carries a 10 MB attachment and an HTML part of 80,000 characters
-- **THEN** the check reads it like any other mail
+#### Scenario: Finish during a read
+- **WHEN** an oversized mail is being read on request and the pick list is finished from another tab
+- **THEN** the finish is refused, and no mail counts as handled until the read has ended
 
 ### Requirement: Mails per check limited
 A check SHALL read at most the number of mails set for the mailbox, oldest first, and SHALL say how many unhandled mails remain for the next check. The number SHALL be a whole number from 1 to 1000, 200 when the user has not set one. The limit bounds the model cost and the duration of one check; it is no technical limit.

@@ -61,11 +61,12 @@
   - `cancel_requested` set while the current mail finishes;
   - a cancelled check's pick list finishes like any other;
   - `CheckNotRunningError` for a `done`, `failed` or `finished` check, `None` for an unknown ID
-- [ ] 6.6 Write `read_oversized`, test first against „Oversized mails offered unread“:
+- [ ] 6.6 Write `read_oversized`, test first against „Oversized mail read on request“:
   - its entries join the offer and can be finished;
   - a `FinderError` leaves it readable again and unmarked after finishing; `screening off` marks it `waiting`; held or empty marks it handled;
   - refused for an unknown key, a mail that is not oversized or already read, and a check not `done`;
-  - the kept parts dropped after the read and when the check is finished or replaced
+  - the kept parts dropped after the read and when the check is finished or replaced;
+  - while a read runs, `finish`, a second read, `start` and an account change raise `ReadInProgressError`, and `reading` is cleared after a failed read too (a test holds the stub finder on an event)
 
 ## 7. API (D6)
 
@@ -77,7 +78,7 @@
   - 409 `no key`, also for a malformed key;
   - the reasons as 502, never with exception text;
   - `check_id` names a running or pending check
-- [ ] 7.2 Add `POST /mailbox/checks`, `GET /mailbox/checks/{id}`, `POST /mailbox/checks/{id}/cancel`, `POST /mailbox/checks/{id}/mails/{key}/read` and `POST /mailbox/checks/{id}/finish`, test first: 202, 409 for a running check, 409 `not configured`, `since` required on the first check, 409 for a busy alert run, 422 for an entry not offered, 404 for an unknown check, cancel 202 or 409 `check not running`, read 200, 404, 409 `not oversized` or 502 without exception text, and no kept mail text in any answer
+- [ ] 7.2 Add `POST /mailbox/checks`, `GET /mailbox/checks/{id}`, `POST /mailbox/checks/{id}/cancel`, `POST /mailbox/checks/{id}/mails/{key}/read` and `POST /mailbox/checks/{id}/finish`, test first: 202, 409 for a running check, 409 `not configured`, `since` required on the first check, 409 for a busy alert run, 422 for an entry not offered, 404 for an unknown check, cancel 202 or 409 `check not running`, read 200, 404, 409 `not oversized` or `read in progress`, or 502 without exception text, 409 `read in progress` for finish, start and an account change during a read, and no kept mail text in any answer
 
 ## 8. Frontend: settings page (D7)
 
@@ -88,7 +89,7 @@
 
 - [ ] 9.1 Extract `AlertRunView` from `AlertMailView` without a behaviour change; verify that `AlertMailView.test.tsx` passes unchanged
 - [ ] 9.2 Add the source „Postfach“: not configured, summary, „Mails ab“ with the cost hint, check start, progress, „Prüfen abbrechen“ and the cancelled note, nothing new, the failure reasons, the unreadable password, and attaching to `check_id` from `GET /mailbox`; verify with component tests for „Mailbox source“, „Mailbox check progress and outcome“ and „Cancel button of a mailbox check“, including a reload and a second tab during a check
-- [ ] 9.3 Build the report notes and the pick list grouped by mail (mail heads with the meta line and the per-mail notes, tri-state checkbox, „n von m ausgewählt“, collapse, the oversized mail head with its read on ticking, „N Anzeigen hinzufügen“, „Nichts hinzufügen“) and hand the run to `AlertRunView`; verify with component tests for „Mailbox check report“, „Mailbox pick list kept when adding is refused“, „Mailbox pick list grouped by mail“, „Oversized mail in the pick list“, „Select a mail's entries at once“ and „Collapse a mail“
+- [ ] 9.3 Build the report notes and the pick list grouped by mail (mail heads with the meta line and the per-mail notes, tri-state checkbox, „n von m ausgewählt“, collapse, the oversized mail head with its read on ticking, „N Anzeigen hinzufügen“, „Nichts hinzufügen“) and hand the run to `AlertRunView`; verify with component tests for „Mailbox check report“, „Mailbox pick list kept when adding is refused“, „Mailbox pick list grouped by mail“, „Oversized mail in the pick list“, „Reading an oversized mail from the pick list“, „Select a mail's entries at once“ and „Collapse a mail“
 
 ## 10. Eval and regression (D8)
 

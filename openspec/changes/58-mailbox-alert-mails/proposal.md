@@ -66,14 +66,14 @@ None.
 
 - `posting-intake`: adds the following requirements.
   - Connection and folders: „Mailbox over IMAP with TLS“, „Mailbox folders listed“, „Folders a check searches“, „One mail read once per check“, „The mailbox is read only“.
-  - Which mails a check reads: „Mails from the start date on“, „Handled mails“, „Mails waiting for screening“, „Handled mails are skipped“, „Each mail through the finder“, „Oversized mails offered unread“, „Mails per check limited“.
+  - Which mails a check reads: „Mails from the start date on“, „Handled mails“, „Mails waiting for screening“, „Handled mails are skipped“, „Each mail through the finder“, „Oversized mails offered unread“, „Oversized mail read on request“, „Mails per check limited“.
   - Running a check: „One mailbox check at a time“, „A failed check names its reason“, „An interrupted check keeps what it read“, „Cancel a mailbox check“.
   - The password and the account: „Mailbox password stored encrypted“, „The mailbox password is never revealed“, „The password stays with its account“, „A new account starts fresh“, „Unreadable stored password“.
   - Adding: „Mailbox entries added like alert entries“.
 - `web-ui`: replaces „Settings in the header“ with „Settings page“, and modifies „Intake view“ (the mailbox source). Adds the following requirements.
   - Settings: „Mailbox settings form“, „Password field“, „Mailbox settings without a key“, „Folder choice“, „Mails per check setting“.
   - The mailbox source: „Mailbox source“, „Mailbox check progress and outcome“, „Cancel button of a mailbox check“, „Mailbox check report“, „Mailbox pick list kept when adding is refused“.
-  - The pick list: „Mailbox pick list grouped by mail“, „Oversized mail in the pick list“, „Select a mail's entries at once“, „Collapse a mail“.
+  - The pick list: „Mailbox pick list grouped by mail“, „Oversized mail in the pick list“, „Reading an oversized mail from the pick list“, „Select a mail's entries at once“, „Collapse a mail“.
 - `data-repository`: modifies „Documented schema per entity“ (the mailbox entity). Adds „Mailbox settings stored without the password“.
 - `deployment`: adds „Mailbox key from the host“.
 

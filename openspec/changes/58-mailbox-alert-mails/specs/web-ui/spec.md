@@ -152,15 +152,18 @@ A finished check SHALL show the entries of all its mails in one list, grouped by
 - **THEN** no entry is added, and the mails of the check are not offered again
 
 ### Requirement: Oversized mail in the pick list
-A mail the check did not read because it is too large SHALL appear in the pick list as its own mail head with sender, subject, date and folder, the note „Zu groß, nicht gelesen“ and a checkbox that is not ticked. Ticking it SHALL read the mail, show that it is being read, and then show its entries below the head like those of any other mail. A failed reading SHALL show its reason at the head and leave the checkbox unticked.
-
-#### Scenario: Oversized mail ticked
-- **WHEN** the user ticks the checkbox of an oversized mail
-- **THEN** the view shows that the mail is being read, and then its entries appear below the head
+A mail the check did not read because it is too large SHALL appear in the pick list as its own mail head with sender, subject, date and folder, the note „Zu groß, nicht gelesen“ and a checkbox that is not ticked.
 
 #### Scenario: Oversized mail not ticked
 - **WHEN** the user presses „N Anzeigen hinzufügen“ without ticking an oversized mail
 - **THEN** no entry of that mail is added, and the mail is not offered again
+
+### Requirement: Reading an oversized mail from the pick list
+Ticking an oversized mail's checkbox SHALL read the mail, show that it is being read, and then show its entries below the head like those of any other mail. A failed reading SHALL show its reason at the head and leave the checkbox unticked. While the mail is being read, „N Anzeigen hinzufügen“ and „Nichts hinzufügen“ SHALL be disabled, with the reason.
+
+#### Scenario: Oversized mail ticked
+- **WHEN** the user ticks the checkbox of an oversized mail
+- **THEN** the view shows that the mail is being read, and then its entries appear below the head
 
 ### Requirement: Mailbox check report
 Above the pick list, the view SHALL name, each as a short note: the number of mails left for the next check, chosen folders that no longer exist, mails whose reading failed, mails held by the content guard, mails not read while screening is off, and an interrupted connection. A mail head SHALL carry the notes of the pasted alert mail for that mail (hosts not read, more than 100 entries).
