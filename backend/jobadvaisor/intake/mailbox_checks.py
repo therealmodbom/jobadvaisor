@@ -354,10 +354,16 @@ class MailboxChecks:
             if client is not None:
                 with suppress(Exception):
                     client.logout()
+            error = None
             if status == "done":
-                update_mailbox(self._root, lambda current: current.model_copy(
-                    update={"last_check_at": datetime.now(UTC)}))
+                try:
+                    update_mailbox(self._root, lambda current: current.model_copy(
+                        update={"last_check_at": datetime.now(UTC)}))
+                except Exception as crash:  # the slot must be freed whatever happens
+                    status, error = "failed", type(crash).__name__
             with self._lock:
+                if error:
+                    check.state["error"] = error
                 check.state["status"] = status
                 self._computing = None
                 if status == "done" and check.state["mails"]:

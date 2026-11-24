@@ -78,7 +78,7 @@
   - 409 `no key`, also for a malformed key;
   - the reasons as 502, never with exception text;
   - `check_id` names a running or pending check
-- [ ] 7.2 Add `POST /mailbox/checks`, `GET /mailbox/checks/{id}`, `POST /mailbox/checks/{id}/cancel`, `POST /mailbox/checks/{id}/mails/{key}/read` and `POST /mailbox/checks/{id}/finish`, test first: 202, 409 for a running check, 409 `not configured`, `since` required on the first check, 409 for a busy alert run, 422 for an entry not offered, 404 for an unknown check, cancel 202 or 409 `check not running`, read 200, 404, 409 `not oversized` or `read in progress`, or 502 without exception text, 409 `read in progress` for finish, start and an account change during a read, and no kept mail text in any answer
+- [x] 7.2 Add `POST /mailbox/checks`, `GET /mailbox/checks/{id}`, `POST /mailbox/checks/{id}/cancel`, `POST /mailbox/checks/{id}/mails/{key}/read` and `POST /mailbox/checks/{id}/finish`, test first: 202, 409 for a running check, 409 `not configured`, `since` required on the first check, 409 for a busy alert run, 422 for an entry not offered, 404 for an unknown check, cancel 202 or 409 `check not running`, read 200, 404, 409 `not oversized` or `read in progress`, or 502 without exception text, 409 `read in progress` for finish, start and an account change during a read, and no kept mail text in any answer
 
 ## 8. Frontend: settings page (D7)
 

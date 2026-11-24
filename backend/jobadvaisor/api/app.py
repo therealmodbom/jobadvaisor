@@ -4,7 +4,7 @@
 import re
 from collections.abc import Callable
 from dataclasses import asdict
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from functools import cache
 from pathlib import Path
 from typing import Annotated, Literal, Self
@@ -165,6 +165,24 @@ class MailboxBody(BaseModel):
     password: StrictStr | None = None
     folders: Folders | None = None
     max_mails: int | None = Field(None, ge=1, le=1000)
+
+
+class MailboxCheckBody(BaseModel):
+    """`POST /mailbox/checks` body (optional): `{"since": "YYYY-MM-DD"}`, the start date of the
+    first check."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    since: date | None = None
+
+
+class MailboxFinishBody(BaseModel):
+    """`POST /mailbox/checks/{id}/finish` body: the chosen entries, none up to all the check
+    offered (there is no upper limit of 100 as for a pasted mail)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    entries: list[AlertRunEntryBody]
 
 
 class UnscreenedAnswer(BaseModel):
@@ -898,6 +916,78 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
         `error`, never text from the server."""
         return {"folders": [{"name": folder.name, "system": folder.system}
                             for folder in mailbox.folders()]}
+
+    @app.post("/mailbox/checks", status_code=202)
+    def start_mailbox_check(body: MailboxCheckBody | None = None) -> dict:
+        """Check the mailbox in the background; answers `{check_id}` at once. The body `{since}`
+        (a date) is required while no start date is stored and ignored after that. A check that
+        fails (no key, no password, the server) still answers 202 and ends `failed` with its
+        `reason`. 409 `check in progress` (with `check_id`), `read in progress` (an oversized
+        mail of the pending pick list is being read) or `not configured`; 422 `invalid request`
+        for a missing start date."""
+        try:
+            return {"check_id": mailbox.start(body.since if body else None)}
+        except mailbox_checks.SinceRequiredError as error:
+            return problem(422, "invalid request", f"since: {error}")
+
+    @app.get("/mailbox/checks/{check_id}")
+    def read_mailbox_check(check_id: str) -> dict:
+        """A mailbox check's state (`MailboxChecks.read`): `{check_id, status ("running", "done",
+        "failed" or "finished"), reason, error, interrupted, cancel_requested, cancelled, total,
+        read, remaining, mails, failed, held, not_screened, missing_folders}`. A mail of `mails`
+        is `{key, folder, sender, subject, date, oversized, reading, read_failed, preview}`
+        with `preview` the finder's answer (`{entries, read_by, unread_hosts, held,
+        model_skipped, truncated}`) or null for an unread oversized mail. Never the kept text
+        of a mail. 404 for an unknown check (state is in memory, a restart forgets it)."""
+        return mailbox.read(check_id) or problem(404, "not found", f"no mailbox check {check_id}")
+
+    @app.post("/mailbox/checks/{check_id}/cancel", status_code=202)
+    def cancel_mailbox_check(check_id: str) -> dict:
+        """Ask the running check to stop after the mail it reads; answers `{check_id}`. The
+        check reports `cancel_requested` until it ends `done` with `cancelled`. 404 for an
+        unknown check, 409 `check not running` for one that has ended."""
+        try:
+            if mailbox.cancel(check_id) is None:
+                return problem(404, "not found", f"no mailbox check {check_id}")
+        except mailbox_checks.CheckNotRunningError as error:
+            return problem(409, "check not running", str(error))
+        return {"check_id": check_id}
+
+    @app.post("/mailbox/checks/{check_id}/mails/{key}/read")
+    def read_mailbox_mail(check_id: str, key: str) -> dict:
+        """Read an oversized mail of a done check on request and answer that mail (the shape of
+        an item of `mails`) with its `preview`. 404 for an unknown check or mail, 409 `check not
+        done`, `not oversized` (not an unread oversized mail) or `read in progress` (this
+        mail is being read), 502 `screening failed` or `finder failed` (retryable, with no
+        exception text)."""
+        try:
+            return mailbox.read_oversized(check_id, key)
+        except KeyError:
+            return problem(404, "not found", f"no mail {key} in mailbox check {check_id}")
+        except mailbox_checks.NotOversizedError as error:
+            return problem(409, "not oversized", str(error))
+        except alert_mail.FinderError as error:
+            return problem(502, str(error), "reading the mail failed; try again")
+
+    @app.post("/mailbox/checks/{check_id}/finish", status_code=202)
+    def finish_mailbox_check(check_id: str, body: MailboxFinishBody) -> dict:
+        """Finish a done check's pick list with `{entries: [{url, title, force?}]}` (none up to
+        all offered, each link cleaned again): one alert run adds them and the check's mails
+        count as handled; answers `{run_id}` (null without entries). 404 for an unknown check,
+        409 `alert run in progress` (with `run_id`; nothing marked), `check not done` (also a
+        second finish) or `read in progress`, 422 `entry not offered` for a link the check did
+        not offer, 422 `invalid request`."""
+        entries = [RunEntry(alert_mail.clean_link(entry.url.strip()), entry.title, entry.force)
+                   for entry in body.entries]
+        try:
+            return {"run_id": mailbox.finish(check_id, entries)}
+        except KeyError:
+            return problem(404, "not found", f"no mailbox check {check_id}")
+        except mailbox_checks.EntryNotOfferedError as error:
+            return problem(422, "entry not offered", str(error))
+        except AlertRunBusyError as error:
+            return JSONResponse({"error": "alert run in progress", "detail": str(error),
+                                 "run_id": error.run_id}, status_code=409)
 
     def stored_answer(posting_id: str, posting: Posting, duplicate_by: str | None,
                       attempts: list | None) -> JSONResponse:

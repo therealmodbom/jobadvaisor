@@ -892,6 +892,23 @@ def test_a_failure_while_listing_the_folders_fails_the_check(root):
     assert SERVER_TEXT not in repr(state)
 
 
+def test_a_check_whose_last_step_fails_still_frees_the_slot(root):
+    class DeletingOnce(StubFinder):
+        deleted = False
+
+        def __call__(self, *args):
+            if not self.deleted:  # the settings vanish before the check ends
+                self.deleted = True
+                (root / "mailbox.json").unlink()
+            return super().__call__(*args)
+
+    checks = make(root, imap(mail(1)), DeletingOnce({"mail 1": found(A)}))
+    state = run(checks)
+    assert state["status"] == "failed" and state["error"] is not None
+    configure(root)
+    assert run(checks)["status"] == "done"  # not refused as busy
+
+
 def test_a_failed_check_does_not_set_the_time_of_the_last_check(root):
     run(make(root, imap(mail(1)), key=None))
     assert read_mailbox(root).last_check_at is None
