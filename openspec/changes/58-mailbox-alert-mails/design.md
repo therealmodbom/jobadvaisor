@@ -191,7 +191,7 @@ The mapping lives in one function around every IMAP call, so no IMAP exception r
   - the password input with an eye toggle (`type` password or text, `aria-pressed`);
   - a stored password as the placeholder `••••••••`, labelled „Passwort · gespeichert“;
   - without a valid key, the disabled field with `WhyDisabled`;
-  - after connecting, the folder choice as two radios and a checkbox list.
+  - after connecting, the folder hint, then the folder choice as two radios and a checkbox list.
 - **Source „Postfach“** (`views/MailboxView.tsx`, a new entry in `SOURCES` after „Alert-Mail“):
   - It reads `GET /mailbox`. Not configured: a notice with the link „Postfach einrichten“. Configured: a summary line with a link to the settings, „Mails ab“ with the cost hint while `since` is unset, and „Postfach prüfen“.
   - It attaches to `check_id` from `GET /mailbox`, so another tab or a reload finds a running or unfinished check, and polls like the alert run.

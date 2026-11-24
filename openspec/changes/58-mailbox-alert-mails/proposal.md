@@ -14,7 +14,7 @@ Configuring a mailbox needs a place for app-wide settings. Today the header's ge
 - **Mailbox account.** Any mailbox reachable over IMAP works: host, port (default 993), user and password. A provider that only allows OAuth is not supported.
   - Every connection uses TLS, with the server certificate verified.
   - „Verbinden und Ordner laden“ logs in and lists the account's folders.
-  - The user picks „Alle Ordner“ or a selection. „Alle Ordner“ is a rule, so a folder created later is included. Folders the server marks as trash, junk, sent or drafts are left out of „Alle Ordner“ and unticked in a selection.
+  - The user picks „Alle Ordner“ or a selection. „Alle Ordner“ is a rule, so a folder created later is included. Folders the server marks as trash, junk, sent or drafts are left out of „Alle Ordner“ and unticked in a selection. A hint above the choice asks for folders holding job alert mails only.
 - **Password.**
   - The password field is masked. An eye button shows the typed text.
   - A stored password shows as eight dots and is never sent back by the API, which only says whether one is stored.

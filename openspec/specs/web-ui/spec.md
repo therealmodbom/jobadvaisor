@@ -827,11 +827,15 @@ When no key for the password is configured, the password field and „Verbinden 
 - **THEN** the password field is disabled, and the info icon beside it gives the reason
 
 ### Requirement: Folder choice
-After connecting, the section SHALL offer „Alle Ordner“, which includes folders created later and leaves out system folders, or „Nur diese Ordner“ with a checkbox per folder, system folders marked and unticked at first. Saving SHALL store the choice.
+After connecting, the section SHALL offer „Alle Ordner“, which includes folders created later and leaves out system folders, or „Nur diese Ordner“ with a checkbox per folder, system folders marked and unticked at first. Above the choice, the hint „Wähle nur Ordner, in denen ausschließlich Job-Alert-Mails liegen.“ SHALL stand. Saving SHALL store the choice.
 
 #### Scenario: Selection
 - **WHEN** the user chooses „Nur diese Ordner“, ticks „Posteingang“ and „Jobs“ and saves
 - **THEN** checks search those two folders only
+
+#### Scenario: Folder hint
+- **WHEN** the section shows the folder choice
+- **THEN** the hint to choose only folders holding job alert mails stands above it
 
 ### Requirement: Mailbox source
 The intake source „Postfach“ SHALL point to the section „Postfach“ while no mailbox is configured. Once one is, it SHALL show the account, the folder choice and the time of the last check, and „Postfach prüfen“. Before the first check it SHALL show „Mails ab“, a date preset to 30 days back, with a hint that older mails are never read and that each mail from a sender without a fixed rule costs a model call.
