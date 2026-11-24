@@ -1,4 +1,4 @@
-import type { Counter, MailboxAccount, NextPass, Pool, PoolRow, RatingBody, Strength } from '@/api'
+import type { Counter, MailboxAccount, MailboxCheckState, MailboxMail, NextPass, Pool, PoolRow, RatingBody, Strength } from '@/api'
 
 /** A pool row: an open, scored posting unless `extra` says otherwise. */
 export const row = (posting_id: string, title: string, extra: Partial<PoolRow> = {}): PoolRow => ({
@@ -65,3 +65,24 @@ export const MAILBOX: MailboxAccount = {
 export const NO_MAILBOX: MailboxAccount = {
   ...MAILBOX, configured: false, host: '', user: '', password: 'missing',
 }
+
+/** A mailbox check state: `running` and empty unless `over` says otherwise. */
+export const mailCheck = (over: Partial<MailboxCheckState> = {}): MailboxCheckState => ({
+  check_id: 'c1', status: 'running', reason: null, error: null, interrupted: null, cancel_requested: false,
+  cancelled: false, total: 0, read: 0, remaining: 0, mails: [], failed: [], held: [], not_screened: [],
+  missing_folders: [], ...over,
+})
+
+/** The entries of a mailbox mail's preview: `n` new LinkedIn postings, numbered from `from`. */
+export const mailEntries = (n: number, from = 1) => Array.from({ length: n }, (_, i) => ({
+  url: `https://www.linkedin.com/jobs/view/42000${from + i}`, title: `Stelle ${from + i}`,
+  duplicate: null, login_walled: false, ambiguous: false,
+}))
+
+/** A mail of a pick list with `n` new entries (from `from`), read by the LinkedIn rule. */
+export const mailItem = (key: string, n: number, over: Partial<MailboxMail> = {}, from = 1): MailboxMail => ({
+  key, folder: 'Posteingang', sender: 'LinkedIn Job Alerts <jobalerts@linkedin.com>',
+  subject: `Neue Stellen ${key}`, date: '2026-11-22T08:15:00+01:00', oversized: false, reading: false, read_failed: null,
+  preview: { entries: mailEntries(n, from), read_by: ['linkedin'], unread_hosts: [], held: false, model_skipped: null, truncated: false },
+  ...over,
+})

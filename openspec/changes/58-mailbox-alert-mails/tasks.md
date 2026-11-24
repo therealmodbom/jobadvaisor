@@ -88,7 +88,7 @@
 ## 9. Frontend: mailbox source (D7)
 
 - [x] 9.1 Extract `AlertRunView` from `AlertMailView` without a behaviour change; verify that `AlertMailView.test.tsx` passes unchanged
-- [ ] 9.2 Add the source „Postfach“: not configured, summary, „Mails ab“ with the cost hint, check start, progress, „Prüfen abbrechen“ and the cancelled note, nothing new, the failure reasons, the unreadable password, and attaching to `check_id` from `GET /mailbox`; verify with component tests for „Mailbox source“, „Mailbox check progress and outcome“ and „Cancel button of a mailbox check“, including a reload and a second tab during a check
+- [x] 9.2 Add the source „Postfach“: not configured, summary, „Mails ab“ with the cost hint, check start, progress, „Prüfen abbrechen“ and the cancelled note, nothing new, the failure reasons, the unreadable password, and attaching to `check_id` from `GET /mailbox`; verify with component tests for „Mailbox source“, „Mailbox check progress and outcome“ and „Cancel button of a mailbox check“, including a reload and a second tab during a check
 - [ ] 9.3 Build the report notes and the pick list grouped by mail (mail heads with the meta line and the per-mail notes, tri-state checkbox, „n von m ausgewählt“, collapse, the oversized mail head with its read on ticking, „N Anzeigen hinzufügen“, „Nichts hinzufügen“) and hand the run to `AlertRunView`; verify with component tests for „Mailbox check report“, „Mailbox pick list kept when adding is refused“, „Mailbox pick list grouped by mail“, „Oversized mail in the pick list“, „Reading an oversized mail from the pick list“, „Select a mail's entries at once“ and „Collapse a mail“
 
 ## 10. Eval and regression (D8)

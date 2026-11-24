@@ -411,3 +411,49 @@ export type MailboxBody = {
 /** One folder of `POST /mailbox/folders`; a `system` folder (trash, junk, sent, drafts, all mail,
  * flagged, important) is left out of „Alle Ordner“. */
 export type MailboxFolder = { name: string; system: boolean }
+
+/** What the finder found in one mailbox mail (the shape of `AlertPreview` without `screening`). */
+export type MailboxPreview = Omit<AlertPreview, 'screening'>
+
+/** The headers of a mail a check reports, for display only: its `folder`, the `sender` and
+ * `subject` (blank when missing) and its `date` (ISO). */
+export type MailboxMailHead = { folder: string; sender: string; subject: string; date: string }
+
+/** A mail of a check's pick list. `key` is its position in the check, URL-safe. `oversized` is a
+ * mail too large to read unasked: its `preview` stays null until `POST …/mails/{key}/read`
+ * answers it. `reading` is true while that read runs (maybe in another tab); `read_failed`
+ * (`screening failed` or `finder failed`) is left by a failed read, which may be retried. */
+export type MailboxMail = MailboxMailHead & {
+  key: string
+  oversized: boolean
+  reading: boolean
+  read_failed: string | null
+  preview: MailboxPreview | null
+}
+
+/** `GET /mailbox/checks/{id}`. `status` is `running`, `done`, `failed` or `finished` (the pick
+ * list was finished, replaced or dropped by an account change). `reason` names a failed check's
+ * cause (`unreachable`, `certificate`, `login`, `folder`, `protocol`, `no key`, `no password`,
+ * `password unreadable`); `error` is the exception type of a crashed worker (never shown).
+ * `interrupted` is the reason a `done` check lost its connection after reading some mails.
+ * `total` mails are to be read and `read` are processed, `remaining` unhandled mails wait for the
+ * next check. `mails` is the pick list; `failed` (with `reason` `screening failed` or `finder
+ * failed`), `held` and `not_screened` are reports; `missing_folders` names chosen folders the
+ * server no longer has. */
+export type MailboxCheckState = {
+  check_id: string
+  status: 'running' | 'done' | 'failed' | 'finished'
+  reason: string | null
+  error: string | null
+  interrupted: string | null
+  cancel_requested: boolean
+  cancelled: boolean
+  total: number
+  read: number
+  remaining: number
+  mails: MailboxMail[]
+  failed: (MailboxMailHead & { reason: string })[]
+  held: MailboxMailHead[]
+  not_screened: MailboxMailHead[]
+  missing_folders: string[]
+}

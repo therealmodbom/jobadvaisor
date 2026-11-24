@@ -28,3 +28,17 @@ export function whenLabel(iso: string): string {
 export function addedLabel(iso: string): string {
   return `Hinzugefügt ${whenLabel(iso)}`
 }
+
+const DAY_FORMAT = new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
+
+/** „23.11.2026“ for the calendar day `day` (`YYYY-MM-DD`), however the runtime's time zone lies. */
+export function dayLabel(day: string): string {
+  const [year, month, date] = day.split('-').map(Number)
+  return DAY_FORMAT.format(new Date(year, month - 1, date))
+}
+
+/** The calendar day `days` before `now`, as `YYYY-MM-DD` in the runtime's time zone (the `value` of a date input). */
+export function daysBefore(days: number, now = new Date()): string {
+  const day = new Date(now.getFullYear(), now.getMonth(), now.getDate() - days)
+  return [day.getFullYear(), day.getMonth() + 1, day.getDate()].map((part, i) => String(part).padStart(i ? 2 : 4, '0')).join('-')
+}
