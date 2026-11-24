@@ -12,17 +12,21 @@ import socket
 import ssl
 from collections.abc import Iterator
 from contextlib import contextmanager, suppress
+from dataclasses import dataclass
 from typing import Literal
 
 from imapclient import IMAPClient
 from imapclient.exceptions import LoginError
 
-from jobadvaisor.data.models import Mailbox
+from jobadvaisor.data.models import Folders, Mailbox
 
 Reason = Literal["unreachable", "certificate", "login", "folder", "protocol", "no key",
                  "no password", "password unreadable"]
 REASONS: tuple[str, ...] = Reason.__args__
 TIMEOUT_SECONDS = 30
+UNSELECTABLE_FLAGS = {"\\noselect", "\\nonexistent"}
+# \All, \Flagged and \Important are virtual folders that show mails of other folders again.
+SYSTEM_FLAGS = {"\\trash", "\\junk", "\\sent", "\\drafts", "\\all", "\\flagged", "\\important"}
 
 
 class MailboxError(Exception):
@@ -87,3 +91,39 @@ def connect(account: Mailbox, password: str) -> IMAPClient:
                 client.shutdown()
             raise
     return client
+
+
+@dataclass(frozen=True)
+class Folder:
+    """A selectable folder of the account: its readable `name` and whether the server flags it
+    as a `system` folder (trash, junk, sent, drafts, all mails, flagged, important)."""
+
+    name: str
+    system: bool
+
+
+def list_folders(client: IMAPClient) -> list[Folder]:
+    """The account's folders that can hold mails, in the server's order, with names decoded.
+    A folder flagged `\\Noselect` or `\\NonExistent` is left out. Flags compare without case.
+    Raises `MailboxError`."""
+    with imap_errors():
+        listed = client.list_folders()
+    folders = []
+    for flags, _delimiter, name in listed:
+        flags = {flag.decode().lower() for flag in flags}
+        if not flags & UNSELECTABLE_FLAGS:
+            folders.append(Folder(name, bool(flags & SYSTEM_FLAGS)))
+    return folders
+
+
+def searched_folders(listed: list[Folder], choice: Folders) -> tuple[list[str], list[str]]:
+    """The folder names a check searches, and the chosen names that are missing. `{"all"}`:
+    every listed folder except system folders, none missing, so a folder created later is
+    searched at the next check and a server without flags has every folder searched.
+    `{"names"}`: exactly the chosen names that are listed (system folders too), in the chosen
+    order; the others are missing and skipped."""
+    if choice.names is None:
+        return [folder.name for folder in listed if not folder.system], []
+    present = {folder.name for folder in listed}
+    return ([name for name in choice.names if name in present],
+            [name for name in choice.names if name not in present])
