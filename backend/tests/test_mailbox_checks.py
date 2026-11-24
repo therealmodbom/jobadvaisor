@@ -27,6 +27,8 @@ from jobadvaisor.intake.mailbox_checks import (
     CheckNotRunningError,
     EntryNotOfferedError,
     MailboxChecks,
+    NotOversizedError,
+    ReadInProgressError,
 )
 from jobadvaisor.intake.postings import Intake
 from jobadvaisor.tools.guard import ContentGuard
@@ -477,6 +479,199 @@ def test_the_next_check_does_not_offer_the_mails_of_a_finished_pick_list(root):
     settle(checks, check_id)
     checks.finish(check_id, [])
     assert run(make(root, fake, StubFinder({"mail 4": found(A)})))["total"] == 1  # only mail 4
+
+
+# --- oversized mails read on request ------------------------------------------------------
+
+HUGE = "x" * 2_000_001
+
+
+def oversized(root, answer=None, *, screening=True, hold=False):
+    """A done check over the oversized mail 1 and the plain mail 2 (which offers nothing):
+    returns `(checks, check_id, finder)`; `answer` is what reading mail 1 returns."""
+    finder = StubFinder({"mail 1": answer if answer is not None else found(A)})
+    checks = make(root, imap(mail(1, html=f"<p>{HUGE}</p>"), mail(2)), finder, screening=screening)
+    check_id = checks.start()
+    settle(checks, check_id)
+    finder.hold = hold  # only the read on request holds, not the check's own call for mail 2
+    return checks, check_id, finder
+
+
+def read_in_thread(checks, check_id, key="0") -> tuple[threading.Thread, list]:
+    outcome = []
+
+    def read():
+        try:
+            outcome.append(checks.read_oversized(check_id, key))
+        except Exception as error:
+            outcome.append(error)
+
+    thread = threading.Thread(target=read)
+    thread.start()
+    return thread, outcome
+
+
+def test_an_oversized_mail_read_on_request_joins_the_offer_and_can_be_finished(root):
+    checks, check_id, finder = oversized(root)
+    mail_ = checks.read_oversized(check_id, "0")
+    assert mail_["preview"]["entries"][0]["url"] == A and mail_["oversized"] is True
+    assert mail_["reading"] is False and mail_["read_failed"] is None
+    assert len(finder.calls) == 2 and finder.calls[-1][0].count("x") == 2_000_001  # mail 2, mail 1
+    assert checks.finish(check_id, [RunEntry(A, "a")]) == "run-1"
+    assert handled(root) == {1, 2}
+
+
+def test_the_kept_parts_never_appear_in_a_read_and_are_dropped_after_the_read(root):
+    checks, check_id, _ = oversized(root)
+    assert "xxxxxxxxxx" not in repr(checks.read(check_id))
+    assert list(checks._checks[check_id].kept) == ["0"]
+    checks.read_oversized(check_id, "0")
+    assert checks._checks[check_id].kept == {}
+
+
+def test_the_kept_parts_are_dropped_when_the_check_is_finished(root):
+    checks, check_id, _ = oversized(root)
+    checks.finish(check_id, [])
+    assert checks._checks[check_id].kept == {}
+
+
+def test_the_kept_parts_are_dropped_when_a_new_check_replaces_the_pick_list(root):
+    checks, check_id, _ = oversized(root)
+    assert checks._checks[check_id].kept != {}
+    settle(checks, checks.start())
+    assert checks._checks[check_id].kept == {}
+    assert checks.read(check_id)["status"] == "finished"
+
+
+def test_a_failed_read_names_the_failure_and_can_be_retried(root):
+    checks, check_id, finder = oversized(root, FinderError("finder failed"))
+    with pytest.raises(FinderError):
+        checks.read_oversized(check_id, "0")
+    failed = checks.read(check_id)["mails"][0]
+    assert (failed["read_failed"], failed["reading"], failed["preview"]) == (
+        "finder failed", False, None)
+    finder.answers["mail 1"] = found(A)
+    assert checks.read_oversized(check_id, "0")["read_failed"] is None
+
+
+def test_a_mail_whose_read_failed_stays_unmarked_when_the_pick_list_is_finished(root):
+    checks, check_id, _ = oversized(root, FinderError("finder failed"))
+    with pytest.raises(FinderError):
+        checks.read_oversized(check_id, "0")
+    checks.finish(check_id, [])
+    assert handled(root) == {2} and waiting(root) == set()
+
+
+@pytest.mark.parametrize("answer", [EMPTY, HELD])
+def test_a_read_that_finds_nothing_or_a_held_mail_counts_as_handled_when_finished(root, answer):
+    checks, check_id, _ = oversized(root, answer)
+    checks.read_oversized(check_id, "0")
+    checks.finish(check_id, [])
+    assert 1 in handled(root)
+
+
+def test_a_read_with_screening_off_waits_when_finished(root):
+    checks, check_id, _ = oversized(root, NOT_SCREENED, screening=False)
+    checks.read_oversized(check_id, "0")
+    checks.finish(check_id, [])
+    assert waiting(root) == {1} and 1 not in handled(root)
+
+
+def test_a_read_is_refused_for_what_is_not_an_unread_oversized_mail_of_a_done_check(root):
+    checks, check_id, _ = oversized(root)
+    with pytest.raises(KeyError):
+        checks.read_oversized(check_id, "9")
+    with pytest.raises(KeyError):
+        checks.read_oversized("nope", "0")
+    checks.read_oversized(check_id, "0")
+    with pytest.raises(NotOversizedError):  # read already
+        checks.read_oversized(check_id, "0")
+    plain = make(root, imap(mail(1)), StubFinder({"mail 1": found(A)}))
+    plain_id = run(plain)["check_id"]
+    with pytest.raises(NotOversizedError):  # not oversized
+        plain.read_oversized(plain_id, "0")
+    checks.finish(check_id, [])
+    with pytest.raises(CheckNotDoneError):  # finished
+        checks.read_oversized(check_id, "0")
+    keyless = make(root, imap(mail(1)), key=None)
+    with pytest.raises(CheckNotDoneError):  # failed
+        keyless.read_oversized(run(keyless)["check_id"], "0")
+
+
+def test_a_running_check_cannot_have_a_mail_read(root):
+    finder = StubFinder(hold=True)
+    checks = make(root, imap(mail(1)), finder)
+    check_id = checks.start()
+    assert finder.entered.wait(10)
+    with pytest.raises(CheckNotDoneError):
+        checks.read_oversized(check_id, "0")
+    finder.release.set()
+    settle(checks, check_id)
+
+
+def test_while_a_mail_is_read_nothing_can_mark_replace_or_drop_it(root):
+    checks, check_id, finder = oversized(root, FinderError("finder failed"), hold=True)
+    thread, outcome = read_in_thread(checks, check_id)
+    assert finder.entered.wait(10)
+    assert checks.read(check_id)["mails"][0]["reading"] is True
+    with pytest.raises(ReadInProgressError):
+        checks.finish(check_id, [])
+    with pytest.raises(ReadInProgressError):
+        checks.read_oversized(check_id, "0")
+    with pytest.raises(ReadInProgressError):
+        checks.start()
+    with pytest.raises(ReadInProgressError), checks.account_change():
+        pass
+    assert handled(root) == {2} and checks.current() == check_id
+    finder.release.set()
+    thread.join(10)
+    assert isinstance(outcome[0], FinderError)
+    assert checks.read(check_id)["mails"][0]["reading"] is False  # cleared after a failed read
+    assert checks.finish(check_id, []) is None
+
+
+def test_the_read_in_progress_refusals_end_with_a_successful_read(root):
+    checks, check_id, finder = oversized(root, hold=True)
+    thread, outcome = read_in_thread(checks, check_id)
+    assert finder.entered.wait(10)
+    with pytest.raises(ReadInProgressError):
+        checks.finish(check_id, [])
+    finder.release.set()
+    thread.join(10)
+    assert outcome[0]["preview"]["entries"][0]["url"] == A
+    assert checks.finish(check_id, [RunEntry(A, "a")]) == "run-1"
+
+
+# --- the account change gate --------------------------------------------------------------
+
+
+def test_an_account_change_is_refused_while_a_check_runs_and_names_it(root):
+    finder = StubFinder(hold=True)
+    checks = make(root, imap(mail(1)), finder)
+    check_id = checks.start()
+    assert finder.entered.wait(10)
+    with pytest.raises(CheckBusyError) as busy, checks.account_change():
+        pass
+    assert busy.value.check_id == check_id
+    finder.release.set()
+    settle(checks, check_id)
+
+
+def test_an_account_change_drops_the_pending_pick_list(root):
+    checks, check_id, _ = oversized(root)
+    with checks.account_change():
+        pass
+    assert checks.current() is None and checks.read(check_id)["status"] == "finished"
+    assert checks._checks[check_id].kept == {}
+    with pytest.raises(CheckNotDoneError):
+        checks.finish(check_id, [])
+
+
+def test_a_failed_account_change_keeps_the_pending_pick_list(root):
+    checks, check_id, _ = oversized(root)
+    with pytest.raises(RuntimeError), checks.account_change():
+        raise RuntimeError("the write failed")
+    assert checks.current() == check_id and checks.read(check_id)["status"] == "done"
 
 
 # --- cancel -------------------------------------------------------------------------------

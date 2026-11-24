@@ -61,7 +61,7 @@
   - `cancel_requested` set while the current mail finishes;
   - a cancelled check's pick list finishes like any other;
   - `CheckNotRunningError` for a `done`, `failed` or `finished` check, `None` for an unknown ID
-- [ ] 6.6 Write `read_oversized`, test first against „Oversized mail read on request“:
+- [x] 6.6 Write `read_oversized`, test first against „Oversized mail read on request“:
   - its entries join the offer and can be finished;
   - a `FinderError` leaves it readable again and unmarked after finishing; `screening off` marks it `waiting`; held or empty marks it handled;
   - refused for an unknown key, a mail that is not oversized or already read, and a check not `done`;

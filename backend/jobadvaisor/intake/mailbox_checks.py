@@ -9,9 +9,9 @@ Lives next to `mailbox.py` (the IMAP access) because the check class outgrew tha
 import copy
 import threading
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -66,6 +66,10 @@ class CheckNotDoneError(Exception):
 
 class CheckNotRunningError(Exception):
     """The check is `done`, `failed` or `finished`, so it takes no cancel."""
+
+
+class NotOversizedError(Exception):
+    """The mail is not an unread oversized mail: it was read or never was oversized."""
 
 
 class ReadInProgressError(Exception):
@@ -144,6 +148,7 @@ class MailboxChecks:
         with self._lock:
             if self._computing:
                 raise CheckBusyError(self._computing)
+            self._refuse_while_reading()
             account = read_mailbox(self._root)
             if account is None:
                 raise NotConfiguredError("no mailbox is configured")
@@ -185,6 +190,65 @@ class MailboxChecks:
         with self._lock:
             check = self._checks.get(check_id)
             return copy.deepcopy(check.state) if check else None
+
+    def read_oversized(self, check_id: str, key: str) -> dict:
+        """Read the unread oversized mail `key` of a `done` check on request, like a pasted
+        mail, and answer that mail (as in `read`) with its `preview`; its entries join the
+        offer. The finder runs in the caller's thread, outside the lock, while the mail shows
+        `reading: true`, so no finish, second read, new check or account change can slip in
+        before the answer lands. A `FinderError` propagates and leaves `read_failed` on the
+        mail, which stays readable and, when the pick list is finished, unmarked. The kept parts
+        are dropped once the mail is read. Raises `KeyError` (unknown check or key),
+        `CheckNotDoneError`, `ReadInProgressError` (this mail is being read) and
+        `NotOversizedError`."""
+        with self._lock:
+            check = self._checks.get(check_id)
+            if check is None:
+                raise KeyError(check_id)
+            if check.state["status"] != "done":
+                raise CheckNotDoneError(f"check {check_id} is {check.state['status']}, not done")
+            mail = next((mail for mail in check.state["mails"] if mail["key"] == key), None)
+            if mail is None:
+                raise KeyError(key)
+            if mail["reading"]:
+                raise ReadInProgressError(f"mail {key} is being read")
+            if not mail["oversized"] or mail["preview"] is not None:
+                raise NotOversizedError(f"mail {key} is not an unread oversized mail")
+            html, text = check.kept[key]
+            mail["reading"] = True
+        try:
+            answer = self._finder(self._intake, html, text, self._record)
+        except BaseException as error:  # whatever it was, the mail is free to read again
+            with self._lock:
+                mail["reading"] = False
+                if isinstance(error, FinderError):
+                    mail["read_failed"] = str(error)
+            raise
+        with self._lock:
+            mail |= {"preview": answer, "reading": False, "read_failed": None}
+            check.kept.pop(key, None)
+            return copy.deepcopy(mail)
+
+    @contextmanager
+    def account_change(self) -> Iterator[None]:
+        """Hold the lock around a change of the account (host or user) so no check starts
+        meanwhile; the pending pick list and its kept parts are dropped when the block ends
+        without an exception. Raises `CheckBusyError` while a check runs and
+        `ReadInProgressError` while an oversized mail is being read. Code in the block must not
+        call another method of this object."""
+        with self._lock:
+            if self._computing:
+                raise CheckBusyError(self._computing)
+            self._refuse_while_reading()
+            yield
+            self._drop_pending()
+
+    def _refuse_while_reading(self) -> None:
+        """Raise `ReadInProgressError` while a mail of the pending pick list is being read. The
+        lock is held."""
+        pending = self._checks.get(self._pending) if self._pending else None
+        if pending and any(mail["reading"] for mail in pending.state["mails"]):
+            raise ReadInProgressError("an oversized mail of the pending pick list is being read")
 
     def cancel(self, check_id: str) -> str | None:
         """Ask the running check to stop; returns its ID at once. The worker looks for the
