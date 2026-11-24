@@ -26,7 +26,7 @@
 ## 5. IMAP access (D2, D5)
 
 - [x] 5.1 Write the fake IMAP client for tests, which records calls and fails on a select without `readonly=True` or a fetch item without `PEEK`; verify with a self-test
-- [ ] 5.2 Write the `connect` factory (TLS with `ssl.create_default_context()`, 30 s timeout, `imapclient` logger at WARNING) and the one reason mapping, test first:
+- [x] 5.2 Write the `connect` factory (TLS with `ssl.create_default_context()`, 30 s timeout, `imapclient` logger at WARNING) and the one reason mapping, test first:
   - a certificate error gives `certificate`, a timeout gives `unreachable`, a refused login gives `login`, a non-TLS port and every other IMAP or SSL error give `protocol`;
   - no reason holds the server text;
   - the factory leaves the `imapclient` logger at WARNING
