@@ -11,7 +11,7 @@
 
 ## 3. Password store (D1)
 
-- [ ] 3.1 Write `mailbox_secret.py` (`store`, `read`, `forget`, `PasswordUnreadable`, a key check that treats a malformed key as none), test first: a round trip, mode 600, no file means `None`, a wrong key raises `PasswordUnreadable`, a malformed key counts as no key, and the file never holds the plain text
+- [x] 3.1 Write `mailbox_secret.py` (`store`, `read`, `forget`, `PasswordUnreadable`, a key check that treats a malformed key as none), test first: a round trip, mode 600, no file means `None`, a wrong key raises `PasswordUnreadable`, a malformed key counts as no key, and the file never holds the plain text
 
 ## 4. Mailbox file and mail records (D3)
 
