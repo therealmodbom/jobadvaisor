@@ -143,7 +143,7 @@ function MailItem({ mail, reading, failure, on, toggle, setMany, collapsed, onCo
   })
   return (
     <li aria-label={`Mail „${subject}“`} className="flex flex-col rounded-[10px] border">
-      <div className="flex items-start gap-3 px-4 py-3">
+      <div className="flex items-start gap-3 px-4 py-3 max-sm:flex-wrap">
         <input ref={box} type="checkbox" aria-label={unread ? `Mail „${subject}“ lesen` : `Alle Anzeigen der Mail „${subject}“`}
                checked={unread ? reading : all} disabled={unread ? reading : selectable.length === 0}
                aria-describedby={noChoice ? whyId : undefined}
@@ -173,7 +173,7 @@ function MailItem({ mail, reading, failure, on, toggle, setMany, collapsed, onCo
           {failure && !reading && <span role="alert" className="text-[15px] text-danger">{failure}</span>}
         </div>
         {!unread && (
-          <div className="flex flex-none items-center gap-1">
+          <div className="flex flex-none items-center gap-1 max-sm:w-full max-sm:justify-between max-sm:pl-[34px]">
             <span className="text-[15px] text-muted-foreground">{chosen} von {selectable.length} ausgewählt</span>
             <button type="button" aria-label={`Anzeigen der Mail „${subject}“`} aria-expanded={!collapsed} aria-controls={listId}
                     onClick={onCollapse}
