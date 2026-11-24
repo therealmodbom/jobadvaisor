@@ -70,7 +70,7 @@
 
 ## 7. API (D6)
 
-- [ ] 7.1 Add `GET`/`PUT /mailbox` and `POST /mailbox/folders` to `create_app` (with the `connect` parameter), test first:
+- [x] 7.1 Add `GET`/`PUT /mailbox` and `POST /mailbox/folders` to `create_app` (with the `connect` parameter), test first:
   - the password never in an answer; an empty password keeps the stored one;
   - `max_mails` answered, stored, and 422 outside 1 to 1000;
   - a host, port or user change without a password forgets it (spec „Server changed“);

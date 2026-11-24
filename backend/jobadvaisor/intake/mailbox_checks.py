@@ -26,6 +26,7 @@ from jobadvaisor.intake.alert_mail import FinderError
 from jobadvaisor.intake.alert_runs import AlertRuns, RunEntry
 from jobadvaisor.intake.mailbox import (
     Candidate,
+    Folder,
     MailboxError,
     find_candidates,
     imap_errors,
@@ -169,6 +170,20 @@ class MailboxChecks:
                 del self._checks[check_id]
             raise
         return check_id
+
+    def folders(self) -> list[Folder]:
+        """The account's folders, read over a login with the stored password that is closed
+        again (`intake.mailbox.list_folders`). Raises `NotConfiguredError` and `MailboxError`
+        (`no key`, `no password`, `password unreadable`, or the connection's reason)."""
+        account = read_mailbox(self._root)
+        if account is None:
+            raise NotConfiguredError("no mailbox is configured")
+        client = self._connect(account, self._password())
+        try:
+            return list_folders(client)
+        finally:
+            with suppress(Exception):
+                client.logout()
 
     def current(self) -> str | None:
         """The ID of the running check, else of the pending one (a `done` check whose pick

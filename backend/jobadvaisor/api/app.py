@@ -19,11 +19,13 @@ from pydantic import (
     Field,
     StrictBool,
     StrictStr,
+    StringConstraints,
     ValidationError,
     model_validator,
 )
 from starlette.exceptions import HTTPException
 
+from jobadvaisor import mailbox_secret
 from jobadvaisor.agent import AgentContext, Reply, answer
 from jobadvaisor.availability import (
     AvailabilityChecks,
@@ -41,6 +43,7 @@ from jobadvaisor.data.backup import (
 from jobadvaisor.data.loader import DataRepository, DataRepositoryError, load, write_gate
 from jobadvaisor.data.models import (
     HOST_PATTERN,
+    Folders,
     ImportMapping,
     Label,
     Pool,
@@ -50,19 +53,23 @@ from jobadvaisor.data.models import (
 )
 from jobadvaisor.data.writer import (
     delete_posting,
+    read_mailbox,
     read_pool,
     read_posting,
     read_scores,
+    update_mailbox_account,
     update_pool_settings,
     write_label,
     write_login_wall_hosts,
 )
 from jobadvaisor.index import LabelIndex, PostingIndex, state_path
-from jobadvaisor.intake import alert_mail
+from jobadvaisor.intake import alert_mail, mailbox_checks
 from jobadvaisor.intake.alert_runs import AlertRunBusyError, AlertRuns, RunEntry
 from jobadvaisor.intake.entries import parse_entries, preview, tables_left_out
 from jobadvaisor.intake.imports import ImportBusyError, Imports
 from jobadvaisor.intake.ladder import login_wall_hosts
+from jobadvaisor.intake.mailbox import MailboxError
+from jobadvaisor.intake.mailbox import connect as connect_to_mailbox
 from jobadvaisor.intake.postings import (
     Intake,
     NoPostingTextError,
@@ -142,6 +149,22 @@ class AlertRunBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     entries: list[AlertRunEntryBody] = Field(min_length=1, max_length=alert_mail.MAX_ENTRIES)
+
+
+class MailboxBody(BaseModel):
+    """`PUT /mailbox` body: `host` and `user` (trimmed, not empty), `port` (default 993), an
+    optional `password` (empty or absent keeps the stored one), an optional `folders` choice
+    (`{"all": true}` or `{"names": [...]}`) and an optional `max_mails` (1 to 1000); an absent
+    `folders` or `max_mails` keeps the stored value."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    host: Annotated[StrictStr, StringConstraints(strip_whitespace=True, min_length=1)]
+    port: int = Field(993, ge=1, le=65535)
+    user: Annotated[StrictStr, StringConstraints(strip_whitespace=True, min_length=1)]
+    password: StrictStr | None = None
+    folders: Folders | None = None
+    max_mails: int | None = Field(None, ge=1, le=1000)
 
 
 class UnscreenedAnswer(BaseModel):
@@ -247,6 +270,10 @@ class AgentMessages(BaseModel):
 
 Agent = Callable[[list[dict]], Reply]
 ALL_STATUSES = ("open", "applied", "done")
+MAILBOX_SETUP_REASONS = {
+    "no key": "no mailbox key is configured (MAILBOX_KEY)",
+    "no password": "no password is stored for the mailbox",
+    "password unreadable": "the stored password cannot be decrypted; enter it again"}
 FRONTEND_BUILD = REPOSITORY_ROOT / "frontend" / "dist"
 # Written into the image at build time (Dockerfile); a file, not an environment variable, so the
 # deployment's settings cannot make the backend disagree with the frontend it serves.
@@ -257,14 +284,16 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
                agent: Agent | None = None, frontend: Path = FRONTEND_BUILD,
                imports: Imports | None = None, backup: Backup | None = None,
                alert_runs: AlertRuns | None = None,
-               checks: AvailabilityChecks | None = None) -> FastAPI:
+               checks: AvailabilityChecks | None = None,
+               connect: mailbox_checks.Connect | None = None) -> FastAPI:
     """The app over `runs`, `intake`, `agent` (conversation → reply), `imports`, `backup`,
     `alert_runs` and `checks`, by default those of the configured data repository (imports and
     alert runs over `intake`, the backup of `intake.root` with that repository's state directory,
     the availability checks of `intake.root`); the default
-    agent is built on its first message. The built frontend in `frontend` is served at `/`
-    after the API routes, so they take precedence; without a build (no `index.html`) the API
-    runs alone."""
+    agent is built on its first message. `connect` opens the IMAP connection of the mailbox
+    (`intake.mailbox.connect` by default; tests pass a fake). The built frontend in `frontend`
+    is served at `/` after the API routes, so they take precedence; without a build (no
+    `index.html`) the API runs alone."""
     settings = Settings()
     if runs is None or intake is None:
         runs, intake = runs or configured_runs(settings), intake or configured_intake(settings)
@@ -272,6 +301,10 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
     alert_runs = alert_runs or AlertRuns(intake)
     checks = checks or AvailabilityChecks(intake.root)
     mail_record = state_path(settings, intake.root) / "alert-mails.jsonl"
+    password_file = state_path(settings, intake.root) / "mailbox-password"
+    mailbox = mailbox_checks.MailboxChecks(
+        intake, alert_runs, record=mail_record, password_file=password_file,
+        key=settings.mailbox_key, connect=connect or connect_to_mailbox)
     backup = backup or Backup(intake.root, state_path(settings, intake.root))
     if agent is None:
         configured = cache(lambda: configured_agent(Settings()))
@@ -286,6 +319,35 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
     @app.exception_handler(Exception)
     def unexpected_error(request: Request, error: Exception) -> JSONResponse:
         return problem(500, "internal error", f"{type(error).__name__}: {error}")
+
+    @app.exception_handler(mailbox_checks.CheckBusyError)
+    def mailbox_check_busy(request: Request, error: mailbox_checks.CheckBusyError
+                           ) -> JSONResponse:
+        return JSONResponse({"error": "check in progress", "detail": str(error),
+                             "check_id": error.check_id}, status_code=409)
+
+    @app.exception_handler(mailbox_checks.ReadInProgressError)
+    def mailbox_read_in_progress(request: Request, error: mailbox_checks.ReadInProgressError
+                                 ) -> JSONResponse:
+        return problem(409, "read in progress", str(error))
+
+    @app.exception_handler(mailbox_checks.NotConfiguredError)
+    def mailbox_not_configured(request: Request, error: mailbox_checks.NotConfiguredError
+                               ) -> JSONResponse:
+        return problem(409, "not configured", str(error))
+
+    @app.exception_handler(mailbox_checks.CheckNotDoneError)
+    def mailbox_check_not_done(request: Request, error: mailbox_checks.CheckNotDoneError
+                               ) -> JSONResponse:
+        return problem(409, "check not done", str(error))
+
+    @app.exception_handler(MailboxError)
+    def mailbox_unreachable(request: Request, error: MailboxError) -> JSONResponse:
+        """A mailbox reason as its answer: 409 for a missing key or password (the user must
+        act in the settings), else 502. Never text from the server."""
+        if error.reason in MAILBOX_SETUP_REASONS:
+            return problem(409, error.reason, MAILBOX_SETUP_REASONS[error.reason])
+        return problem(502, error.reason, "the mailbox could not be reached")
 
     @app.exception_handler(RequestValidationError)
     def invalid_request(request: Request, error: RequestValidationError) -> JSONResponse:
@@ -757,6 +819,85 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
         except CheckStateError as error:
             return problem(409, "check not running", str(error))
         return {"check_id": check_id}
+
+    def password_state() -> Literal["missing", "stored", "unreadable"]:
+        """Whether a mailbox password is stored and the key opens it; reads it only to try."""
+        if not password_file.exists():
+            return "missing"
+        if not mailbox_secret.key_configured(settings.mailbox_key):
+            return "unreadable"
+        try:
+            mailbox_secret.read(password_file, settings.mailbox_key)
+        except mailbox_secret.PasswordUnreadable:
+            return "unreadable"
+        return "stored"
+
+    def mailbox_settings() -> dict:
+        """The body of `GET /mailbox` (and the answer of `PUT /mailbox`)."""
+        stored = read_mailbox(intake.root)
+        return {
+            "configured": stored is not None,
+            "host": stored.host if stored else "", "port": stored.port if stored else 993,
+            "user": stored.user if stored else "",
+            "folders": stored.folders.model_dump(exclude_none=True) if stored else {"all": True},
+            "max_mails": stored.max_mails if stored else 200,
+            "since": stored.since.isoformat() if stored and stored.since else None,
+            "last_check_at": stored.last_check_at.isoformat()
+            if stored and stored.last_check_at else None,
+            "password": password_state(),
+            "key_configured": mailbox_secret.key_configured(settings.mailbox_key),
+            "check_id": mailbox.current()}
+
+    @app.get("/mailbox")
+    def read_mailbox_settings() -> dict:
+        """The mailbox account without its password: `{configured, host, port, user, folders
+        ({all: true} or {names: [...]}), max_mails, since, last_check_at, password, key_configured,
+        check_id}`. `password` is `stored`, `missing` or `unreadable` (the key cannot open it, or
+        there is none); `check_id` names the running mailbox check, else the one whose pick list
+        is not finished, else null. Without a mailbox the values are the defaults (empty host and
+        user, port 993, all folders, 200 mails)."""
+        return mailbox_settings()
+
+    @app.put("/mailbox")
+    def save_mailbox_settings(body: MailboxBody) -> dict:
+        """Save the account (`MailboxBody`) and answer like `GET /mailbox`. A non-empty password
+        is stored encrypted; an empty or absent one keeps the stored password unless host, port
+        or user changed, which removes it (it must never reach another account). A host or user
+        change also clears the start date and the handled and waiting records and drops an
+        unfinished pick list. 409 `no key` for a password without a usable key, 409 `check in
+        progress` (with `check_id`) or `read in progress` for a host or user change while a
+        check runs or a mail is read, 422 `invalid request` (`max_mails` outside 1 to 1000
+        included)."""
+        if body.password and not mailbox_secret.key_configured(settings.mailbox_key):
+            return problem(409, "no key", MAILBOX_SETUP_REASONS["no key"])
+        stored = read_mailbox(intake.root)
+        moved = stored is not None and (body.host, body.user) != (stored.host, stored.user)
+        credentials_changed = stored is None or (body.host, body.port, body.user) != (
+            stored.host, stored.port, stored.user)
+
+        def save() -> None:
+            update_mailbox_account(intake.root, body.host, body.port, body.user, body.folders,
+                                   body.max_mails)
+            if body.password:
+                mailbox_secret.store(password_file, body.password, settings.mailbox_key)
+            elif credentials_changed:
+                mailbox_secret.forget(password_file)
+
+        if moved:
+            with mailbox.account_change():
+                save()
+        else:
+            save()
+        return mailbox_settings()
+
+    @app.post("/mailbox/folders")
+    def list_mailbox_folders() -> dict:
+        """Log in with the stored account and list its folders: `{folders: [{name, system}]}`.
+        409 `not configured`, `no key`, `no password` or `password unreadable` (nothing
+        attempted); 502 with a reason (`unreachable`, `certificate`, `login`, `protocol`) as
+        `error`, never text from the server."""
+        return {"folders": [{"name": folder.name, "system": folder.system}
+                            for folder in mailbox.folders()]}
 
     def stored_answer(posting_id: str, posting: Posting, duplicate_by: str | None,
                       attempts: list | None) -> JSONResponse:
