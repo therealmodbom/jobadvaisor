@@ -3,8 +3,8 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import type { MailboxAccount } from '@/api'
 import { axe } from '@/test-axe'
-import { stubApi } from '@/test-api'
-import { mailCheck, MAILBOX, NO_MAILBOX } from '@/test-fixtures'
+import { type Call, stubApi } from '@/test-api'
+import { mailCheck, mailEntries, mailItem, MAILBOX, NO_MAILBOX } from '@/test-fixtures'
 import { MailboxView } from './MailboxView'
 import { POLL_MS } from './PoolView'
 
@@ -21,6 +21,7 @@ const tick = (times = 1) => act(() => vi.advanceTimersByTimeAsync(POLL_MS * time
 
 beforeEach(() => {
   localStorage.clear()
+  sessionStorage.clear()
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] })
   vi.setSystemTime(new Date(2026, 10, 24, 12))
 })
@@ -119,8 +120,8 @@ test('without a start date the check is not started', async () => {
 test('while a check runs it shows how many mails it found and read, the check button waits and cancel is offered', async () => {
   stubApi({ 'GET /mailbox': { body: { ...CHECKED, check_id: 'c1' } }, 'GET /mailbox/checks/c1': { body: RUNNING } })
   view()
-  const progress = await screen.findByRole('region', { name: 'Stand der Prüfung' })
-  expect(progress).toHaveTextContent('12 neue Mails gefunden, 5 gelesen')
+  await screen.findByText('12 neue Mails gefunden, 5 gelesen')
+  const progress = screen.getByRole('region', { name: 'Stand der Prüfung' })
   expect(within(progress).getByRole('progressbar', { name: /5 von 12/ })).toBeVisible()
   expect(checkButton()).toBeDisabled()
   expect(screen.getByRole('button', { name: 'Warum ist Prüfen nicht möglich?' })).toBeVisible()
@@ -338,5 +339,330 @@ test('the source has no accessibility violations while a check runs and after a 
   stubApi({ 'GET /mailbox': { body: { ...MAILBOX, check_id: 'c1' } }, 'GET /mailbox/checks/c1': { body: RUNNING } })
   const { container } = view()
   await screen.findByText(/12 neue Mails gefunden/)
+  expect(await axe(container, { rules: { region: { enabled: false } } })).toHaveNoViolations()
+})
+
+// ---- 9.3: report notes and the pick list ----
+
+const RUN_KEY = 'jobadvaisor.mailbox-run'
+const dup = { posting_id: 'p-9', title: 'Stelle 6' }
+
+/** Three mails with seven entries, the first of the third already stored. */
+const THREE = () => mailCheck({
+  status: 'done', total: 3, read: 3,
+  mails: [mailItem('m1', 3), mailItem('m2', 2, {}, 4), mailItem('m3', 2, {}, 6)].map((mail, i) => i < 2 ? mail
+    : { ...mail, preview: { ...mail.preview!, entries: [{ ...mail.preview!.entries[0], duplicate: dup }, mail.preview!.entries[1]] } }),
+})
+
+/** Open the pick list of `state` through the check `GET /mailbox` names. */
+async function openPicks(state = THREE(), routes: Parameters<typeof stubApi>[0] = {}) {
+  const calls = stubApi({ 'GET /mailbox': { body: { ...CHECKED, check_id: 'c1' } }, 'GET /mailbox/checks/c1': { body: state }, ...routes })
+  view()
+  await screen.findByRole('list', { name: 'Mails der Prüfung' })
+  return calls
+}
+
+const mailItemOf = (subject: string) => screen.getByRole('listitem', { name: `Mail „${subject}“` })
+const headBox = (subject: string) => screen.getByRole('checkbox', { name: `Alle Anzeigen der Mail „${subject}“` })
+const addButton = (n: number) => screen.getByRole('button', { name: `${n === 1 ? '1 Anzeige' : `${n} Anzeigen`} hinzufügen` })
+const finishes = (calls: Call[]) => calls.filter((call) => call.path.endsWith('/finish'))
+
+test('the entries of all mails are grouped by mail, the new ones selected', async () => {
+  await openPicks()
+  const heads = screen.getAllByRole('listitem', { name: /^Mail „/ })
+  expect(heads).toHaveLength(3)
+  expect(within(mailItemOf('Neue Stellen m1')).getAllByRole('checkbox')).toHaveLength(4)
+  expect(within(mailItemOf('Neue Stellen m3')).getByRole('checkbox', { name: 'Stelle 6' })).toBeDisabled()
+  expect(within(mailItemOf('Neue Stellen m3')).getByText('Schon gespeichert')).toBeVisible()
+  expect(addButton(6)).toBeEnabled()
+  expect(within(mailItemOf('Neue Stellen m1')).getByText('3 von 3 ausgewählt')).toBeVisible()
+  expect(within(mailItemOf('Neue Stellen m3')).getByText('1 von 1 ausgewählt')).toBeVisible()
+})
+
+test('"Postfach prüfen" stays offered beside a pick list, and a new check replaces the list', async () => {
+  let started = false
+  const calls = await openPicks(THREE(), {
+    'POST /mailbox/checks': () => { started = true; return { status: 202, body: { check_id: 'c2' } } },
+    'GET /mailbox/checks/c2': { body: mailCheck({ check_id: 'c2', status: 'running', total: 4, read: 1 }) },
+    'GET /mailbox': () => ({ body: { ...CHECKED, check_id: started ? 'c2' : 'c1' } }),
+  })
+  await userEvent.click(screen.getByRole('button', { name: 'Postfach prüfen' }))
+  expect(calls.some((call) => call.method === 'POST' && call.path === '/mailbox/checks')).toBe(true)
+  await vi.waitFor(() => expect(screen.queryByRole('list', { name: 'Mails der Prüfung' })).toBeNull())
+  expect(screen.getByRole('button', { name: 'Postfach prüfen' })).toBeDisabled()
+})
+
+test('a mail head shows the sender and, below it, subject, date and folder', async () => {
+  await openPicks()
+  const head = mailItemOf('Neue Stellen m1')
+  expect(within(head).getByText('LinkedIn Job Alerts <jobalerts@linkedin.com>')).toBeVisible()
+  const meta = within(head).getByText('Neue Stellen m1').parentElement!
+  expect(meta).toHaveTextContent('22.11.2026, 08:15')
+  expect(meta).toHaveTextContent('Posteingang')
+  expect(meta.className).toMatch(/max-sm:flex-col/)
+})
+
+test('pressing the add button adds the selected entries as one run, shown like a pasted mail\'s run, and forgets the check', async () => {
+  const runRows = [{ url: mailEntry(1).url, title: 'Stelle 1', state: 'waiting' }]
+  const calls = await openPicks(THREE(), {
+    'POST /mailbox/checks/c1/finish': { status: 202, body: { run_id: 'r1' } },
+    'GET /alert-mails/runs/r1': { body: { run_id: 'r1', status: 'running', error: null, total: 1, done: 0, entries: runRows } },
+  })
+  await userEvent.click(addButton(6))
+  const [finish] = finishes(calls)
+  expect((finish.body as { entries: { url: string; title: string; force: boolean }[] }).entries).toHaveLength(6)
+  expect((finish.body as { entries: unknown[] }).entries[0]).toEqual({ url: mailEntry(1).url, title: 'Stelle 1', force: false })
+  expect(await screen.findByRole('list', { name: 'Stand je Anzeige' })).toBeVisible()
+  expect(sessionStorage.getItem(RUN_KEY)).toBe('r1')
+  expect(localStorage.getItem(CHECK_KEY)).toBeNull()
+  expect(screen.queryByRole('list', { name: 'Mails der Prüfung' })).toBeNull()
+})
+
+test('a finished run leads back to the mailbox', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /mailbox': { body: CHECKED },
+            'GET /alert-mails/runs/r1': { body: { run_id: 'r1', status: 'done', error: null, total: 1, done: 1,
+              entries: [{ url: mailEntry(1).url, title: 'Stelle 1', state: 'stored', posting_id: 'p-1' }] } } })
+  view()
+  await userEvent.click(await screen.findByRole('button', { name: 'Zurück zum Postfach' }))
+  expect(await screen.findByRole('button', { name: 'Postfach prüfen' })).toBeVisible()
+  expect(sessionStorage.getItem(RUN_KEY)).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Andere Mail einfügen' })).toBeNull()
+})
+
+const mailEntry = (n: number) => mailEntries(1, n)[0]
+
+test('"Nichts hinzufügen" adds nothing, says the mails count as handled and returns to the mailbox', async () => {
+  const calls = await openPicks(THREE(), { 'POST /mailbox/checks/c1/finish': { status: 202, body: { run_id: null } } })
+  expect(screen.getByText(/Danach gelten die Mails dieser Prüfung als gelesen/)).toBeVisible()
+  await userEvent.click(screen.getByRole('button', { name: 'Nichts hinzufügen' }))
+  expect(finishes(calls)[0].body).toEqual({ entries: [] })
+  expect(await screen.findByText(/Nichts hinzugefügt/)).toHaveTextContent(/nicht noch einmal angeboten/)
+  expect(screen.queryByRole('list', { name: 'Mails der Prüfung' })).toBeNull()
+  expect(await screen.findByRole('button', { name: 'Postfach prüfen' })).toBeVisible()
+  expect(localStorage.getItem(CHECK_KEY)).toBeNull()
+})
+
+test('a refused finish, because another alert run computes, shows that run and keeps the pick list for later', async () => {
+  let runStatus = 'running'
+  const calls = await openPicks(THREE(), {
+    'POST /mailbox/checks/c1/finish': () => (runStatus === 'running'
+      ? { status: 409, body: { error: 'alert run in progress', detail: 'x', run_id: 'r7' } }
+      : { status: 202, body: { run_id: 'r8' } }),
+    'GET /alert-mails/runs/r7': () => ({ body: { run_id: 'r7', status: runStatus, error: null, total: 4, done: runStatus === 'running' ? 1 : 4, entries: [] } }),
+    'GET /alert-mails/runs/r8': { body: { run_id: 'r8', status: 'running', error: null, total: 1, done: 0, entries: [] } },
+  })
+  await userEvent.click(addButton(6))
+  const busy = await screen.findByRole('region', { name: 'Ein anderer Lauf rechnet' })
+  expect(busy).toHaveTextContent('1 von 4 erledigt')
+  expect(screen.getByRole('list', { name: 'Mails der Prüfung' })).toBeVisible()
+  expect(addButton(6)).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Warum ist Hinzufügen nicht möglich?' })).toBeVisible()
+  expect(localStorage.getItem(CHECK_KEY)).toBe('c1')
+  runStatus = 'done'
+  await tick()
+  await vi.waitFor(() => expect(screen.queryByRole('region', { name: 'Ein anderer Lauf rechnet' })).toBeNull())
+  expect(addButton(6)).toBeEnabled()
+  await userEvent.click(addButton(6))
+  expect(finishes(calls)).toHaveLength(2)
+  expect(await screen.findByRole('heading', { name: /erledigt/ })).toBeVisible()
+})
+
+test('a failed finish keeps the pick list and says so', async () => {
+  await openPicks(THREE(), { 'POST /mailbox/checks/c1/finish': { status: 500 } })
+  await userEvent.click(addButton(6))
+  expect(await screen.findByRole('alert')).toHaveTextContent('konnten nicht hinzugefügt werden')
+  expect(addButton(6)).toBeEnabled()
+})
+
+test('a finish refused because the check was finished elsewhere reads the check again and drops it', async () => {
+  let finished = false
+  await openPicks(THREE(), {
+    'GET /mailbox/checks/c1': () => ({ body: finished ? mailCheck({ status: 'finished' }) : THREE() }),
+    'POST /mailbox/checks/c1/finish': () => { finished = true; return { status: 409, body: { error: 'check not done', detail: 'x' } } },
+  })
+  await userEvent.click(addButton(6))
+  expect(await screen.findByRole('button', { name: 'Postfach prüfen' })).toBeVisible()
+  expect(screen.queryByRole('list', { name: 'Mails der Prüfung' })).toBeNull()
+})
+
+test('clearing a mail\'s checkbox clears its entries, the head counts and the add button follows', async () => {
+  await openPicks()
+  const head = mailItemOf('Neue Stellen m1')
+  expect(headBox('Neue Stellen m1')).toBeChecked()
+  await userEvent.click(headBox('Neue Stellen m1'))
+  expect(within(head).getByText('0 von 3 ausgewählt')).toBeVisible()
+  expect(within(head).getAllByRole('checkbox').slice(1).every((box) => !(box as HTMLInputElement).checked)).toBe(true)
+  expect(headBox('Neue Stellen m1')).not.toBeChecked()
+  expect(addButton(3)).toBeVisible()
+  await userEvent.click(headBox('Neue Stellen m1'))
+  expect(within(head).getByText('3 von 3 ausgewählt')).toBeVisible()
+  expect(addButton(6)).toBeVisible()
+})
+
+test('a mail with some entries selected shows a dash and selects all on the next press', async () => {
+  await openPicks()
+  await userEvent.click(screen.getByRole('checkbox', { name: 'Stelle 4' }))
+  expect(headBox('Neue Stellen m2')).toBePartiallyChecked()
+  expect(within(mailItemOf('Neue Stellen m2')).getByText('1 von 2 ausgewählt')).toBeVisible()
+  await userEvent.click(headBox('Neue Stellen m2'))
+  expect(headBox('Neue Stellen m2')).toBeChecked()
+  expect(within(mailItemOf('Neue Stellen m2')).getByText('2 von 2 ausgewählt')).toBeVisible()
+})
+
+test('a collapsed mail hides its entries, keeps its selection and its head', async () => {
+  await openPicks()
+  await userEvent.click(screen.getByRole('checkbox', { name: 'Stelle 3' }))
+  const toggle = screen.getByRole('button', { name: 'Anzeigen der Mail „Neue Stellen m1“' })
+  const list = screen.getByRole('list', { name: 'Anzeigen der Mail „Neue Stellen m1“' })
+  expect(toggle).toHaveAttribute('aria-expanded', 'true')
+  expect(toggle).toHaveAttribute('aria-controls', list.id)
+  await userEvent.click(toggle)
+  expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  expect(list).not.toBeVisible()
+  expect(document.getElementById(list.id)).toBe(list)
+  expect(within(mailItemOf('Neue Stellen m1')).getByText('2 von 3 ausgewählt')).toBeVisible()
+  expect(addButton(5)).toBeVisible()
+  await userEvent.click(toggle)
+  expect(list).toBeVisible()
+  expect(screen.getByRole('checkbox', { name: 'Stelle 3' })).not.toBeChecked()
+})
+
+test('the report names the mails left, missing folders, failed, held and unscreened mails and an interrupted connection', async () => {
+  const head = { folder: 'Jobs', date: '2026-11-21T10:00:00+01:00' }
+  await openPicks({
+    ...THREE(), remaining: 60, missing_folders: ['Alt'], interrupted: 'unreachable',
+    failed: [{ ...head, sender: 'Firma A', subject: 'Angebote A', reason: 'finder failed' }],
+    held: [{ ...head, sender: 'Firma B', subject: 'Angebote B' }],
+    not_screened: [{ ...head, sender: 'Firma C', subject: 'Angebote C' }],
+  })
+  const notes = screen.getAllByRole('note').map((note) => note.textContent)
+  expect(notes.some((text) => /60 Mails sind für die nächste Prüfung übrig/.test(text!))).toBe(true)
+  expect(notes.some((text) => /Alt/.test(text!) && /gibt es nicht mehr/.test(text!))).toBe(true)
+  expect(notes.some((text) => /Firma A, „Angebote A“/.test(text!) && /Nicht gelesen/.test(text!))).toBe(true)
+  expect(notes.some((text) => /Firma B, „Angebote B“/.test(text!) && /zurückgehalten/.test(text!))).toBe(true)
+  expect(notes.some((text) => /Firma C, „Angebote C“/.test(text!) && /Inhaltsprüfung aus/.test(text!))).toBe(true)
+  expect(notes.some((text) => /Verbindung unterbrochen/.test(text!) && /nicht erreichbar/.test(text!))).toBe(true)
+  expect(screen.queryByRole('listitem', { name: /Angebote A/ })).toBeNull()
+})
+
+test('a check without a pick list still shows its report notes, with the dismiss button', async () => {
+  const head = { folder: 'Jobs', date: '2026-11-21T10:00:00+01:00' }
+  stubApi({ 'GET /mailbox': { body: { ...CHECKED, check_id: 'c1' } },
+            'GET /mailbox/checks/c1': { body: mailCheck({ status: 'done', total: 2, read: 2,
+              failed: [{ ...head, sender: 'Firma A', subject: 'Angebote A', reason: 'screening failed' }],
+              held: [{ ...head, sender: 'Firma B', subject: 'Angebote B' }] }) } })
+  view()
+  expect(await screen.findByText(/Firma A, „Angebote A“/)).toBeVisible()
+  expect(screen.getByText(/Firma B, „Angebote B“/)).toBeVisible()
+  expect(screen.getByText(/enthalten keine Anzeigen zum Auswählen/)).toBeVisible()
+  await userEvent.click(screen.getByRole('button', { name: 'Bericht ausblenden' }))
+  expect(screen.queryByText(/Firma A/)).toBeNull()
+})
+
+test('a mail head carries the notes of a pasted mail: hosts not read and more than 100 entries', async () => {
+  const mail = mailItem('m1', 2)
+  mail.preview = { ...mail.preview!, unread_hosts: [{ host: 'jobs.example.com', links: 3 }], truncated: true }
+  await openPicks(mailCheck({ status: 'done', total: 1, read: 1, mails: [mail] }))
+  const notes = within(mailItemOf('Neue Stellen m1')).getAllByRole('note').map((note) => note.textContent)
+  expect(notes.some((text) => /jobs\.example\.com \(3 Links\)/.test(text!))).toBe(true)
+  expect(notes.some((text) => /mehr als 100 Stellen/.test(text!))).toBe(true)
+})
+
+/** A pick list with an oversized mail `big` (not read) beside a mail `m1` with two entries. */
+const WITH_BIG = (big: Partial<ReturnType<typeof mailItem>> = {}) => mailCheck({
+  status: 'done', total: 2, read: 2,
+  mails: [mailItem('m1', 2), mailItem('big', 0, { oversized: true, preview: null, subject: 'Riesige Mail', ...big })],
+})
+
+test('an oversized mail is its own head, not read, with an unticked checkbox, and is not added unticked', async () => {
+  const calls = await openPicks(WITH_BIG(), { 'POST /mailbox/checks/c1/finish': { status: 202, body: { run_id: null } } })
+  const head = mailItemOf('Riesige Mail')
+  expect(within(head).getByText('Zu groß, nicht gelesen')).toBeVisible()
+  expect(headBox('Riesige Mail')).not.toBeChecked()
+  expect(within(head).queryByText(/ausgewählt/)).toBeNull()
+  await userEvent.click(addButton(2))
+  expect((finishes(calls)[0].body as { entries: unknown[] }).entries).toHaveLength(2)
+})
+
+test('ticking an oversized mail reads it, shows that it is read and then its entries below the head', async () => {
+  let release: (value: { body: unknown }) => void = () => {}
+  const read = new Promise<{ body: unknown }>((resolve) => { release = resolve })
+  const calls = await openPicks(WITH_BIG(), { 'POST /mailbox/checks/c1/mails/big/read': () => read })
+  await userEvent.click(headBox('Riesige Mail'))
+  const head = mailItemOf('Riesige Mail')
+  expect(within(head).getByText('Wird gelesen …')).toBeVisible()
+  expect(addButton(2)).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Nichts hinzufügen' })).toBeDisabled()
+  expect(screen.getAllByRole('button', { name: 'Warum ist Hinzufügen nicht möglich?' })).not.toHaveLength(0)
+  expect(calls.filter((call) => call.path.endsWith('/read'))).toHaveLength(1)
+  await act(async () => release({ body: mailItem('big', 3, { subject: 'Riesige Mail' }, 10) }))
+  expect(await within(head).findByRole('checkbox', { name: 'Stelle 10' })).toBeChecked()
+  expect(within(head).queryByText('Zu groß, nicht gelesen')).toBeNull()
+  expect(within(head).getByText('3 von 3 ausgewählt')).toBeVisible()
+  expect(addButton(5)).toBeEnabled()
+  expect(screen.getByRole('button', { name: 'Nichts hinzufügen' })).toBeEnabled()
+})
+
+test.each([['screening failed', /Inhaltsprüfung hat nicht geantwortet/], ['finder failed', /Modell hat nicht geantwortet/]])(
+  'a failed reading of an oversized mail (%s) shows its reason at the head and leaves the box unticked', async (error, text) => {
+    await openPicks(WITH_BIG(), { 'POST /mailbox/checks/c1/mails/big/read': { status: 502, body: { error, detail: 'x' } } })
+    await userEvent.click(headBox('Riesige Mail'))
+    expect(await within(mailItemOf('Riesige Mail')).findByText(text)).toBeVisible()
+    expect(headBox('Riesige Mail')).not.toBeChecked()
+    expect(within(mailItemOf('Riesige Mail')).getByText('Zu groß, nicht gelesen')).toBeVisible()
+    expect(addButton(2)).toBeEnabled()
+  })
+
+test('an oversized mail whose reading failed before shows the reason after a reload', async () => {
+  await openPicks(WITH_BIG({ read_failed: 'finder failed' }))
+  expect(within(mailItemOf('Riesige Mail')).getByText(/Modell hat nicht geantwortet/)).toBeVisible()
+})
+
+test('an oversized mail read in another tab shows as being read, the buttons wait, and its entries come with the next poll', async () => {
+  let reads = 0
+  await openPicks(WITH_BIG({ reading: true }), {
+    'GET /mailbox/checks/c1': () => ({ body: ++reads < 2 ? WITH_BIG({ reading: true })
+      : mailCheck({ status: 'done', total: 2, read: 2, mails: [mailItem('m1', 2), mailItem('big', 3, { subject: 'Riesige Mail' }, 10)] }) }),
+  })
+  expect(within(mailItemOf('Riesige Mail')).getByText('Wird gelesen …')).toBeVisible()
+  expect(addButton(2)).toBeDisabled()
+  await tick()
+  expect(await screen.findByRole('checkbox', { name: 'Stelle 10' })).toBeVisible()
+  expect(addButton(5)).toBeEnabled()
+})
+
+test('ticking an oversized mail that is being read elsewhere reads the check again and shows it as being read', async () => {
+  let reading = false
+  await openPicks(WITH_BIG(), {
+    'GET /mailbox/checks/c1': () => ({ body: WITH_BIG({ reading }) }),
+    'POST /mailbox/checks/c1/mails/big/read': () => { reading = true; return { status: 409, body: { error: 'read in progress', detail: 'x' } } },
+  })
+  await userEvent.click(headBox('Riesige Mail'))
+  expect(await within(mailItemOf('Riesige Mail')).findByText('Wird gelesen …')).toBeVisible()
+  expect(addButton(2)).toBeDisabled()
+})
+
+test('a finish refused while a mail is read elsewhere shows that mail as being read', async () => {
+  let reading = false
+  await openPicks(WITH_BIG(), {
+    'GET /mailbox/checks/c1': () => ({ body: WITH_BIG({ reading }) }),
+    'POST /mailbox/checks/c1/finish': () => { reading = true; return { status: 409, body: { error: 'read in progress', detail: 'x' } } },
+  })
+  await userEvent.click(addButton(2))
+  expect(await within(mailItemOf('Riesige Mail')).findByText('Wird gelesen …')).toBeVisible()
+})
+
+test('a cancelled check shows its pick list with the note of how far it got', async () => {
+  await openPicks({ ...THREE(), cancelled: true, total: 200, read: 37 })
+  expect(screen.getAllByRole('note').some((note) => /nach 37 von 200 Mails abgebrochen/.test(note.textContent!))).toBe(true)
+  expect(screen.getByRole('list', { name: 'Mails der Prüfung' })).toBeVisible()
+})
+
+test('the pick list has unique ids and no accessibility violations', async () => {
+  await openPicks()
+  const container = document.body
+  const ids = Array.from(container.querySelectorAll('[id]'), (element) => element.id)
+  expect(new Set(ids).size).toBe(ids.length)
   expect(await axe(container, { rules: { region: { enabled: false } } })).toHaveNoViolations()
 })

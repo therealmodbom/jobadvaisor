@@ -1,19 +1,21 @@
-import { useId, useState } from 'react'
+import { useCallback, useId, useState } from 'react'
 import { Square } from 'lucide-react'
-import type { MailboxAccount, MailboxCheckState } from '@/api'
-import { Note } from '@/components/alert-pick'
+import { api, ApiError, type AlertEntry, type MailboxAccount, type MailboxCheckState, type MailboxMail } from '@/api'
+import { AlertRunView } from '@/components/alert-run'
 import { DismissButton } from '@/components/dismiss'
+import { MailReport, MailboxPickList } from '@/components/mailbox-pick'
 import { ProgressBlock } from '@/components/progress'
 import { ErrorWithRetry, Loading } from '@/components/states'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { WhyDisabled } from '@/components/why'
-import { plural } from '@/lib/alert'
+import { MAILBOX_WORDS, plural } from '@/lib/alert'
+import { runStore, useAlertRun } from '@/lib/alert-run'
 import { dayLabel, daysBefore, whenLabel } from '@/lib/german'
-import { mailboxReason } from '@/lib/mailbox'
+import { mailboxReason, oversizedFailure } from '@/lib/mailbox'
 import { useMailbox } from '@/lib/mailbox-check'
 import { SETTINGS_HASH } from '@/lib/sections'
-import { cn } from '@/lib/utils'
+import { cn, without } from '@/lib/utils'
 
 const MAILBOX_SECTION = `${SETTINGS_HASH}/postfach`
 const PANEL = 'flex flex-col gap-3.5 rounded-xl border bg-card p-5 shadow-card'
@@ -24,26 +26,46 @@ const HINT_STOPPING = 'Wird nach der aktuellen Mail beendet. Die bisher gelesene
 /** How far back the first check reads, preset in „Mails ab“, in days. */
 const FIRST_DAYS = 30
 
+/** The alert run of the entries picked from a check, kept apart from the pasted mail's run. */
+const runs = runStore('jobadvaisor.mailbox-run', 'jobadvaisor.mailbox-run-base')
+
 /** „Alle Ordner“ or the chosen names, as the summary line says it. */
 const folderSummary = (folders: MailboxAccount['folders']) => folders.names ? folders.names.join(', ') : 'Alle Ordner'
 
 /** The source „Postfach“ of the intake view: the mailbox account in one line, „Mails ab“ before
  * the first check, „Postfach prüfen“, the progress of a running check with „Prüfen abbrechen“,
- * and the outcome (no new mails, a cancel, a failure with its reason). The account is read when
- * the source is first shown (`active`); a check that runs elsewhere, or whose pick list is not
- * finished, is found through `GET /mailbox`, and its ID stays in browser storage (`useMailbox`).
- * Without a mailbox it points to the settings. */
-export function MailboxView({ active }: { active: boolean; onText: () => void; onPdf: () => void }) {
+ * and the outcome: a failure with its reason, a report, and the pick list of the mails' entries
+ * grouped by mail, whose chosen entries are added as one alert run (`AlertRunView`). The account
+ * is read when the source is first shown (`active`); a check that runs elsewhere, or whose pick
+ * list is not finished, is found through `GET /mailbox`, and its ID stays in browser storage
+ * (`useMailbox`). Without a mailbox it points to the settings. `onText` and `onPdf` switch the
+ * intake view to the other sources, for an entry the run could not read. */
+export function MailboxView({ active, onText, onPdf }: { active: boolean; onText: () => void; onPdf: () => void }) {
   const box = useMailbox(active)
+  const run = useAlertRun(runs)
   const { account, check } = box
   const [since, setSince] = useState(() => daysBefore(FIRST_DAYS))
   const [problem, setProblem] = useState('')
+  const [finishing, setFinishing] = useState(false)
+  const [finishFailed, setFinishFailed] = useState(false)
+  /** The alert run that refused the finish, until it ends. */
+  const [busyRun, setBusyRun] = useState<string | null>(null)
+  /** What the last finish without entries said, until the next check starts. */
+  const [flash, setFlash] = useState('')
+  /** Oversized mails being read from this view, and why a reading failed, by mail key. */
+  const [reading, setReading] = useState<Set<string>>(new Set())
+  const [failures, setFailures] = useState<Record<string, string>>({})
   const hintId = useId()
   const whyId = useId()
   const sinceId = useId()
   const sinceHintId = useId()
   const emptyId = useId()
+  const endBusy = useCallback(() => setBusyRun(null), [])
 
+  if (run.gone || run.runId) {
+    return <AlertRunView run={run} words={MAILBOX_WORDS} onText={onText} onPdf={onPdf}
+                         onOver={() => { run.clear(); void box.load() }} />
+  }
   if (account === null) {
     return box.accountFailed
       ? <ErrorWithRetry title="Das Postfach konnte nicht gelesen werden" onRetry={box.retryAccount} />
@@ -66,12 +88,59 @@ export function MailboxView({ active }: { active: boolean; onText: () => void; o
       return
     }
     setProblem('')
+    setFlash('')
+    setFinishFailed(false)
+    setBusyRun(null)
     void box.start(account!.since === null ? since : null)
+  }
+
+  /** Finish the pick list with `entries`: they run as one alert run and the check is forgotten.
+   * A busy alert run keeps the pick list and is shown; a check finished elsewhere, or a mail read
+   * elsewhere, makes the check be read again. */
+  async function finish(entries: AlertEntry[]) {
+    if (finishing || !check) return
+    setFinishing(true)
+    setFinishFailed(false)
+    try {
+      const { run_id: id } = await api<{ run_id: string | null }>(`/mailbox/checks/${check.check_id}/finish`, {
+        method: 'POST', json: { entries: entries.map((entry) => ({ url: entry.url, title: entry.title, force: false })) },
+      })
+      box.dismiss()
+      if (id) run.attach(id, entries)
+      else setFlash('Nichts hinzugefügt. Die Mails der Prüfung werden nicht noch einmal angeboten.')
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409 && typeof error.body.run_id === 'string') setBusyRun(error.body.run_id)
+      else if (error instanceof ApiError && (error.status === 409 || error.status === 404)) void box.refresh()
+      else setFinishFailed(true)
+    } finally {
+      setFinishing(false)
+    }
+  }
+
+  /** Read the oversized `mail` on request and put its answer into the pick list. */
+  async function readMail(mail: MailboxMail) {
+    if (!check || reading.has(mail.key)) return
+    setReading((now) => new Set(now).add(mail.key))
+    setFailures((now) => without(now, mail.key))
+    try {
+      box.setMail(await api<MailboxMail>(`/mailbox/checks/${check.check_id}/mails/${mail.key}/read`, { method: 'POST' }))
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 502) setFailures((now) => ({ ...now, [mail.key]: oversizedFailure(error.error) }))
+      else if (error instanceof ApiError && (error.status === 409 || error.status === 404)) void box.refresh()
+      else setFailures((now) => ({ ...now, [mail.key]: oversizedFailure(null) }))
+    } finally {
+      setReading((now) => {
+        const next = new Set(now)
+        next.delete(mail.key)
+        return next
+      })
+    }
   }
 
   const { running, stopping } = box
   const failed = check?.status === 'failed' ? check : null
   const ended = check?.status === 'done' ? check : null
+  const picking = ended !== null && ended.mails.length > 0
   return (
     <div className="flex flex-col gap-6">
       <section aria-label="Postfach" className={PANEL}>
@@ -119,7 +188,7 @@ export function MailboxView({ active }: { active: boolean; onText: () => void; o
             Die Prüfung ist dem Server nicht mehr bekannt, er wurde wohl neu gestartet. Starte eine neue Prüfung.
           </p>
         )}
-        {ended && <Outcome check={ended} since={account.since} onDismiss={box.dismiss} />}
+        {flash && <p className="rounded-xl border bg-card px-4 py-3">{flash}</p>}
       </div>
       {box.notice && <p role="alert" className="rounded-xl border border-danger bg-danger-soft px-4 py-3">{box.notice}</p>}
       {running && box.pollFailed && (
@@ -129,6 +198,18 @@ export function MailboxView({ active }: { active: boolean; onText: () => void; o
         </p>
       )}
       {failed && <Failure check={failed} onRetry={startCheck} />}
+      {ended && (
+        <>
+          <MailReport check={ended} />
+          {picking ? (
+            <MailboxPickList key={ended.check_id} check={ended} reading={reading} failures={failures} finishing={finishing}
+                             finishFailed={finishFailed} busyRun={busyRun} onBusyEnded={endBusy} onRead={readMail}
+                             onAdd={finish} onNothing={() => finish([])} onText={onText} />
+          ) : (
+            <Nothing check={ended} since={account.since} onDismiss={box.dismiss} />
+          )}
+        </>
+      )}
     </div>
   )
 }
@@ -148,21 +229,18 @@ function Progress({ check, stopping, hintId }: { check: MailboxCheckState | null
   )
 }
 
-/** What a `done` check left: for a cancel the note after how many mails it stopped, and without
- * any mail to pick from the plain statement that nothing is new since `since`, with a dismiss
- * button for the report. */
-function Outcome({ check, since, onDismiss }: { check: MailboxCheckState; since: string | null; onDismiss: () => void }) {
-  const nothing = check.mails.length === 0
+/** A `done` check with no mail to pick from: no new mails since `since` (nothing was read), or
+ * mails read that held no posting (their report is above), with a dismiss button. A cancel before
+ * the first mail says nothing more than its note above. */
+function Nothing({ check, since, onDismiss }: { check: MailboxCheckState; since: string | null; onDismiss: () => void }) {
+  const text = check.total === 0
+    ? (check.cancelled ? null : since ? `Keine neuen Mails seit dem ${dayLabel(since)}.` : 'Keine neuen Mails.')
+    : 'Die gelesenen Mails enthalten keine Anzeigen zum Auswählen.'
   return (
-    <>
-      {check.cancelled && <Note>Die Prüfung wurde nach {check.read} von {check.total} Mails abgebrochen.</Note>}
-      {nothing && !check.cancelled && check.total === 0 && (
-        <div className="flex items-start justify-between gap-2 rounded-xl border bg-card px-4 py-3">
-          <p>{since ? `Keine neuen Mails seit dem ${dayLabel(since)}.` : 'Keine neuen Mails.'}</p>
-          <DismissButton label="Bericht ausblenden" onDismiss={onDismiss} />
-        </div>
-      )}
-    </>
+    <div className="flex items-start justify-between gap-2 rounded-xl border bg-card px-4 py-3">
+      <p>{text ?? 'Es gibt nichts zum Auswählen.'}</p>
+      <DismissButton label="Bericht ausblenden" onDismiss={onDismiss} />
+    </div>
   )
 }
 

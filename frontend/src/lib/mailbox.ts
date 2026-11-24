@@ -15,3 +15,10 @@ const REASONS: Record<string, string> = {
 /** The text for `reason`; an unknown code gets a general sentence. */
 export const mailboxReason = (reason: string | null | undefined): string =>
   REASONS[reason ?? ''] ?? 'Das Postfach konnte nicht gelesen werden.'
+
+/** German text for a failed reading of an oversized mail, by the API's error. */
+export function oversizedFailure(error: string | null): string {
+  if (error === 'screening failed') return 'Die Inhaltsprüfung hat nicht geantwortet, deshalb hat kein Modell die Mail gelesen. Hake sie noch einmal an, um es erneut zu versuchen.'
+  if (error === 'finder failed') return 'Das Modell hat nicht geantwortet. Hake die Mail noch einmal an, um es erneut zu versuchen.'
+  return 'Die Mail konnte nicht gelesen werden. Hake sie noch einmal an, um es erneut zu versuchen.'
+}
