@@ -12,8 +12,9 @@ from jobadvaisor.api.app import create_app
 from jobadvaisor.data.loader import load
 from jobadvaisor.data.models import ImportMapping
 from jobadvaisor.intake import imports as imports_module
+from jobadvaisor.intake import ladder as ladder_module
 from jobadvaisor.intake.entries import Entry
-from jobadvaisor.intake.fetch import CLOSED_REDIRECT, CLOSED_TEXT, REFUSED_REDIRECT
+from jobadvaisor.intake.fetch import CLOSED_REDIRECT, CLOSED_TEXT, REFUSED_REDIRECT, FetchError
 from jobadvaisor.intake.imports import ImportBusyError, Imports, import_entry
 from jobadvaisor.intake.ladder import disputed, gone_disputed, is_gone
 from jobadvaisor.intake.postings import Intake
@@ -363,6 +364,36 @@ def test_a_closed_page_is_a_gone_link_that_is_not_looked_for_elsewhere(
         "skipped_gone", None, reason)
     assert not loop.seen and closed_site.hits == [f"/{path}"]
     assert not (tmp_path / "postings").exists() or not list((tmp_path / "postings").glob("*"))
+
+
+def import_with_fetchers(tmp_path, monkeypatch, plain: str, rendered: str):
+    """`import_entry` of one link whose fake plain and rendered fetches fail with the given
+    outcomes; returns the outcome and the intake loop's model."""
+    def refuse(outcome):
+        def fetch(url):
+            raise FetchError(outcome)
+        return fetch
+
+    monkeypatch.setattr(ladder_module, "fetch_plain", refuse(plain))
+    monkeypatch.setattr(ladder_module, "fetch_rendered", refuse(rendered))
+    write_json(tmp_path / "profile.json", {"schema_version": "1", "summary": "Developer"})
+    write_json(tmp_path / "policy-pack.json", POLICY_PACK)
+    loop = ToolScriptModel(plan=[])
+    intake = Intake(tmp_path, FakeStructuredModel(), ContentGuard(None, {}), loop_model=loop)
+    return import_entry(intake, Entry("t", "r", "https://jobs.example.org/x", None, None),
+                        ImportMapping()), loop
+
+
+def test_a_gone_answer_that_is_disputed_fails_the_row_and_runs_the_intake_loop(
+        tmp_path, monkeypatch):
+    outcome, loop = import_with_fetchers(tmp_path, monkeypatch, "HTTP 404", "HTTP 429")
+    assert outcome == ("failed", None, "HTTP 429") and loop.seen
+
+
+def test_a_link_that_answers_gone_to_every_request_is_skipped_without_the_loop(
+        tmp_path, monkeypatch):
+    outcome, loop = import_with_fetchers(tmp_path, monkeypatch, "HTTP 404", "HTTP 404")
+    assert outcome == ("skipped_gone", None, "HTTP 404") and not loop.seen
 
 
 def test_an_entry_without_a_link_fails_with_the_reason_kein_link(tmp_path):
