@@ -73,8 +73,9 @@ function RunPanel({ entries, status, words, start, runId, cancelRequested, onTex
   const runHeadingId = useId()
   const ended = (entry: AlertRunEntry) => ['stored', 'duplicate', 'closed', 'failed'].includes(entry.state)
   const finished = entries.filter(ended).length
-  const count = (state: AlertRunEntry['state']) => entries.filter((entry) => entry.state === state).length
-  const unclear = entries.filter((entry) => entry.state === 'failed' && entry.unclear).length
+  const own = entries.filter((entry) => entry.same_as === undefined) // a repeat of a link is no second posting
+  const count = (state: AlertRunEntry['state']) => own.filter((entry) => entry.state === state).length
+  const unclear = own.filter((entry) => entry.state === 'failed' && entry.unclear).length
   const summary = [
     count('stored') > 0 && `${count('stored')} hinzugefügt`,
     count('duplicate') > 0 && `${count('duplicate')} schon gespeichert`,

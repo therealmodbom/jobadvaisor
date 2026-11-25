@@ -751,6 +751,17 @@ test('a row taken from an earlier entry shows its outcome, says the link was fet
   expect(within(rows[1]).getByRole('link', { name: 'Anzeige ansehen' })).toHaveAttribute('href', '#/anzeigen/p-1')
 })
 
+test('the summary counts a link of two rows once', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /alert-mails/runs/r1': { body: run([
+    row(1, 'stored', { posting_id: 'p-1' }),
+    row(2, 'stored', { posting_id: 'p-1', same_as: 0 }),
+  ], { status: 'done' }) } })
+  view()
+  expect(await screen.findByText(/^1 hinzugefügt\./)).toBeVisible()
+  expect(screen.getByRole('heading', { name: '2 von 2 erledigt' })).toBeVisible()
+})
+
 test('a failed row that could not be judged says so, lists its attempts and offers text and PDF', async () => {
   sessionStorage.setItem(RUN_KEY, 'r1')
   stubApi({ 'GET /alert-mails/runs/r1': { body: run([
