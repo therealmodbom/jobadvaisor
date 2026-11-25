@@ -35,7 +35,9 @@ Rationale and the rejected alternatives: [ADR 0018](../../../docs/decisions/0018
 
 ### D2. Spacing through a context variable in `fetch`
 
-`fetch.host_throttle: ContextVar[Throttle | None]`, default `None`. `_download_plain` waits on `throttle.wait(url_host(url))` before every `http.get`, including the retry. `download_rendered` waits once before the navigation, and the browser's own subresource requests are not counted. `look_up` uses `fetch.host_throttle.get() or THROTTLE`, so in a run the company page shares the run's throttle.
+`fetch.host_throttle: ContextVar[Throttle | None]`, default `None`. `download_plain` waits on `throttle.wait(url_host(request.url))` in an httpx `request` event hook, after the closed and refused hop checks, so every request it sends waits: the first, the retry and each redirect hop, on the hop's own host. `download_rendered` waits once before the navigation, and the browser's own subresource requests and redirects are not counted. `look_up` uses `fetch.host_throttle.get() or THROTTLE` before each source, so in a run the company page shares the run's throttle, and `fetch_page` waits on the run's throttle for each redirect hop after the first request.
+
+A retried plain fetch keeps the evidence of its first answer: `FetchError` carries `earlier`, the failure texts of the attempts before the last, and the ladder and the intake loop record one attempt per earlier failure before the final one. So a 429 or a connection failure followed by a 404 reaches the evidence rule as two attempts, and the 404 stays disputed.
 
 `AlertRuns` owns one `Throttle(HOST_SPACING_SECONDS)` (3 s, the constant of `availability.py`, moved to `company_facts.py` beside `Throttle` and imported by both) and sets the variable around each entry in its worker thread. The loop's tool threads see it the way they already see `closed_rules`, and a test proves that for a loop fetch.
 

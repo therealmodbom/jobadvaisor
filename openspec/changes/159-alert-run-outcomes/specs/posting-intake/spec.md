@@ -139,8 +139,12 @@ An HTTP 404 or 410 answer SHALL NOT make a link closed when another attempt on t
 - **WHEN** a link answers HTTP 404 to every request, and a page the intake loop fetches on another host answers HTTP 429
 - **THEN** the gone answer stands
 
+#### Scenario: A retried request disputes
+- **WHEN** the plain fetch of a link is answered with HTTP 429, or fails to connect, and its retry is answered with HTTP 404
+- **THEN** both answers are among the entry's attempts, and the 404 does not make the link closed
+
 ### Requirement: Requests in an alert run spaced per host
-During an alert run, the system SHALL send a request to a host only when its last request to that host lies at least 3 seconds back. This SHALL count every request of the run's intake: each fetch and its retry, the intake loop's fetches and the lookup of a company's facts. A page rendered in the browser SHALL count as one request.
+During an alert run, the system SHALL send a request to a host only when its last request to that host lies at least 3 seconds back. This SHALL count every request of the run's intake: each fetch, its retry and each redirect it follows, the intake loop's fetches and the lookup of a company's facts. A page rendered in the browser SHALL count as one request.
 
 #### Scenario: Two entries on one host
 - **WHEN** an alert run adds two entries on the same host
@@ -149,6 +153,10 @@ During an alert run, the system SHALL send a request to a host only when its las
 #### Scenario: Retry after a rate limit
 - **WHEN** a request in an alert run is answered with HTTP 429
 - **THEN** its retry is sent no sooner than 3 seconds later
+
+#### Scenario: Redirect on the same host
+- **WHEN** a link in an alert run redirects to another address on its host
+- **THEN** the redirect's request is sent no sooner than 3 seconds after the first one
 
 ### Requirement: One link offered once per check
 When several mails of one check hold the same link, compared as duplicate detection compares links, the check SHALL offer it in the first mail of the pick list that holds it. Each later mail SHALL list it, marked with the mail that offers it, as not selectable. A mail read on request SHALL offer a link only when no other mail of the check offers it.
