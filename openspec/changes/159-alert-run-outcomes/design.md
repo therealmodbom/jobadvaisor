@@ -56,8 +56,9 @@ Known limit: a model-read click-redirect link shared by two different postings a
 `finish`, under the check's lock as today:
 
 1. Refuse and validate as today, with D3's `offered`.
-2. Per mail of the pick list, the set of `normalize_url` of its entries that are in the run (copies included). A mail with an empty set, and not `read_failed`, is marked at once as today (handled, or waiting when `_waits`).
-3. Start the run with an `on_end` that holds the refs and their link sets. When the run ends, it marks handled each mail whose links all ended `stored`, `duplicate` or `closed`, and leaves the others unmarked.
+2. Per mail of the pick list, the set of `normalize_url` of its entries that are in the run (copies included).
+3. Start the run first, with an `on_end` that holds the refs and their link sets. When the run ends, it marks handled each mail whose links all ended `stored`, `duplicate` or `closed`, and leaves the others unmarked. A refused start (`AlertRunBusyError`, a failed submit) raises before anything is marked.
+4. Only after the start, mark the mails with an empty set, and not `read_failed`, as today (handled, or waiting when `_waits`). Without entries no run starts, and every mail is marked here. A failed mark after a started run closes the pick list as today; those mails stay unmarked and come again, which is the safe direction.
 
 The end hook takes no lock of `MailboxChecks`. It holds the refs it was given and calls `mark_mails`, which takes the write gate. `finish` calls `AlertRuns.start` while it holds the check's lock, and the hook never takes that lock, so the order stays one way.
 
@@ -67,7 +68,10 @@ Rationale and the rejected alternatives: [ADR 0019](../../../docs/decisions/0019
 
 ### D5. No check while a run computes
 
-`AlertRuns.current()` answers the computing run's ID. `MailboxChecks.start` raises `AlertRunBusyError` when it is set. The route answers 409 `{error: "alert run in progress", run_id}`, like `finish`. The frontend's `startCheck` treats it like the finish refusal: `MailboxView` shows `BusyRun` and offers the check again when that run ends. Because `on_end` marks before the slot is freed, a check started after the refusal ends sees every mark of the run.
+`AlertRuns.current()` answers the computing run's ID. `MailboxChecks.start` raises `AlertRunBusyError` when it is set, read inside its own lock. Only `finish` starts a run that marks mails, and `finish` starts it under that same lock, so a check and such a run never interleave. A run from a pasted mail can still start between the read and the claim. It marks no mail, and the check's pick list cannot be finished until that run ends, because `finish` is refused while a run computes.
+<!-- ponytail: no lock shared with the paste route; add one if a pasted run ever marks mails -->
+
+The route answers 409 `{error: "alert run in progress", run_id}`, like `finish`. The frontend's `startCheck` treats it like the finish refusal: `MailboxView` shows `BusyRun` and offers the check again when that run ends. Because `on_end` marks before the slot is freed, a check started after the refusal ends sees every mark of the run.
 
 Rejected: letting the check run and skipping the in-flight mails through a temporary skip record. That is more code for a state nobody needs, since a pick list finished during a run is refused anyway.
 
