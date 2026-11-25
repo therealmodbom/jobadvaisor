@@ -45,7 +45,7 @@ None.
   - `components/alert-run.tsx`: the filter row and status line in `RunPanel`, the filtered rows, `RunRow` with the link and the collapsed attempts.
   - `components/posting.tsx`: `OriginalLink` names the posting for screen readers; `PickRow` (`components/alert-pick.tsx`) and `RunRow` use it. `mailbox-pick.tsx` uses `PickRow` and needs no change.
   - `components/attempts.tsx`: German reasons.
-  - Tests: `components/attempts.test.tsx`, `views/AlertMailView.test.tsx` (run view), the pick list tests, and the e2e walkthroughs `test_alert_mail_walkthrough.py` and `test_mailbox_walkthrough.py` where they read the summary or attempts.
+  - Tests: `components/attempts.test.tsx`, `views/AlertMailView.test.tsx` (run view), `views/MailboxView.test.tsx` (summary), `views/IntakeView.test.tsx` (raw reasons), `views/ImportView.test.tsx` (`rel`), the pick list tests, and the e2e walkthroughs `test_alert_mail_walkthrough.py` and `test_mailbox_walkthrough.py` where they read the summary or attempts.
 - **Design:** approved canvas https://claude.ai/artifact/FLjijowheuanP61kDCif3c.
 - **No ADR:** no decision here rejects a real alternative beyond the approved design.
 - **No LLM behavior:** no eval.

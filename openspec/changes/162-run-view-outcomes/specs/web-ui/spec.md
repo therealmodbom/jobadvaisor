@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Alert mail run progress and outcome
-While the chosen entries are added, the view SHALL show for each entry whether it waits, is being added, was stored, is a duplicate, is closed or failed, and how many entries are done. A failed entry SHALL show its reason, and SHALL offer its attempts and the text and PDF options. A closed entry SHALL show „Stelle geschlossen“ and offer its attempts. Switching to another source or view and back, and reloading the page, SHALL keep the run and its report while the server still knows the run.
+While the chosen entries are added, the view SHALL show for each entry whether it waits, is being added, was stored, is a duplicate, is closed or failed, and how many entries are done. A failed entry SHALL offer its attempts, or say that it could not be read when it has none, and SHALL offer the text and PDF options. A closed entry SHALL show „Stelle geschlossen“ and offer its attempts. Switching to another source or view and back, and reloading the page, SHALL keep the run and its report while the server still knows the run.
 
 #### Scenario: Second of three fails
 - **WHEN** the user adds three entries and the second cannot be read
@@ -25,7 +25,7 @@ A failed entry whose link could not be judged SHALL show „Nicht beurteilbar“
 ## ADDED Requirements
 
 ### Requirement: Run row attempts collapsed
-The attempts of a closed or failed run row SHALL sit behind a collapsed control „Details: n Versuche“, collapsed by default for every row, keyboard-operable and announcing whether it is expanded. The outcome, title, link, the explanation of the outcome and the row's buttons SHALL stay visible outside it.
+The attempts of a closed or failed run row SHALL sit behind a collapsed control „Details: n Versuche“ („Details: 1 Versuch“ for one), collapsed by default for every row, keyboard-operable and announcing whether it is expanded. The outcome, title, link, the explanation of the outcome and the row's buttons SHALL stay visible outside it.
 
 #### Scenario: Collapsed by default
 - **WHEN** a run ends with 40 closed entries
@@ -39,6 +39,10 @@ The attempts of a closed or failed run row SHALL sit behind a collapsed control 
 - **WHEN** a row shows „Nicht beurteilbar“
 - **THEN** its explanation and its text and PDF options stay visible, and its attempts are behind „Details“
 
+#### Scenario: Failed row without attempts
+- **WHEN** a run reports a failed entry without attempts
+- **THEN** the row says that the posting could not be read, offers the text and PDF options, and shows no „Details“
+
 ### Requirement: Filter an alert run by outcome
 A run SHALL offer the filter „Alle (n)“, n being the number of rows, and one filter for each outcome that at least one entry has, named with its count: „hinzugefügt“, „schon gespeichert“, „geschlossen“, „nicht gelesen“, „nicht beurteilbar“. The counts SHALL count a link once and SHALL stay those of the whole run while a filter is active. Exactly one filter SHALL be active, „Alle“ at first; choosing the active filter again SHALL return to „Alle“.
 
@@ -51,7 +55,7 @@ A run SHALL offer the filter „Alle (n)“, n being the number of rows, and one
 - **THEN** „Alle“ is active and the list shows every row again
 
 ### Requirement: Rows of a filtered run
-A filter for an outcome SHALL show only the rows with that outcome and no repeat of a link, each with its buttons. „Alle“ SHALL show every row, repeats and entries not started included.
+A filter for an outcome SHALL show only the rows with that outcome and no repeat of a link, each with its buttons, plus the rows stored anyway under it („Row stored anyway keeps its place in a filtered run“). „Alle“ SHALL show every row, repeats and entries not started included.
 
 #### Scenario: Filter to the entries that could not be judged
 - **WHEN** the user chooses „10 nicht beurteilbar“
@@ -62,7 +66,7 @@ A filter for an outcome SHALL show only the rows with that outcome and no repeat
 - **THEN** the list shows the first of them only
 
 ### Requirement: Active filter announced
-The filters SHALL be keyboard-operable and announce which one is active. A status line SHALL say how many of how many entries are shown and, for an outcome filter, which outcome; it SHALL be announced when it changes.
+The filters SHALL be keyboard-operable and announce which one is active. A status line SHALL say how many rows the list shows, of how many rows the run has, and, for an outcome filter, which outcome; it SHALL be announced when it changes.
 
 #### Scenario: Status line
 - **WHEN** the user chooses „10 nicht beurteilbar“ in a run of 120 entries
@@ -84,7 +88,11 @@ A row the user chose to store anyway SHALL stay in the filtered list while it is
 
 #### Scenario: Last entry of the active filter stored anyway
 - **WHEN** the filter „1 schon gespeichert“ is active and the user stores that text duplicate anyway
-- **THEN** „0 schon gespeichert“ stays active with the row in the list, and disappears once the user chooses another filter
+- **THEN** „0 schon gespeichert“ stays active with the row in the list, the status line says that 1 entry is shown, and the filter disappears once the user chooses another filter
+
+#### Scenario: Two rows stored anyway in a row
+- **WHEN** the filter „schon gespeichert“ is active and the user stores two text duplicates anyway, one after the other
+- **THEN** both rows stay in the list until the user chooses another filter
 
 ### Requirement: Posting link in the pick list and the run
 In the pick list of a pasted mail or a mailbox check, and in the rows of a run, an entry's link SHALL be a link to that address that opens in a new tab, without passing the app's address or a handle to the app to the opened page. Its visible text SHALL be the address, and its accessible name SHALL name the posting's title and say that it opens in a new tab. An address that is not http or https SHALL show as plain text, not as a link.
