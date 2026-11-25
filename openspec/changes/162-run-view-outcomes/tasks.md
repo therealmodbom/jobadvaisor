@@ -10,7 +10,7 @@
 
 ## 2. Posting link (#120)
 
-- [ ] 2.1 `OriginalLink` gains `name` (the visually hidden prefix „Anzeige „<name>“ öffnen, neuer Tab:“, or „Anzeige öffnen, neuer Tab:“ without one) and `className`; `PickRow` and `RunRow` render the entry's link through it in the mono style of the design. Test first: the scenarios „Link in the pick list“ (accessible name, `href`, `target="_blank"`, `rel` holds `noreferrer`, the checkbox still toggles) for the pasted and the mailbox pick list, and „Open the posting of an entry that could not be judged“ (the run row's link); verify that `PostingPage` and `ImportView` still render `OriginalLink` as before
+- [ ] 2.1 `OriginalLink` gains `name` (the visually hidden prefix „Anzeige „<name>“ öffnen, neuer Tab:“, or „Anzeige öffnen, neuer Tab:“ without one) and `className`; `PickRow` and `RunRow` render the entry's link through it in the mono style of the design. `rel` becomes `noopener noreferrer`; an address that is not http(s) stays plain text in both rows. Test first: the scenarios „Link in the pick list“ (accessible name, `href`, `target="_blank"`, `rel="noopener noreferrer"`, the checkbox still toggles) for the pasted and the mailbox pick list, „Open the posting of an entry that could not be judged“ (the run row's link), and an entry with a non-http address showing the address as text; verify that `PostingPage` and `ImportView` still render `OriginalLink` as before
 
 ## 3. German attempt reasons (#160)
 
@@ -20,7 +20,7 @@
 
 - [ ] 4.1 `outcomeOf` and the outcome table; `RunPanel` replaces the summary sentence by the filter row and the status line (design: below the progress bar, above the list, shown while running too) and filters the rows, keeping each row's original index. Test first: the scenarios „Filters of a finished run“, „Back to all“, „Filter to the entries that could not be judged“ (rows keep their text and PDF buttons), „Repeat of a link“ and „Status line“ (`aria-pressed`, `role="status"` text)
 - [ ] 4.2 While running: test first the scenario „A third unread entry ends“ (a polled state with one more failed entry adds the row and updates the button and the status line under an active filter) and that waiting and running rows show only under „Alle“
-- [ ] 4.3 `pinned` row: set on „Ja, als neue Anzeige speichern“, cleared on a filter change, always included in a filtered list. Test first: the scenario „Stored anyway under „schon gespeichert““ (the row stays while running and after „Hinzugefügt“, the counts move by one) and that choosing another filter drops it
+- [ ] 4.3 `pinned` row: set on „Ja, als neue Anzeige speichern“, cleared on a filter change, always included in a filtered list; the active filter's button stays at count 0. Test first: the scenarios „Stored anyway under „schon gespeichert““ (the row stays while running and after „Hinzugefügt“, the counts move by one) and „Last entry of the active filter stored anyway“ („0 schon gespeichert“ stays pressed, and disappears after choosing „Alle“), and that choosing another filter drops the row
 
 ## 5. Whole-change checks
 
