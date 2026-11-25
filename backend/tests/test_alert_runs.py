@@ -8,8 +8,9 @@ from conftest import FakeStructuredModel, ToolScriptModel, write_json
 from test_triage_graph import POLICY_PACK
 
 import jobadvaisor.intake.alert_runs as runs_module
+from jobadvaisor.intake import ladder as ladder_module
 from jobadvaisor.intake.alert_runs import AlertRunBusyError, AlertRuns, RunEntry, add_entry
-from jobadvaisor.intake.fetch import guarded_link
+from jobadvaisor.intake.fetch import FetchError, guarded_link
 from jobadvaisor.intake.postings import Intake, PostingNotFoundError
 from jobadvaisor.tools.guard import ContentGuard
 
@@ -101,6 +102,46 @@ def test_an_expired_link_from_a_mail_is_closed_not_refused(tmp_path, closed_site
     assert outcome["state"] == "closed"
     assert [a["outcome"] for a in outcome["attempts"]] == ["closed page (redirect)"]
     assert closed_site.hits == ["/expired/1"]
+
+
+def ladder_answering(monkeypatch, plain: str, rendered: str):
+    """Fake plain and rendered fetchers that fail with the given outcomes."""
+    def fail(outcome):
+        def fetch(url):
+            raise FetchError(outcome)
+        return fetch
+    monkeypatch.setattr(ladder_module, "fetch_plain", fail(plain))
+    monkeypatch.setattr(ladder_module, "fetch_rendered", fail(rendered))
+
+
+@pytest.fixture
+def idle_intake(tmp_path):
+    """An intake whose loop model finds nothing."""
+    write_json(tmp_path / "profile.json", {"schema_version": "1", "summary": "Developer"})
+    write_json(tmp_path / "policy-pack.json", POLICY_PACK)
+    return Intake(tmp_path, FakeStructuredModel(), ContentGuard(None, {}),
+                  loop_model=ToolScriptModel(plan=[]))
+
+
+def test_one_404_among_rate_limited_answers_is_failed_and_unclear_not_closed(
+        idle_intake, monkeypatch):
+    ladder_answering(monkeypatch, "HTTP 404", "HTTP 429")
+    outcome = add_entry(idle_intake, RunEntry(LINKS[0], "A"))
+    assert outcome["state"] == "failed" and outcome["unclear"] is True
+    assert [a["outcome"] for a in outcome["attempts"]] == ["HTTP 404", "HTTP 429"]
+
+
+def test_a_404_beside_a_page_without_posting_text_is_closed_and_not_unclear(
+        idle_intake, monkeypatch):
+    ladder_answering(monkeypatch, "HTTP 404", "no posting text")
+    outcome = add_entry(idle_intake, RunEntry(LINKS[0], "A"))
+    assert outcome["state"] == "closed" and "unclear" not in outcome
+
+
+def test_a_failure_without_a_404_is_not_unclear(idle_intake, monkeypatch):
+    ladder_answering(monkeypatch, "HTTP 429", "HTTP 429")
+    outcome = add_entry(idle_intake, RunEntry(LINKS[0], "A"))
+    assert outcome["state"] == "failed" and "unclear" not in outcome
 
 
 def test_an_entry_read_from_its_page_is_stored_available(tmp_path, closed_site):

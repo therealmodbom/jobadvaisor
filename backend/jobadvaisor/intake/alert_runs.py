@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 from jobadvaisor.intake.duplicates import normalize_url
 from jobadvaisor.intake.fetch import guarded_link
+from jobadvaisor.intake.ladder import gone_disputed
 from jobadvaisor.intake.postings import Intake, PostingNotFoundError, add_from_url
 
 
@@ -37,14 +38,18 @@ def add_entry(intake: Intake, entry: RunEntry) -> dict:
     """Put one entry through `add_from_url` with `guarded_link` set to its link, and return
     its outcome: `{state: "stored", posting_id}`, `{state: "duplicate", posting_id,
     duplicate_by}`, `{state: "closed", attempts}` when the link is gone and no other source
-    holds the posting, or `{state: "failed"}` with the ladder's `attempts` or a `reason` (a
-    `ValueError`'s text, else the exception's type name). Never raises."""
+    holds the posting, or `{state: "failed"}` with the ladder's `attempts` (and `unclear: true`
+    when the link answered 404 or 410 but another answer disputes it, `gone_disputed`) or a
+    `reason` (a `ValueError`'s text, else the exception's type name). Never raises."""
     token = guarded_link.set(entry.url)
     try:
         posting_id, _, duplicate_by, _ = add_from_url(intake, entry.url,
                                                      allow_text_duplicate=entry.force)
     except PostingNotFoundError as error:
-        return {"state": "closed" if error.closed else "failed", "attempts": error.attempts}
+        outcome = {"state": "closed" if error.closed else "failed", "attempts": error.attempts}
+        if gone_disputed(error.attempts, entry.url):
+            outcome["unclear"] = True
+        return outcome
     except ValidationError as error:  # a ValueError, but its text is multi-line
         return {"state": "failed", "reason": type(error).__name__}
     except ValueError as error:  # includes NoPostingTextError

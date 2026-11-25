@@ -8,6 +8,8 @@ from test_triage_graph import CLEAN, FLAGGED, POLICY_PACK, Harness, StubClassifi
 from jobadvaisor.api.app import create_app
 from jobadvaisor.data.loader import load
 from jobadvaisor.evals.fixture_pdf import minimal_pdf
+from jobadvaisor.intake import ladder as ladder_module
+from jobadvaisor.intake.fetch import FetchError
 from jobadvaisor.intake.postings import Intake, posting_id_base
 from jobadvaisor.tools.guard import ContentGuard
 from jobadvaisor.triage.runs import Runs
@@ -201,6 +203,22 @@ def test_a_gone_link_with_no_other_source_is_closed(closed_api, closed_site):
     response = http.post("/postings", data={"url": f"{closed_site.url}/missing"})
     assert response.status_code == 422 and response.json()["closed"] is True
     assert loop.seen
+
+
+def test_a_gone_answer_that_a_rate_limit_disputes_is_failed_not_closed(
+        closed_api, closed_site, monkeypatch):
+    def refuse(outcome):
+        def fetch(url):
+            raise FetchError(outcome)
+        return fetch
+    monkeypatch.setattr(ladder_module, "fetch_plain", refuse("HTTP 404"))
+    monkeypatch.setattr(ladder_module, "fetch_rendered", refuse("HTTP 429"))
+    http, root, loop = closed_api
+    response = http.post("/postings", data={"url": f"{closed_site.url}/open"})
+    assert response.status_code == 422 and response.json()["closed"] is False
+    assert [a["outcome"] for a in response.json()["attempts"]] == ["HTTP 404", "HTTP 429"]
+    assert loop.seen, "the loop looked for another source, as for any failed link"
+    assert not list((root / "postings").glob("*.json"))
 
 
 def test_a_short_closed_notice_stores_nothing(closed_api, closed_site):
