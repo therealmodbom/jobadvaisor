@@ -192,6 +192,29 @@ def test_marking_without_a_configured_mailbox_is_refused(data_repository):
         mark_mails(data_repository, handled=[ref(101)])
 
 
+def test_marking_for_the_account_that_is_stored_marks(data_repository):
+    configured(data_repository)
+    mailbox = mark_mails(data_repository, handled=[ref(101)],
+                         account=("imap.example.org", "name@example.org"))
+    assert mailbox.handled.uids["Posteingang"].uids == [101]
+
+
+@pytest.mark.parametrize("account", [("imap.other.example", "name@example.org"),
+                                     ("imap.example.org", "other@example.org")])
+def test_marking_for_another_account_marks_nothing_and_answers_the_stored_mailbox(
+        data_repository, account):
+    configured(data_repository)
+    mailbox = mark_mails(data_repository, handled=[ref(101)], waiting=[ref(102)], account=account)
+    assert mailbox == read_mailbox(data_repository) and mailbox.handled.uids == {}
+    assert mailbox.waiting.uids == {}
+
+
+def test_marking_for_an_account_without_a_mailbox_marks_nothing_and_does_not_raise(
+        data_repository):
+    assert mark_mails(data_repository, handled=[ref(101)], account=("h", "u")) is None
+    assert read_mailbox(data_repository) is None
+
+
 def test_the_file_holds_no_sender_subject_text_or_password(data_repository):
     configured(data_repository)
     mark_mails(data_repository, handled=[ref(101, message_id="<job-alert@sender.example>")])

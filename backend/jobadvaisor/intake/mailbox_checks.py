@@ -142,6 +142,27 @@ def _waits(answer: dict) -> bool:
     return answer["model_skipped"] == "screening off"
 
 
+ENDED_WELL = ("stored", "duplicate", "closed")  # the outcomes that let a mail count as handled
+
+
+def _marks_at_end(root: Path, later: list[tuple[MailRef, set[str], bool]],
+                  account: tuple[str, str] | None) -> Callable[[list[dict]], None]:
+    """The `on_end` hook of the run `finish` starts: it marks each mail of `later` (its ref, the
+    `normalize_url` of its links in the run, whether it waits for screening instead) handled, or
+    waiting, once every one of those links ended `ENDED_WELL`; any other mail stays unmarked. A
+    link's outcome is the state of its entries in the run (a repeat of it carries the same).
+    Marks only while `account` (`(host, user)` at the finish) is still the stored account. Takes
+    no lock of `MailboxChecks`: `finish` calls `AlertRuns.start` while it holds that lock."""
+    def on_end(entries: list[dict]) -> None:
+        outcome = {normalize_url(entry["url"]): entry["state"] for entry in entries}
+        done = [(ref, waits) for ref, links, waits in later
+                if all(outcome.get(link) in ENDED_WELL for link in links)]
+        if done:
+            mark_mails(root, handled=[ref for ref, waits in done if not waits],
+                       waiting=[ref for ref, waits in done if waits], account=account)
+    return on_end
+
+
 class MailboxChecks:
     """Starts and reads mailbox checks over the data repository of `intake`, one at a time.
     `alert_runs` adds the entries of a finished pick list. `record` is the finder's
@@ -327,12 +348,16 @@ class MailboxChecks:
 
     def finish(self, check_id: str, entries: list[RunEntry]) -> str | None:
         """Finish the pick list of a `done` check: `entries` (none up to all offered, their
-        links already cleaned) go into one alert run, and the mails of the pick list, unread
-        oversized ones included, count as handled; a mail whose read on request failed stays
-        unmarked and one no model read waits. Answers the run's ID, or `None` without
-        entries. Everything runs under the lock, so a second finish (a double click) is
-        refused. Raises `KeyError` (unknown check), `CheckNotDoneError`, `ReadInProgressError`,
-        `EntryNotOfferedError`, and `AlertRunBusyError` with nothing marked."""
+        links already cleaned) go into one alert run. The run starts first. Then the mails of
+        the pick list with no link in the run, unread oversized ones included, count as handled
+        at once (one no model read waits; one whose read on request failed stays unmarked). The
+        other mails are marked when the run ends, by `_marks_at_end`: handled once every link of
+        theirs in the run ended stored, as a duplicate or closed, else left for the next check.
+        A link another mail offered counts for every mail that lists it. Answers the run's ID, or
+        `None` without entries. Everything runs under the lock, so a second finish (a double
+        click) is refused. Raises `KeyError` (unknown check), `CheckNotDoneError`,
+        `ReadInProgressError`, `EntryNotOfferedError`, and `AlertRunBusyError` with nothing
+        marked."""
         with self._lock:
             check = self._open(check_id)
             offered = {normalize_url(entry["url"]) for mail in check.state["mails"]
@@ -340,18 +365,31 @@ class MailboxChecks:
             for entry in entries:
                 if normalize_url(entry.url) not in offered:
                     raise EntryNotOfferedError(entry.url)
-            run_id = self._alert_runs.start(entries) if entries else None
-            handled, waiting = [], []
+            in_run = {normalize_url(entry.url) for entry in entries}
+            now, later = [], []  # (ref, waits) marked now; (ref, links in the run, waits) later
             for mail in check.state["mails"]:
                 if not mail["read_failed"]:
                     preview = mail["preview"]
-                    (waiting if preview and _waits(preview) else handled).append(
-                        check.refs[mail["key"]])
+                    waits = bool(preview and _waits(preview))
+                    links = {normalize_url(entry["url"]) for entry in preview["entries"]
+                             } & in_run if preview else set()
+                    if links:
+                        later.append((check.refs[mail["key"]], links, waits))
+                    else:
+                        now.append((check.refs[mail["key"]], waits))
+            run_id = None
+            if entries:
+                stored = read_mailbox(self._root)
+                account = (stored.host, stored.user) if stored else None
+                run_id = self._alert_runs.start(
+                    entries, _marks_at_end(self._root, later, account))
+            handled = [ref for ref, waits in now if not waits]
+            waiting = [ref for ref, waits in now if waits]
             try:
                 mark_mails(self._root, handled=handled, waiting=waiting)
             except BaseException:
                 if run_id:  # the run has started: a second finish would start another
-                    # ponytail: the mails stay unmarked and come again in the next check, whose
+                    # ponytail: those mails stay unmarked and come again in the next check, whose
                     # run reports their entries as duplicates by link; retry marking if it matters
                     self._close(check_id)
                 raise

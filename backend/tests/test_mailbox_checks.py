@@ -74,16 +74,27 @@ class StubFinder:
 
 
 class StubRuns:
-    """An alert-run starter that records its entries and answers a fixed run ID."""
+    """An alert-run starter that records its entries and end hooks and answers a fixed run ID;
+    `computing` is what `current()` answers, and `end` runs the hook of a run with the state
+    each link ended in (`{url: "stored" | "failed" | ...}`; a link not named stays `waiting`)."""
 
     def __init__(self):
-        self.started, self.error = [], None
+        self.started, self.hooks, self.error, self.computing = [], [], None, None
 
-    def start(self, entries):
+    def start(self, entries, on_end=None):
         if self.error:
             raise self.error
         self.started.append(list(entries))
+        self.hooks.append(on_end)
         return "run-1"
+
+    def current(self):
+        return self.computing
+
+    def end(self, outcomes: dict[str, str], run: int = -1) -> None:
+        states = [{"url": entry.url, "state": outcomes.get(entry.url, "waiting")}
+                  for entry in self.started[run]]
+        self.hooks[run](states)
 
 
 def mail(uid: int, text: str | None = None, received: datetime | None = None, **parts) -> FakeMail:
@@ -385,12 +396,123 @@ def test_finishing_with_no_entries_marks_the_offered_mails_and_starts_no_run(roo
     assert checks.read(check_id)["status"] == "finished" and checks.current() is None
 
 
-def test_finishing_starts_one_run_with_the_chosen_entries_and_marks_the_mails(root):
+def test_finishing_starts_one_run_with_the_chosen_entries_and_marks_the_mails_when_it_ends(root):
     checks, check_id, runs, _ = offering(root)
     settle(checks, check_id)
     chosen = [RunEntry(A, "Job a"), RunEntry(C, "Job c", force=True)]
     assert checks.finish(check_id, chosen) == "run-1"
-    assert runs.started == [chosen] and handled(root) == {1, 2, 3, 5}
+    assert runs.started == [chosen] and handled(root) == {3, 5}  # mails 1 and 2 await the run
+    assert checks.read(check_id)["status"] == "finished"
+    runs.end({A: "stored", C: "duplicate"})
+    assert handled(root) == {1, 2, 3, 5}
+
+
+def test_a_mail_is_handled_when_every_link_of_it_in_the_run_ended_stored_duplicate_or_closed(
+        root):
+    checks, check_id, runs, _ = offering(root)
+    settle(checks, check_id)
+    checks.finish(check_id, [RunEntry(A, "a"), RunEntry(B, "b"), RunEntry(C, "c")])
+    runs.end({A: "stored", B: "closed", C: "duplicate"})
+    assert handled(root) == {1, 2, 3, 5}
+
+
+@pytest.mark.parametrize("bad", ["failed", "waiting", "running"])
+def test_a_mail_with_a_link_that_did_not_end_well_stays_unmarked_and_is_offered_again(root, bad):
+    checks, check_id, runs, fake = offering(root)
+    settle(checks, check_id)
+    checks.finish(check_id, [RunEntry(A, "a"), RunEntry(B, "b"), RunEntry(C, "c")])
+    runs.end({A: "stored", B: bad, C: "stored"})
+    assert handled(root) == {2, 3, 5}  # mail 2 ended well, mail 1 holds the bad link
+    again = run(make(root, fake, StubFinder({"mail 1": found(A, B), "mail 4": found(A)})))
+    assert [m["key"] for m in again["mails"]] == ["0", "1"]  # mails 1 and 4, in order
+
+
+def test_a_link_left_out_of_the_run_does_not_hold_its_mail_back(root):
+    checks, check_id, runs, _ = offering(root)
+    settle(checks, check_id)
+    checks.finish(check_id, [RunEntry(A, "a")])  # B of mail 1 and C of mail 2 are deselected
+    assert handled(root) == {2, 3, 5}  # mail 2 has no link in the run: marked at once
+    runs.end({A: "stored"})
+    assert handled(root) == {1, 2, 3, 5}
+
+
+def test_a_failing_entry_left_out_of_the_next_pick_list_lets_its_mail_go(root):
+    checks, check_id, runs, fake = offering(root)
+    settle(checks, check_id)
+    checks.finish(check_id, [RunEntry(A, "a")])
+    runs.end({A: "failed"})
+    assert 1 not in handled(root)
+    second = make(root, fake, StubFinder({"mail 1": found(A, B), "mail 4": found(C)}))
+    next_id = second.start()
+    settle(second, next_id)
+    assert second.finish(next_id, [RunEntry(C, "c")]) == "run-1"  # A is not selected this time
+    assert 1 in handled(root)
+
+
+def test_the_run_starts_before_any_mail_is_marked(root):
+    seen = []
+
+    class Spy(StubRuns):
+        def start(self, entries, on_end=None):
+            seen.append(handled(root))
+            return super().start(entries, on_end)
+
+    checks, check_id, runs, _ = offering(root, runs=Spy())
+    settle(checks, check_id)
+    checks.finish(check_id, [RunEntry(A, "a")])
+    assert seen == [{3, 5}] and handled(root) == {2, 3, 5}
+
+
+def test_a_restart_during_the_run_leaves_the_mails_of_its_links_unmarked(root):
+    checks, check_id, runs, fake = offering(root)
+    settle(checks, check_id)
+    checks.finish(check_id, [RunEntry(A, "a"), RunEntry(C, "c")])
+    # the application restarts: the hook never runs
+    assert handled(root) == {3, 5}
+    again = run(make(root, fake, StubFinder({"mail 1": found(A, B), "mail 2": found(C),
+                                             "mail 4": EMPTY})))
+    assert [m["key"] for m in again["mails"]] == ["0", "1"]  # mails 1 and 2 come again
+
+
+def test_a_mail_whose_link_is_offered_in_an_earlier_mail_follows_that_links_outcome(root):
+    finder = StubFinder({"mail 1": found(A), "mail 2": found(f"{A}?utm_source=mail")})
+    fake = imap(mail(1), mail(2))
+    runs = StubRuns()
+    checks = make(root, fake, finder, runs=runs)
+    check_id = checks.start()
+    state = settle(checks, check_id)
+    assert state["mails"][1]["preview"]["entries"][0]["offered_in"]["key"] == "0"
+    checks.finish(check_id, [RunEntry(A, "a")])  # only the first mail offers it
+    assert handled(root) == set()
+    runs.end({A: "failed"})
+    assert handled(root) == set()
+    checks2 = make(root, fake, finder, runs=runs)
+    check_id = checks2.start()
+    settle(checks2, check_id)
+    checks2.finish(check_id, [RunEntry(A, "a")])
+    runs.end({A: "stored"})
+    assert handled(root) == {1, 2}
+
+
+def test_a_mail_no_model_read_that_offered_entries_waits_instead_of_being_handled(root):
+    answer = found(A) | {"model_skipped": "screening off"}
+    checks = make(root, imap(mail(1)), StubFinder({"mail 1": answer}), screening=False)
+    check_id = checks.start()
+    settle(checks, check_id)
+    checks.finish(check_id, [RunEntry(A, "a")])
+    assert waiting(root) == set()
+    checks._alert_runs.end({A: "stored"})
+    assert waiting(root) == {1} and handled(root) == set()
+
+
+def test_an_account_change_during_the_run_makes_its_end_mark_nothing(root):
+    checks, check_id, runs, _ = offering(root)
+    settle(checks, check_id)
+    checks.finish(check_id, [RunEntry(A, "a")])
+    update_mailbox_account(root, "imap.other.example", 993, "name@example.org")
+    runs.end({A: "stored"})
+    assert handled(root) == set() and waiting(root) == set()
+    assert read_mailbox(root).host == "imap.other.example"
 
 
 def test_more_than_a_hundred_entries_go_into_one_run(root):
@@ -558,6 +680,8 @@ def test_an_oversized_mail_read_on_request_joins_the_offer_and_can_be_finished(r
     assert mail_["reading"] is False and mail_["read_failed"] is None
     assert len(finder.calls) == 2 and finder.calls[-1][0].count("x") == 2_000_001  # mail 2, mail 1
     assert checks.finish(check_id, [RunEntry(A, "a")]) == "run-1"
+    assert handled(root) == {2}  # the read mail awaits the run like any other
+    checks._alert_runs.end({A: "stored"})
     assert handled(root) == {1, 2}
 
 
@@ -777,7 +901,9 @@ def test_a_cancelled_checks_pick_list_finishes_like_any_other(root):
     finder.release.set()
     settle(checks, check_id)
     assert checks.current() == check_id
-    assert checks.finish(check_id, [RunEntry(A, "a")]) == "run-1" and handled(root) == {1}
+    assert checks.finish(check_id, [RunEntry(A, "a")]) == "run-1" and handled(root) == set()
+    checks._alert_runs.end({A: "stored"})
+    assert handled(root) == {1}
 
 
 def test_a_cancel_after_the_last_mail_leaves_a_plain_done_check(root):
