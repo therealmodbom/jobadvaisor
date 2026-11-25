@@ -8,7 +8,7 @@
 
 ## 2. Closed only on undisputed evidence (#159, D1)
 
-- [ ] 2.1 Rewrite `ladder.is_gone` and add `disputed` and `gone_disputed`, test first with attempt lists: 404 then 429 twice is not gone and is `gone_disputed`; 404 and „no posting text“ is gone; the closed redirect next to a 5xx is gone; 404 on the link and 429 on another URL is gone; `HTTP 202`, `HTTP 403`, `connection failed: ConnectTimeout` and `browser failed: …` dispute
+- [ ] 2.1 Rewrite `ladder.is_gone` and add `disputed` and `gone_disputed`, test first with attempt lists: a plain 404 followed by a rendered 429 and a loop 429 on the link is not gone and is `gone_disputed`; 404 and „no posting text“ is gone; the closed redirect next to a 5xx is gone; 404 on the link and 429 on another URL is gone; `HTTP 202`, `HTTP 403`, `connection failed: ConnectTimeout` and `browser failed: …` dispute
 - [ ] 2.2 `add_entry` sets `unclear: true` on a failed outcome whose attempts are `gone_disputed`, test first: the spec scenario „One 404 among rate-limited answers“ with fake plain and rendered fetchers and a loop model that finds nothing; verify that single-link intake (`POST /postings` with a URL) answers that link as failed, not closed
 - [ ] 2.3 List import: verify, test first, the scenario „Gone answer disputed“ (the row is `failed`, the intake loop was called) and that „Link answers gone“ with 404 on every request still gives `skipped_gone` with no loop call
 

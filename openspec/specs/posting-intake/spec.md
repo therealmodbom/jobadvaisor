@@ -708,7 +708,7 @@ Finishing a check's pick list SHALL accept only links the check offered, compare
 An HTTP 404 or 410 answer SHALL NOT make a link closed when another attempt on the same link was disputed: answered by the server with an HTTP status other than 200, 404 or 410, or ended in a connection or browser failure. Intake SHALL then treat the link as failed, and look for the posting at another source as for any failed link. An alert run SHALL report such an entry as failed with its attempts, and say that the link could not be judged.
 
 #### Scenario: One 404 among rate-limited answers
-- **WHEN** an alert run adds an entry whose link answers HTTP 404 to the first plain fetch and HTTP 429 to its retry and to the rendered fetch, and no other source holds the posting
+- **WHEN** an alert run adds an entry whose link answers HTTP 404 to the plain fetch and HTTP 429 to the rendered fetch and to the intake loop's fetches of it, and no other source holds the posting
 - **THEN** the entry is reported as failed with its attempts, not as closed, and the report says that the link could not be judged
 
 #### Scenario: A page without posting text does not dispute
