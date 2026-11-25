@@ -396,6 +396,20 @@ test('an entry another mail of the list offers names that mail, cannot be picked
   expect(addButton(5)).toBeEnabled()
 })
 
+test('a login-walled copy of an offered link shows only the copy note, one description', async () => {
+  const first = mailItem('m1', 3)
+  const second = mailItem('m2', 2, {}, 4)
+  const copy = { ...first.preview!.entries[0], login_walled: true,
+                 offered_in: { key: 'm1', sender: 'LinkedIn Job Alerts <jobalerts@linkedin.com>', subject: 'Neue Stellen m1' } }
+  await openPicks(mailCheck({ status: 'done', total: 2, read: 2,
+    mails: [first, { ...second, preview: { ...second.preview!, entries: [copy, ...second.preview!.entries] } }] }))
+  const head = mailItemOf('Neue Stellen m2')
+  const box = within(head).getByRole('checkbox', { name: 'Stelle 1' })
+  expect(box).toHaveAccessibleDescription('Auch in der Mail von LinkedIn Job Alerts <jobalerts@linkedin.com>, „Neue Stellen m1“. Dort auswählbar.')
+  expect(within(head).queryByText('Seite mit Login-Pflicht')).toBeNull()
+  expect(head.querySelectorAll(`[id="${box.getAttribute('aria-describedby')}"]`)).toHaveLength(1)
+})
+
 test('"Postfach prüfen" stays offered beside a pick list, and a new check replaces the list', async () => {
   let started = false
   const calls = await openPicks(THREE(), {

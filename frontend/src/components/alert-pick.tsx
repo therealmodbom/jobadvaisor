@@ -77,7 +77,7 @@ export function PickRow({ entry, id, checked, onToggle, onText }: {
                className="text-[15px] text-primary underline">Gespeicherte Anzeige ansehen</a>
           </div>
         )}
-        {entry.login_walled && !entry.duplicate && (
+        {entry.login_walled && !entry.duplicate && !entry.offered_in && (
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
             <Badge className="bg-muted text-foreground">
               <Lock className="size-4" aria-hidden="true" />Seite mit Login-Pflicht
