@@ -80,7 +80,7 @@ The filters SHALL show while the run computes. Their counts SHALL grow as entrie
 - **THEN** the filter reads „3 nicht gelesen“, the new row appears in the list, and the status line says that 3 entries are shown
 
 ### Requirement: Row stored anyway keeps its place in a filtered run
-A row the user chose to store anyway SHALL stay in the filtered list while it is fetched again and after it ends with another outcome, until the user chooses another filter. The counts SHALL follow its new outcome, and the active filter SHALL stay offered and active until then, also when its count drops to 0.
+A row the user chose to store anyway SHALL stay in the filtered list while it is fetched again and after it ends with another outcome, until the user chooses another filter. The counts SHALL follow its new outcome, and the active filter SHALL stay offered and active until then, also when its count drops to 0. When the user confirms, focus SHALL move to the row's outcome line, which stays in place while the row is fetched and after, with or without a filter.
 
 #### Scenario: Stored anyway under „schon gespeichert“
 - **WHEN** the filter „schon gespeichert“ is active and the user stores a text duplicate anyway
@@ -89,6 +89,10 @@ A row the user chose to store anyway SHALL stay in the filtered list while it is
 #### Scenario: Last entry of the active filter stored anyway
 - **WHEN** the filter „1 schon gespeichert“ is active and the user stores that text duplicate anyway
 - **THEN** „0 schon gespeichert“ stays active with the row in the list, the status line says that 1 entry is shown, and the filter disappears once the user chooses another filter
+
+#### Scenario: Focus after confirming
+- **WHEN** the user confirms „Ja, als neue Anzeige speichern“ with the keyboard
+- **THEN** focus is on the row's outcome line, which reads that the row is fetched and then „Hinzugefügt“, and focus is not lost while the confirmation and its buttons go away
 
 #### Scenario: Two rows stored anyway in a row
 - **WHEN** the filter „schon gespeichert“ is active and the user stores two text duplicates anyway, one after the other
