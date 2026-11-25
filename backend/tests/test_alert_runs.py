@@ -3,6 +3,7 @@
 import threading
 import time
 
+import httpx
 import pytest
 from conftest import FakeStructuredModel, SpacingClock, ToolScriptModel, write_json
 from test_triage_graph import POLICY_PACK
@@ -16,7 +17,7 @@ from jobadvaisor.intake.alert_runs import (
     RunNotRunningError,
     add_entry,
 )
-from jobadvaisor.intake.fetch import FetchError, guarded_link, host_throttle
+from jobadvaisor.intake.fetch import FetchError, fetch_plain, guarded_link, host_throttle
 from jobadvaisor.intake.postings import Intake, PostingNotFoundError
 from jobadvaisor.tools.guard import ContentGuard
 
@@ -141,6 +142,17 @@ def test_one_404_among_rate_limited_answers_is_failed_and_unclear_not_closed(
     outcome = add_entry(idle_intake, RunEntry(LINKS[0], "A"))
     assert outcome["state"] == "failed" and outcome["unclear"] is True
     assert [a["outcome"] for a in outcome["attempts"]] == ["HTTP 404", "HTTP 429"]
+
+
+def test_a_404_after_a_retried_429_is_failed_and_unclear_not_closed(idle_intake, monkeypatch):
+    replies = iter([httpx.Response(429), httpx.Response(404)])
+    http = httpx.Client(transport=httpx.MockTransport(lambda request: next(replies)))
+    monkeypatch.setattr(ladder_module, "fetch_plain", lambda url: fetch_plain(url, http))
+    monkeypatch.setattr(ladder_module, "fetch_rendered", lambda url: (_ for _ in ()).throw(
+        FetchError("HTTP 404")))
+    outcome = add_entry(idle_intake, RunEntry(LINKS[0], "A"))
+    assert outcome["state"] == "failed" and outcome["unclear"] is True
+    assert [a["outcome"] for a in outcome["attempts"]] == ["HTTP 429", "HTTP 404", "HTTP 404"]
 
 
 def test_a_404_beside_a_page_without_posting_text_is_closed_and_not_unclear(

@@ -1,5 +1,6 @@
 import json
 
+import httpx
 import pytest
 from conftest import FakeStructuredModel, SpacingClock, ToolScriptModel, write_json
 from fastapi.testclient import TestClient
@@ -7,7 +8,7 @@ from test_triage_graph import POLICY_PACK, Harness, StubClassifier
 
 from jobadvaisor.api.app import create_app
 from jobadvaisor.data.loader import load
-from jobadvaisor.intake.fetch import host_throttle
+from jobadvaisor.intake.fetch import download_plain, host_throttle
 from jobadvaisor.intake.ladder import DEFAULT_LOGIN_WALL_HOSTS, Attempt
 from jobadvaisor.intake.loop import MAX_TOOL_CALLS, run_intake_loop
 from jobadvaisor.intake.postings import Intake
@@ -65,6 +66,16 @@ def test_all_attempts_failing_lists_every_attempt(site):
     assert [(a.step, a.outcome) for a in result.attempts] == [
         ("plain", "HTTP 404"), ("loop:fetch_plain", "HTTP 404"),
         ("loop:fetch_rendered", "HTTP 404")]
+
+
+def test_the_loop_records_the_first_answer_of_a_retried_fetch():
+    replies = iter([httpx.Response(429), httpx.Response(404)])
+    http = httpx.Client(transport=httpx.MockTransport(lambda request: next(replies)))
+    url = "https://jobs.example.org/job"
+    model = ToolScriptModel(plan=[("fetch_plain", {"url": url})])
+    result = loop(model, walled=(), plain=lambda address: download_plain(address, http))
+    assert [(a.step, a.url, a.outcome) for a in result.attempts] == [
+        ("loop:fetch_plain", url, "HTTP 429"), ("loop:fetch_plain", url, "HTTP 404")]
 
 
 def test_a_flagged_page_never_reaches_the_model_and_the_loop_goes_on(site):

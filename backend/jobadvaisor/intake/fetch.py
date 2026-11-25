@@ -59,7 +59,13 @@ LINKEDIN_TEXT_PARTS = ("pay", "description", "criteria")
 
 
 class FetchError(Exception):
-    """A fetch step yields no posting; the message is the reason shown in the attempts."""
+    """A fetch step yields no posting; the message is the reason shown in the attempts.
+    `earlier` holds the failure texts of the attempts that came before the final one (a plain
+    fetch's retry: `("HTTP 429",)`), oldest first; empty for a single attempt."""
+
+    def __init__(self, reason: str, earlier: tuple[str, ...] = ()):
+        super().__init__(reason)
+        self.earlier = earlier
 
 
 @dataclass(frozen=True)
@@ -135,7 +141,8 @@ def download_plain(url: str, http: httpx.Client | None = None, *,
     other than `url` itself that fails `navigation_allowed` is not sent either
     (`FetchError(REFUSED_REDIRECT)`), after the closed question; `url` is sent as it is.
     Waits on the `host_throttle` in force before every request, the retry included. Raises
-    `FetchError` naming the failure."""
+    `FetchError` naming the failure of the last attempt; `FetchError.earlier` lists the
+    failures of the attempts before it (a 429 before a 404 reads as `("HTTP 429",)`)."""
     require_http(url)
     http = http or httpx.Client(timeout=TIMEOUT_SECONDS, follow_redirects=True,
                                 headers={"User-Agent": USER_AGENT})
@@ -187,23 +194,28 @@ def _wait_for_host(url: str) -> None:
 
 def _download_plain(url: str, http: httpx.Client, retry: bool) -> tuple[str, str]:
     attempts = 2 if retry else 1
+    earlier: list[str] = []  # the failure texts of the attempts so far
     for attempt in range(1, attempts + 1):
         _wait_for_host(url)
         try:
             response = http.get(url)
+        except FetchError as error:  # a refused redirect hop, raised by a request hook
+            raise FetchError(str(error), (*earlier, *error.earlier)) from None
         except httpx.InvalidURL:
-            raise FetchError("invalid URL") from None
+            raise FetchError("invalid URL", tuple(earlier)) from None
         except httpx.HTTPError as error:
+            failure = f"connection failed: {type(error).__name__}"
             if attempt == attempts:
-                raise FetchError(f"connection failed: {type(error).__name__}") from None
+                raise FetchError(failure, tuple(earlier)) from None
+            earlier.append(failure)
             continue
-        if response.status_code == 429 or response.status_code >= 500:
-            if attempt == attempts:
-                raise FetchError(f"HTTP {response.status_code}")
+        if response.status_code == 200:
+            return str(response.url), response.text
+        failure = f"HTTP {response.status_code}"
+        if (response.status_code == 429 or response.status_code >= 500) and attempt < attempts:
+            earlier.append(failure)
             continue
-        if response.status_code != 200:
-            raise FetchError(f"HTTP {response.status_code}")
-        return str(response.url), response.text
+        raise FetchError(failure, tuple(earlier))
     raise AssertionError("unreachable")
 
 

@@ -88,7 +88,7 @@ def run_intake_loop(url: str, attempts: list[Attempt], walled_hosts: list[str],
         try:
             final_url, html = download(target)
         except FetchError as error:
-            attempts.append(Attempt(step, target, str(error)))
+            attempts.extend(Attempt(step, target, text) for text in (*error.earlier, str(error)))
             return f"fetch failed: {error}"
         except Exception as error:  # a malformed third-party link must not end intake
             attempts.append(Attempt(step, target, f"fetch failed: {type(error).__name__}"))

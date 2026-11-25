@@ -124,7 +124,7 @@ def fetch_posting(url: str, walled_hosts: list[str], *,
         try:
             page = fetcher(url)
         except FetchError as error:
-            attempts.append(Attempt(step, url, str(error)))
+            attempts += [Attempt(step, url, text) for text in (*error.earlier, str(error))]
             if str(error) in CLOSED_OUTCOMES:
                 break
             continue
