@@ -17,7 +17,7 @@ import httpx
 from jobadvaisor.data.loader import DataRepository, load
 from jobadvaisor.data.models import Availability, PolicyPack, Posting
 from jobadvaisor.data.writer import read_posting, write_availability
-from jobadvaisor.intake.company_facts import Throttle
+from jobadvaisor.intake.company_facts import HOST_SPACING_SECONDS, Throttle
 from jobadvaisor.intake.fetch import (
     TIMEOUT_SECONDS,
     USER_AGENT,
@@ -34,8 +34,6 @@ from jobadvaisor.intake.ladder import (
     login_wall_hosts,
 )
 from jobadvaisor.intake.links import public_link
-
-HOST_SPACING_SECONDS = 3  # between two requests to one host; the spike still met 429s at 3 s
 
 
 class CheckBusyError(Exception):

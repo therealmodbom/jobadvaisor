@@ -24,7 +24,8 @@ from jobadvaisor.data.models import Mailbox, MailRef
 from jobadvaisor.data.writer import mark_mails, read_mailbox, update_mailbox
 from jobadvaisor.intake import alert_mail
 from jobadvaisor.intake.alert_mail import FinderError
-from jobadvaisor.intake.alert_runs import AlertRuns, RunEntry
+from jobadvaisor.intake.alert_runs import AlertRunBusyError, AlertRuns, RunEntry
+from jobadvaisor.intake.duplicates import normalize_url
 from jobadvaisor.intake.mailbox import (
     Candidate,
     Folder,
@@ -91,12 +92,14 @@ class EntryNotOfferedError(ValueError):
 @dataclass
 class _Check:
     """One check: the `state` that `read` answers, the `refs` of the mails in its pick list by
-    key, and the `kept` parts of its unread oversized mails by key. The last two never leave
-    this module."""
+    key, the `kept` parts of its unread oversized mails by key, and the `offers`: for each link
+    (`normalize_url`) the mail of the pick list that offers it, as `{key, sender, subject}`. The
+    last three never leave this module."""
 
     state: dict
     refs: dict[str, MailRef] = field(default_factory=dict)
     kept: dict[str, tuple[str | None, str]] = field(default_factory=dict)
+    offers: dict[str, dict] = field(default_factory=dict)
 
 
 def _header(message, name: str) -> str:
@@ -116,9 +119,45 @@ def _display(message, candidate: Candidate) -> dict:
             "subject": _header(message, "Subject"), "date": sent}
 
 
+def _marked_offered(check: _Check, mail: dict, answer: dict) -> dict:
+    """`answer` of the mail `mail` with `offered_in: {key, sender, subject}` on every entry
+    whose link (`normalize_url`) another mail of `check` already offers (`check.offers`),
+    naming the first such mail. The entries without the field are the ones the pick list
+    offers: they join `check.offers`, except an `ambiguous` one, which cannot be picked and so
+    offers nothing (a later mail with the same link offers it itself). The lock is held."""
+    entries = [entry | {"offered_in": holder} if (holder := check.offers.get(
+        normalize_url(entry["url"]))) else entry for entry in answer["entries"]]
+    for entry in entries:  # after the first loop: a link twice in one mail is no copy of itself
+        if "offered_in" not in entry and not entry["ambiguous"]:
+            check.offers.setdefault(normalize_url(entry["url"]), {
+                name: mail[name] for name in ("key", "sender", "subject")})
+    return answer | {"entries": entries}
+
+
 def _waits(answer: dict) -> bool:
     """Whether an answer means no model read the mail because screening is off."""
     return answer["model_skipped"] == "screening off"
+
+
+ENDED_WELL = ("stored", "duplicate", "closed")  # the outcomes that let a mail count as handled
+
+
+def _marks_at_end(root: Path, later: list[tuple[MailRef, set[str], bool]],
+                  account: tuple[str, str] | None) -> Callable[[list[dict]], None]:
+    """The `on_end` hook of the run `finish` starts: it marks each mail of `later` (its ref, the
+    `normalize_url` of its links in the run, whether it waits for screening instead) handled, or
+    waiting, once every one of those links ended `ENDED_WELL`; any other mail stays unmarked. A
+    link's outcome is the state of its entries in the run (a repeat of it carries the same).
+    Marks only while `account` (`(host, user)` at the finish) is still the stored account. Takes
+    no lock of `MailboxChecks`: `finish` calls `AlertRuns.start` while it holds that lock."""
+    def on_end(entries: list[dict]) -> None:
+        outcome = {normalize_url(entry["url"]): entry["state"] for entry in entries}
+        done = [(ref, waits) for ref, links, waits in later
+                if all(outcome.get(link) in ENDED_WELL for link in links)]
+        if done:
+            mark_mails(root, handled=[ref for ref, waits in done if not waits],
+                       waiting=[ref for ref, waits in done if waits], account=account)
+    return on_end
 
 
 class MailboxChecks:
@@ -146,11 +185,15 @@ class MailboxChecks:
         check: a stored one always wins, and it is stored only after a successful login. A
         check that fails (no key, no password, the server) answers an ID too and ends `failed`
         with its `reason`. Replaces the pending pick list. Raises `CheckBusyError`,
-        `NotConfiguredError` and `SinceRequiredError`."""
+        `AlertRunBusyError` (an alert run computes: `finish` starts its run under this lock, so
+        a check and a run that marks mails never overlap, and a run that has ended has marked
+        all it will), `NotConfiguredError` and `SinceRequiredError`."""
         check_id = uuid.uuid4().hex
         with self._lock:
             if self._computing:
                 raise CheckBusyError(self._computing)
+            if busy := self._alert_runs.current():
+                raise AlertRunBusyError(busy)
             self._refuse_while_reading()
             account = read_mailbox(self._root)
             if account is None:
@@ -204,7 +247,9 @@ class MailboxChecks:
         next check), `missing_folders`, and the reports `mails` (the pick list), `failed`,
         `held` and `not_screened`. A mail of `mails` is `{key, folder, sender, subject, date,
         oversized, reading, read_failed, preview}` with `preview` the finder's answer or `None`
-        for an unread oversized mail; the other reports hold `{folder, sender, subject, date}`
+        for an unread oversized mail. An entry of a preview whose link (`normalize_url`) another
+        mail of the check offers carries `offered_in: {key, sender, subject}` of that mail and
+        is not selectable; the other reports hold `{folder, sender, subject, date}`
         and, for `failed`, `reason`. Never the kept parts of an oversized mail."""
         with self._lock:
             check = self._checks.get(check_id)
@@ -244,7 +289,8 @@ class MailboxChecks:
                     mail["read_failed"] = str(error)
             raise
         with self._lock:
-            mail |= {"preview": answer, "reading": False, "read_failed": None}
+            mail |= {"preview": _marked_offered(check, mail, answer), "reading": False,
+                     "read_failed": None}
             check.kept.pop(key, None)
             return copy.deepcopy(mail)
 
@@ -303,31 +349,48 @@ class MailboxChecks:
 
     def finish(self, check_id: str, entries: list[RunEntry]) -> str | None:
         """Finish the pick list of a `done` check: `entries` (none up to all offered, their
-        links already cleaned) go into one alert run, and the mails of the pick list, unread
-        oversized ones included, count as handled; a mail whose read on request failed stays
-        unmarked and one no model read waits. Answers the run's ID, or `None` without
-        entries. Everything runs under the lock, so a second finish (a double click) is
-        refused. Raises `KeyError` (unknown check), `CheckNotDoneError`, `ReadInProgressError`,
-        `EntryNotOfferedError`, and `AlertRunBusyError` with nothing marked."""
+        links already cleaned) go into one alert run. The run starts first. Then the mails of
+        the pick list with no link in the run, unread oversized ones included, count as handled
+        at once (one no model read waits; one whose read on request failed stays unmarked). The
+        other mails are marked when the run ends, by `_marks_at_end`: handled once every link of
+        theirs in the run ended stored, as a duplicate or closed, else left for the next check.
+        A link another mail offered counts for every mail that lists it. Answers the run's ID, or
+        `None` without entries. Everything runs under the lock, so a second finish (a double
+        click) is refused. Raises `KeyError` (unknown check), `CheckNotDoneError`,
+        `ReadInProgressError`, `EntryNotOfferedError`, and `AlertRunBusyError` with nothing
+        marked."""
         with self._lock:
             check = self._open(check_id)
-            offered = {entry["url"] for mail in check.state["mails"] if mail["preview"]
-                       for entry in mail["preview"]["entries"]}
+            offered = {normalize_url(entry["url"]) for mail in check.state["mails"]
+                       if mail["preview"] for entry in mail["preview"]["entries"]}
             for entry in entries:
-                if entry.url not in offered:
+                if normalize_url(entry.url) not in offered:
                     raise EntryNotOfferedError(entry.url)
-            run_id = self._alert_runs.start(entries) if entries else None
-            handled, waiting = [], []
+            in_run = {normalize_url(entry.url) for entry in entries}
+            now, later = [], []  # (ref, waits) marked now; (ref, links in the run, waits) later
             for mail in check.state["mails"]:
                 if not mail["read_failed"]:
                     preview = mail["preview"]
-                    (waiting if preview and _waits(preview) else handled).append(
-                        check.refs[mail["key"]])
+                    waits = bool(preview and _waits(preview))
+                    links = {normalize_url(entry["url"]) for entry in preview["entries"]
+                             } & in_run if preview else set()
+                    if links:
+                        later.append((check.refs[mail["key"]], links, waits))
+                    else:
+                        now.append((check.refs[mail["key"]], waits))
+            run_id = None
+            if entries:
+                stored = read_mailbox(self._root)
+                account = (stored.host, stored.user) if stored else None
+                run_id = self._alert_runs.start(
+                    entries, _marks_at_end(self._root, later, account))
+            handled = [ref for ref, waits in now if not waits]
+            waiting = [ref for ref, waits in now if waits]
             try:
                 mark_mails(self._root, handled=handled, waiting=waiting)
             except BaseException:
                 if run_id:  # the run has started: a second finish would start another
-                    # ponytail: the mails stay unmarked and come again in the next check, whose
+                    # ponytail: those mails stay unmarked and come again in the next check, whose
                     # run reports their entries as duplicates by link; retry marking if it matters
                     self._close(check_id)
                 raise
@@ -478,7 +541,8 @@ class MailboxChecks:
             return
         if answer["entries"]:
             with self._lock:
-                check.state["mails"].append(mail | {"preview": answer})
+                check.state["mails"].append(
+                    mail | {"preview": _marked_offered(check, mail, answer)})
                 check.refs[key] = candidate
         elif _waits(answer):
             mark_mails(self._root, waiting=[candidate])

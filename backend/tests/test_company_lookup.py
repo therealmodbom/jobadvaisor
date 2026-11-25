@@ -2,15 +2,18 @@
 the request limits (`company-facts` spec). A fake fetcher stands in for the network."""
 
 import json
+import threading
+import time
 from datetime import UTC, datetime
 
 import httpx
 import pytest
-from conftest import POSTING, write_json
+from conftest import POSTING, SpacingClock, write_json
 
 from jobadvaisor.data.loader import load
 from jobadvaisor.data.models import company_id
 from jobadvaisor.intake.company_facts import Reply, Throttle, fetch_page, look_up
+from jobadvaisor.intake.fetch import host_throttle
 from jobadvaisor.tools.research import employer_website
 
 NOW = datetime(2026, 10, 29, 12, 0, tzinfo=UTC)
@@ -214,6 +217,39 @@ def test_requests_to_one_host_are_spaced():
     assert clock.slept == [pytest.approx(1.5)]
 
 
+def test_a_wait_for_one_host_does_not_hold_back_another_host():
+    clock = FakeClock()
+    sleeping, release, slept = threading.Event(), threading.Event(), []
+
+    def sleep(seconds):
+        slept.append(seconds)
+        sleeping.set()
+        assert release.wait(10), "the test never released the sleep"
+
+    throttle = Throttle(3.0, clock=clock.time, sleep=sleep)
+    throttle.wait("a.example")  # its slot is taken now, the next wait for it sleeps
+    waiter = threading.Thread(target=throttle.wait, args=("a.example",), daemon=True)
+    waiter.start()
+    assert sleeping.wait(10)
+    other = threading.Thread(target=throttle.wait, args=("b.example",), daemon=True)
+    other.start()
+    other.join(5)
+    assert not other.is_alive(), "host B waited for host A's sleep"
+    assert slept == [pytest.approx(3.0)]
+    release.set()
+    waiter.join(10)
+
+
+def test_a_wait_reserves_its_slot_before_it_sleeps():
+    """With a sleep that does not move the clock, the second waiter on a host that is already
+    waiting for its slot must queue behind it, not take the same slot."""
+    clock, slept = FakeClock(), []
+    throttle = Throttle(3.0, clock=clock.time, sleep=slept.append)
+    for _ in range(3):
+        throttle.wait("a.example")
+    assert slept == [pytest.approx(3.0), pytest.approx(6.0)]
+
+
 def test_the_lookup_waits_for_each_host_before_its_request(repository):
     waited = []
 
@@ -226,6 +262,35 @@ def test_the_lookup_waits_for_each_host_before_its_request(repository):
     assert waited == ["www.linkedin.com", "acme-solar.example"]
 
 
+def test_a_lookup_in_an_alert_run_shares_the_runs_throttle(repository):
+    spacing = SpacingClock()
+    run_throttle = spacing.throttle()
+    token = host_throttle.set(run_throttle)
+    try:
+        run_throttle.wait("www.linkedin.com")  # the run's posting fetch on the same host
+        web = FakeWeb(**{LINKEDIN: ok(LINKEDIN, about())})
+        assert look_up(repository, "Acme Solar", LINKEDIN, fetch=web, now=NOW)
+    finally:
+        host_throttle.reset(token)
+    assert spacing.sleeps == [3]
+
+
+def test_an_explicit_throttle_wins_over_the_runs(repository):
+    waited = []
+
+    class Recording:
+        def wait(self, host):
+            waited.append(host)
+
+    run_throttle = SpacingClock().throttle()
+    token = host_throttle.set(run_throttle)
+    try:
+        look_up(repository, "Acme Solar", LINKEDIN, fetch=FakeWeb(), throttle=Recording(), now=NOW)
+    finally:
+        host_throttle.reset(token)
+    assert waited == ["www.linkedin.com", "acme-solar.example"] and run_throttle._last == {}
+
+
 def test_fetch_page_reports_status_final_url_and_text():
     def handler(request):
         if request.url.path == "/start":
@@ -235,6 +300,31 @@ def test_fetch_page_reports_status_final_url_and_text():
     http = httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=True)
     assert fetch_page("https://x.example/start", http) == Reply(
         200, "https://x.example/end", "<p>done</p>")
+
+
+def redirect_client() -> httpx.Client:
+    def handler(request):
+        if request.url.path == "/start":
+            return httpx.Response(302, headers={"location": "https://x.example/end"})
+        return httpx.Response(200, text="<p>done</p>")
+    return httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=True)
+
+
+def test_fetch_page_waits_on_the_runs_throttle_before_a_redirect_hop():
+    spacing = SpacingClock()
+    run_throttle = spacing.throttle()
+    token = host_throttle.set(run_throttle)
+    try:
+        run_throttle.wait("x.example")  # `look_up` waits before the first request of a source
+        fetch_page("https://x.example/start", redirect_client())
+    finally:
+        host_throttle.reset(token)
+    assert spacing.sleeps == [3]  # the first request is not waited for here, the hop is
+
+
+def test_fetch_page_outside_a_run_waits_for_nothing(monkeypatch):
+    monkeypatch.setattr(time, "sleep", lambda seconds: pytest.fail("slept"))
+    assert fetch_page("https://x.example/start", redirect_client()).status == 200
 
 
 def test_fetch_page_gives_an_error_status_as_a_reply_and_a_transport_error_as_an_exception():

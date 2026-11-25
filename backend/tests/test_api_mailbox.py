@@ -496,6 +496,18 @@ def test_a_second_check_while_one_runs_is_a_409_naming_it(tmp_path, root):
     app.wait(check_id)
 
 
+def test_a_check_while_an_alert_run_computes_is_a_409_naming_the_run(tmp_path, root):
+    app = api(tmp_path, root, empty_mail(1))
+    app.configure()
+    app.runs.computing = "run-7"
+    answer = app.post("/mailbox/checks", {"since": "2026-10-24"})
+    assert answer.status_code == 409 and answer.json()["error"] == "alert run in progress"
+    assert answer.json()["run_id"] == "run-7" and "run-7" in answer.json()["detail"]
+    assert app.get("/mailbox").json()["check_id"] is None
+    app.runs.computing = None
+    app.wait(app.start())
+
+
 def test_a_failed_check_names_its_reason_and_never_an_exception_text(tmp_path, root):
     app = Api(tmp_path, root, FakeImap({}, password="another password"))
     app.configure()
@@ -545,6 +557,8 @@ def test_finishing_with_entries_starts_one_alert_run_and_marks_the_mails(tmp_pat
     answer = app.post(f"/mailbox/checks/{state['check_id']}/finish", {"entries": chosen})
     assert answer.status_code == 202 and answer.json() == {"run_id": "run-1"}
     assert [entry.url for entry in app.runs.started[0]] == urls[:2]
+    assert read_mailbox(root).handled.uids["Posteingang"].uids == [2]  # mail 1 awaits the run
+    app.runs.end({url: "stored" for url in urls[:2]})
     assert read_mailbox(root).handled.uids["Posteingang"].uids == [1, 2]
     assert app.get("/mailbox").json()["check_id"] is None
     assert app.get(f"/mailbox/checks/{state['check_id']}").json()["status"] == "finished"

@@ -35,7 +35,8 @@ const storedCheck = {
  * accepted cancel on; `lost` when the server forgot a running check (404); `notice` holds the
  * failure text of a start or cancel request; `pollFailed` is true after `POLL_FAILURES` failed
  * polls in a row, until `retryPoll`. `start(since)` starts a check (a 409 follows the check that
- * runs), `cancel` asks the running one to stop, `dismiss` drops the report, `refresh` reads the
+ * runs; a 409 `alert run in progress` sets `busyRun`, the run's ID, until `endBusy` or the next
+ * start), `cancel` asks the running one to stop, `dismiss` drops the report, `refresh` reads the
  * check again, `setMail` replaces a mail of its pick list (after reading an oversized mail) and
  * `dismiss` forgets the check, once its report is hidden or its pick list finished. */
 export function useMailbox(active: boolean) {
@@ -49,6 +50,7 @@ export function useMailbox(active: boolean) {
   const [pollFailed, setPollFailed] = useState(false)
   const [cancelling, setCancelling] = useState(false)
   const [wanted, setWanted] = useState(active)
+  const [busyRun, setBusyRun] = useState<string | null>(null)
   const sending = useRef(false)
   /** Whether the last state read said `running`, for the notice about a check the server forgot. */
   const wasRunning = useRef(false)
@@ -138,11 +140,16 @@ export function useMailbox(active: boolean) {
   }
 
   const start = (since: string | null) => send(async () => {
+    setBusyRun(null)
     try {
       const answer = await api<{ check_id: string }>('/mailbox/checks', { method: 'POST', json: since ? { since } : undefined })
       follow(answer.check_id)
     } catch (error) {
       const other = error instanceof ApiError && error.status === 409 ? error.body.check_id : null
+      if (error instanceof ApiError && error.error === 'alert run in progress' && typeof error.body.run_id === 'string') {
+        setBusyRun(error.body.run_id)
+        return
+      }
       if (typeof other !== 'string') {
         if (error instanceof ApiError && error.error === 'not configured') void load()
         throw error
@@ -195,6 +202,7 @@ export function useMailbox(active: boolean) {
     account, accountFailed, retryAccount: () => { setAccountFailed(false); setAttempt(attempt + 1) },
     checkId, check, running, stopping: running && (cancelling || (check?.cancel_requested ?? false)),
     notice, lost, pollFailed, retryPoll: () => setPollFailed(false),
+    busyRun, endBusy: useCallback(() => setBusyRun(null), []),
     start, cancel, refresh, setMail, load,
     dismiss: () => { follow(null); setNotice('') },
   }

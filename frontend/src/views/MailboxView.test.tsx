@@ -381,6 +381,35 @@ test('the entries of all mails are grouped by mail, the new ones selected', asyn
   expect(within(mailItemOf('Neue Stellen m3')).getByText('1 von 1 ausgewählt')).toBeVisible()
 })
 
+test('an entry another mail of the list offers names that mail, cannot be picked and is not counted', async () => {
+  const first = mailItem('m1', 3)
+  const second = mailItem('m2', 2, {}, 4)
+  const copy = { ...first.preview!.entries[0], offered_in: { key: 'm1', sender: 'LinkedIn Job Alerts <jobalerts@linkedin.com>', subject: 'Neue Stellen m1' } }
+  await openPicks(mailCheck({ status: 'done', total: 2, read: 2,
+    mails: [first, { ...second, preview: { ...second.preview!, entries: [copy, ...second.preview!.entries] } }] }))
+  const head = mailItemOf('Neue Stellen m2')
+  const box = within(head).getByRole('checkbox', { name: 'Stelle 1' })
+  expect(box).toBeDisabled()
+  expect(box).not.toBeChecked()
+  expect(box).toHaveAccessibleDescription('Auch in der Mail von LinkedIn Job Alerts <jobalerts@linkedin.com>, „Neue Stellen m1“. Dort auswählbar.')
+  expect(within(head).getByText('2 von 2 ausgewählt')).toBeVisible()
+  expect(addButton(5)).toBeEnabled()
+})
+
+test('a login-walled copy of an offered link shows only the copy note, one description', async () => {
+  const first = mailItem('m1', 3)
+  const second = mailItem('m2', 2, {}, 4)
+  const copy = { ...first.preview!.entries[0], login_walled: true,
+                 offered_in: { key: 'm1', sender: 'LinkedIn Job Alerts <jobalerts@linkedin.com>', subject: 'Neue Stellen m1' } }
+  await openPicks(mailCheck({ status: 'done', total: 2, read: 2,
+    mails: [first, { ...second, preview: { ...second.preview!, entries: [copy, ...second.preview!.entries] } }] }))
+  const head = mailItemOf('Neue Stellen m2')
+  const box = within(head).getByRole('checkbox', { name: 'Stelle 1' })
+  expect(box).toHaveAccessibleDescription('Auch in der Mail von LinkedIn Job Alerts <jobalerts@linkedin.com>, „Neue Stellen m1“. Dort auswählbar.')
+  expect(within(head).queryByText('Seite mit Login-Pflicht')).toBeNull()
+  expect(head.querySelectorAll(`[id="${box.getAttribute('aria-describedby')}"]`)).toHaveLength(1)
+})
+
 test('"Postfach prüfen" stays offered beside a pick list, and a new check replaces the list', async () => {
   let started = false
   const calls = await openPicks(THREE(), {
@@ -436,7 +465,7 @@ const mailEntry = (n: number) => mailEntries(1, n)[0]
 
 test('"Nichts hinzufügen" adds nothing, says the mails count as handled and returns to the mailbox', async () => {
   const calls = await openPicks(THREE(), { 'POST /mailbox/checks/c1/finish': { status: 202, body: { run_id: null } } })
-  expect(screen.getByText(/Danach gelten die Mails dieser Prüfung als gelesen/)).toBeVisible()
+  expect(screen.getByText(/Eine Mail gilt danach als gelesen, wenn ihre hinzugefügten Anzeigen gespeichert sind; eine Mail, aus der du nichts hinzufügst, sofort\. Eine Mail mit einer Anzeige, die nicht gelesen werden konnte, bietet die nächste Prüfung wieder an\./)).toBeVisible()
   await userEvent.click(screen.getByRole('button', { name: 'Nichts hinzufügen' }))
   expect(finishes(calls)[0].body).toEqual({ entries: [] })
   expect(await screen.findByText(/Nichts hinzugefügt/)).toHaveTextContent(/nicht noch einmal angeboten/)
@@ -468,6 +497,90 @@ test('a refused finish, because another alert run computes, shows that run and k
   await userEvent.click(addButton(6))
   expect(finishes(calls)).toHaveLength(2)
   expect(await screen.findByRole('heading', { name: /erledigt/ })).toBeVisible()
+})
+
+test('a mailbox run with failed entries says that the next check offers their mails again', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /mailbox': { body: CHECKED },
+            'GET /alert-mails/runs/r1': { body: { run_id: 'r1', status: 'done', error: null, cancel_requested: false, total: 4, done: 4,
+              entries: [{ url: mailEntry(1).url, title: 'Stelle 1', state: 'stored', posting_id: 'p-1' },
+                        ...[2, 3, 4].map((n) => ({ url: mailEntry(n).url, title: `Stelle ${n}`, state: 'failed' }))] } } })
+  view()
+  expect(await screen.findByText(/1 hinzugefügt, 3 nicht gelesen/)).toBeVisible()
+  expect(screen.getByText('Die nächste Prüfung bietet die Mails dieser Anzeigen wieder an.')).toBeVisible()
+})
+
+test('a cancelled mailbox run says after how many entries and that the next check offers the mails of the rest again', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /mailbox': { body: CHECKED },
+            'GET /alert-mails/runs/r1': { body: { run_id: 'r1', status: 'cancelled', error: null, cancel_requested: true, total: 3, done: 1,
+              entries: [{ url: mailEntry(1).url, title: 'Stelle 1', state: 'stored', posting_id: 'p-1' },
+                        ...[2, 3].map((n) => ({ url: mailEntry(n).url, title: `Stelle ${n}`, state: 'waiting' }))] } } })
+  view()
+  expect(await screen.findByText('Abgebrochen nach 1 von 3 Anzeigen')).toBeVisible()
+  expect(screen.getByText('Die nächste Prüfung bietet die Mails dieser Anzeigen wieder an.')).toBeVisible()
+  expect(screen.queryByText(/Füge die Mail erneut ein/)).toBeNull()
+  expect(screen.getAllByText('nicht gestartet')).toHaveLength(2)
+})
+
+test('a mailbox run the server forgot says that the next check offers the mails of the unsaved postings again', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /mailbox': { body: CHECKED }, 'GET /alert-mails/runs/r1': { status: 404, body: { error: 'run not found' } } })
+  view()
+  const notice = await screen.findByText(/Der Server kennt den Lauf nicht mehr\./)
+  expect(notice).toHaveTextContent('Die nächste Prüfung bietet die Mails der Anzeigen, die nicht gespeichert wurden, wieder an.')
+  expect(notice).not.toHaveTextContent(/gelten als gelesen/)
+  expect(screen.getByRole('button', { name: 'Zurück zum Postfach' })).toBeVisible()
+})
+
+test('a crashed mailbox run says that the next check offers the mails of the unreached postings again', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /mailbox': { body: CHECKED },
+            'GET /alert-mails/runs/r1': { body: { run_id: 'r1', status: 'failed', error: 'boom', cancel_requested: false, total: 2, done: 1,
+              entries: [{ url: mailEntry(1).url, title: 'Stelle 1', state: 'stored', posting_id: 'p-1' },
+                        { url: mailEntry(2).url, title: 'Stelle 2', state: 'waiting' }] } } })
+  view()
+  const notice = await screen.findByRole('alert')
+  expect(notice).toHaveTextContent('Die nächste Prüfung bietet die Mails der Anzeigen, die nicht erreicht wurden, wieder an.')
+  expect(notice).not.toHaveTextContent(/gelten als gelesen/)
+  expect(screen.getAllByText(/Die nächste Prüfung bietet/)).toHaveLength(1)
+})
+
+test('a mailbox run whose entries all ended well does not say it', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /mailbox': { body: CHECKED },
+            'GET /alert-mails/runs/r1': { body: { run_id: 'r1', status: 'done', error: null, cancel_requested: false, total: 1, done: 1,
+              entries: [{ url: mailEntry(1).url, title: 'Stelle 1', state: 'stored', posting_id: 'p-1' }] } } })
+  view()
+  await screen.findByRole('list', { name: 'Stand je Anzeige' })
+  expect(screen.queryByText(/Die nächste Prüfung/)).toBeNull()
+})
+
+test('a check refused because an alert run computes shows that run and lets the check start again once it ended', async () => {
+  let runStatus = 'running'
+  const calls = stubApi({
+    'GET /mailbox': { body: CHECKED },
+    'POST /mailbox/checks': () => (runStatus === 'running'
+      ? { status: 409, body: { error: 'alert run in progress', detail: 'x', run_id: 'r7' } }
+      : { status: 202, body: { check_id: 'c2' } }),
+    'GET /alert-mails/runs/r7': () => ({ body: { run_id: 'r7', status: runStatus, error: null, cancel_requested: false, total: 4,
+                                                 done: runStatus === 'running' ? 1 : 4, entries: [] } }),
+    'GET /mailbox/checks/c2': { body: mailCheck({ check_id: 'c2', total: 3, read: 1 }) },
+  })
+  view()
+  await userEvent.click(await screen.findByRole('button', { name: 'Postfach prüfen' }))
+  const busy = await screen.findByRole('region', { name: 'Ein anderer Lauf rechnet' })
+  expect(busy).toHaveTextContent('1 von 4 erledigt')
+  expect(busy).toHaveTextContent('Ein anderer Lauf rechnet noch: 1 von 4 erledigt. Die Prüfung kann starten, sobald er fertig ist.')
+  expect(screen.queryByRole('alert')).toBeNull()
+  expect(localStorage.getItem(CHECK_KEY)).toBeNull()
+  runStatus = 'done'
+  await tick()
+  await vi.waitFor(() => expect(screen.queryByRole('region', { name: 'Ein anderer Lauf rechnet' })).toBeNull())
+  expect(checkButton()).toBeEnabled()
+  await userEvent.click(checkButton())
+  expect(await screen.findByText(/3 neue Mails gefunden, 1 gelesen/)).toBeVisible()
+  expect(calls.filter((call) => call.path === '/mailbox/checks')).toHaveLength(2)
 })
 
 test('a failed finish keeps the pick list and says so', async () => {

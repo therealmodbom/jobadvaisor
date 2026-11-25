@@ -1,9 +1,12 @@
+import time
+
 import httpx
 import pytest
-from conftest import FakeStructuredModel
+from conftest import FakeStructuredModel, SpacingClock
 
 from jobadvaisor.data.models import ClosedRule, PolicyPack
 from jobadvaisor.intake.fetch import (
+    CLOSED_REDIRECT,
     CLOSED_TEXT,
     DEFAULT_CLOSED_RULES,
     FetchError,
@@ -12,6 +15,7 @@ from jobadvaisor.intake.fetch import (
     download_rendered,
     fetch_plain,
     fetch_rendered,
+    host_throttle,
     page_from_html,
     page_links,
 )
@@ -20,6 +24,8 @@ from jobadvaisor.intake.ladder import (
     DEFAULT_LOGIN_WALL_HOSTS,
     closed_rules,
     fetch_posting,
+    gone_disputed,
+    is_gone,
     login_wall_hosts,
 )
 from jobadvaisor.intake.postings import Intake, Submission, store_posting
@@ -411,3 +417,207 @@ def test_plain_download_without_retry_sends_one_request_after_a_transport_error(
     with pytest.raises(FetchError, match="connection failed"):
         download_plain("https://example.test/job", http, retry=False)
     assert len(seen) == 1
+
+
+def answering(*replies):
+    """An `httpx.Client` whose transport answers each request with the next of `replies`: a
+    response is returned, an exception is raised."""
+    queue = iter(replies)
+
+    def handle(request):
+        reply = next(queue)
+        if isinstance(reply, Exception):
+            raise reply
+        return reply
+    return httpx.Client(transport=httpx.MockTransport(handle))
+
+
+def test_a_retried_download_names_the_failure_of_its_first_attempt():
+    http = answering(httpx.Response(429), httpx.Response(404))
+    with pytest.raises(FetchError) as error:
+        download_plain("https://jobs.example.org/job", http)
+    assert str(error.value) == "HTTP 404" and error.value.earlier == ("HTTP 429",)
+
+
+def test_a_retried_download_names_a_transport_failure_of_its_first_attempt():
+    http = answering(httpx.ConnectError("down"), httpx.Response(404))
+    with pytest.raises(FetchError) as error:
+        download_plain("https://jobs.example.org/job", http)
+    assert str(error.value) == "HTTP 404"
+    assert error.value.earlier == ("connection failed: ConnectError",)
+
+
+def test_a_refused_hop_of_the_retry_keeps_the_first_failure():
+    marker = DEFAULT_CLOSED_RULES[0].redirect_marker
+
+    def handle(request):
+        if request.url.path == "/job" and not calls:
+            calls.append(1)
+            return httpx.Response(429)
+        return httpx.Response(302, headers={"location": f"https://www.linkedin.com/x?{marker}"})
+    calls = []
+    http = httpx.Client(transport=httpx.MockTransport(handle), follow_redirects=True)
+    with pytest.raises(FetchError) as error:
+        download_plain("https://www.linkedin.com/job", http)
+    assert str(error.value) == CLOSED_REDIRECT and error.value.earlier == ("HTTP 429",)
+
+
+def test_a_download_that_fails_once_and_then_succeeds_returns_the_page():
+    http = answering(httpx.Response(503), httpx.Response(200, text="<p>ok</p>"))
+    assert download_plain("https://jobs.example.org/job", http)[1] == "<p>ok</p>"
+
+
+def test_a_successful_retry_still_names_the_failure_of_its_first_attempt():
+    http = answering(httpx.Response(429), httpx.Response(200, text="<p>ok</p>"))
+    final_url, html = download_plain("https://jobs.example.org/job", http)  # still a 2-tuple
+    assert html == "<p>ok</p>"
+    assert download_plain("https://jobs.example.org/job", answering(
+        httpx.ConnectError("down"), httpx.Response(200, text="x"))).earlier == (
+        "connection failed: ConnectError",)
+    assert download_plain("https://jobs.example.org/job", answering(
+        httpx.Response(200, text="x"))).earlier == ()
+
+
+def test_a_page_read_after_a_retry_carries_the_first_failure():
+    http = answering(httpx.Response(429), httpx.Response(200, text=page_with("x", BODY)))
+    assert fetch_plain("https://jobs.example.org/job", http).earlier == ("HTTP 429",)
+    http = answering(httpx.Response(429), httpx.Response(200, text="<p>nothing</p>"))
+    with pytest.raises(FetchError, match="no posting text") as error:
+        fetch_plain("https://jobs.example.org/job", http)
+    assert error.value.earlier == ("HTTP 429",)
+
+
+def ladder_through(url: str, *replies, rendered: str = "HTTP 404"):
+    """`fetch_posting` with the plain step reading `replies` and the rendered step failing with
+    `rendered`; returns the attempts as dicts."""
+    http = answering(*replies)
+
+    def fail(address):
+        raise FetchError(rendered)
+    result = fetch_posting(url, [], plain=lambda address: fetch_plain(address, http),
+                           rendered=fail)
+    return [vars(a) for a in result.attempts]
+
+
+def test_a_429_before_a_page_without_posting_text_keeps_the_link_disputed():
+    url = "https://jobs.example.org/job"
+    attempts = ladder_through(url, httpx.Response(429), httpx.Response(200, text="<p>x</p>"))
+    assert [a["outcome"] for a in attempts] == ["HTTP 429", "no posting text", "HTTP 404"]
+    assert not is_gone(attempts, url) and gone_disputed(attempts, url)
+
+
+def test_a_429_before_a_page_with_a_posting_shows_both_attempts():
+    page = httpx.Response(200, text=page_with("x", BODY))
+    attempts = ladder_through("https://jobs.example.org/job", httpx.Response(429), page)
+    assert [(a["step"], a["outcome"]) for a in attempts] == [("plain", "HTTP 429"),
+                                                             ("plain", "ok")]
+
+
+def test_a_first_try_success_has_no_extra_attempt():
+    page = httpx.Response(200, text=page_with("x", BODY))
+    attempts = ladder_through("https://jobs.example.org/job", page)
+    assert [a["outcome"] for a in attempts] == ["ok"]
+
+
+def test_a_download_without_a_retry_has_no_earlier_failures():
+    with pytest.raises(FetchError) as error:
+        download_plain("https://jobs.example.org/job", answering(httpx.Response(404)))
+    assert error.value.earlier == ()
+
+
+def test_the_ladder_records_the_first_answer_of_a_retried_fetch_and_the_404_stays_disputed():
+    url = "https://jobs.example.org/job"
+    http = answering(httpx.Response(429), httpx.Response(404))
+
+    def rendered(address):
+        raise FetchError("no posting text")
+    result = fetch_posting(url, [], plain=lambda address: fetch_plain(address, http),
+                           rendered=rendered)
+    attempts = [vars(a) for a in result.attempts]
+    assert [a["outcome"] for a in attempts] == ["HTTP 429", "HTTP 404", "no posting text"]
+    assert [a["step"] for a in attempts] == ["plain", "plain", "rendered"]
+    assert not is_gone(attempts, url) and gone_disputed(attempts, url)
+
+
+# --- spacing in an alert run (`fetch.host_throttle`) ----------------------------------------
+
+
+@pytest.fixture
+def clock():
+    """A fake clock and the 3 s throttle on it, set as `host_throttle` for the test."""
+    spacing = SpacingClock()
+    token = host_throttle.set(spacing.throttle())
+    yield spacing
+    host_throttle.reset(token)
+
+
+def test_plain_download_waits_for_its_host_before_every_request_the_retry_included(clock):
+    replies = iter([httpx.Response(429), httpx.Response(200, text="<p>ok</p>")])
+    http = httpx.Client(transport=httpx.MockTransport(lambda request: next(replies)))
+    download_plain("https://jobs.example.org/job", http)
+    assert clock.sleeps == [3]  # the retry lies 3 s behind the first request
+
+
+def redirecting(target: str) -> httpx.Client:
+    """A client whose `/start` pages redirect to `target` and everything else answers 200."""
+    def handle(request):
+        if request.url.path == "/start":
+            return httpx.Response(302, headers={"location": target})
+        return httpx.Response(200, text="<p>ok</p>")
+    return httpx.Client(transport=httpx.MockTransport(handle), follow_redirects=True)
+
+
+def test_a_redirect_hop_on_the_same_host_waits_before_it_is_sent(clock):
+    download_plain("https://jobs.example.org/start", redirecting("https://jobs.example.org/job"))
+    assert clock.sleeps == [3]
+
+
+def test_a_redirect_hop_to_another_host_reserves_that_host(clock):
+    http = redirecting("https://careers.example.net/job")
+    download_plain("https://jobs.example.org/start", http)
+    assert clock.sleeps == []  # a hop to a host not used before is due at once
+    download_plain("https://careers.example.net/other", http)
+    assert clock.sleeps == [3]
+
+
+def test_a_refused_hop_takes_no_slot(clock):
+    marker = DEFAULT_CLOSED_RULES[0].redirect_marker
+    http = redirecting(f"https://www.linkedin.com/x?{marker}")
+    with pytest.raises(FetchError, match="closed page"):
+        download_plain("https://jobs.example.org/start", http)
+    download_plain("https://www.linkedin.com/job", http)
+    assert clock.sleeps == []
+
+
+def test_a_redirect_hop_outside_a_run_waits_for_nothing(monkeypatch):
+    monkeypatch.setattr(time, "sleep", lambda seconds: pytest.fail("slept"))
+    download_plain("https://jobs.example.org/start", redirecting("https://jobs.example.org/job"))
+
+
+def test_plain_downloads_of_two_hosts_do_not_wait_for_each_other(clock):
+    http = httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(200)))
+    download_plain("https://jobs.example.org/a", http)
+    download_plain("https://careers.example.net/b", http)
+    assert clock.sleeps == []
+    download_plain("https://JOBS.example.org/c", http)
+    assert clock.sleeps == [3]
+
+
+def test_a_download_outside_a_run_waits_for_nothing(monkeypatch):
+    monkeypatch.setattr(time, "sleep", lambda seconds: pytest.fail("slept"))
+    http = httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(200)))
+    assert host_throttle.get() is None
+    download_plain("https://jobs.example.org/a", http)
+    download_plain("https://jobs.example.org/b", http)
+
+
+def test_a_rendered_download_waits_once_for_its_host_before_the_navigation(clock, monkeypatch):
+    from playwright import sync_api
+
+    def no_browser():
+        raise sync_api.Error("no browser in this test")
+    monkeypatch.setattr(sync_api, "sync_playwright", no_browser)
+    for _ in range(2):
+        with pytest.raises(FetchError, match="browser failed"):
+            download_rendered("https://jobs.example.org/a")
+    assert clock.sleeps == [3]  # the first call is due at once, the second waits

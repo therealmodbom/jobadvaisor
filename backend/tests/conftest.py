@@ -154,6 +154,26 @@ def unknown_features(schema, prompt) -> dict:
     return {field.alias: "unknown" for field in schema.model_fields.values()}
 
 
+class SpacingClock:
+    """A fake clock whose sleep advances it, so a `Throttle` never waits for real: `sleeps`
+    lists every pause, `throttle(interval)` is a `Throttle` on this clock."""
+
+    def __init__(self):
+        self.now, self.sleeps = 0.0, []
+
+    def __call__(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+    def throttle(self, interval: float = 3):
+        from jobadvaisor.intake.company_facts import Throttle
+
+        return Throttle(interval, self, self.sleep)
+
+
 def write_json(path: Path, data: dict) -> Path:
     """Write `data` as JSON to `path`, creating parent directories."""
     path.parent.mkdir(parents=True, exist_ok=True)

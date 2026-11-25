@@ -21,13 +21,17 @@ from jobadvaisor.data.writer import read_company, write_company
 from jobadvaisor.intake.fetch import (
     TIMEOUT_SECONDS,
     USER_AGENT,
+    host_throttle,
     json_ld_documents,
+    request_hooks,
     require_http,
+    url_host,
 )
 from jobadvaisor.tools.extraction import UNKNOWN
 from jobadvaisor.tools.research import employer_website, matching_postings
 
 MIN_INTERVAL_SECONDS = 2.0
+HOST_SPACING_SECONDS = 3  # between two requests to one host; the spike still met 429s at 3 s
 LOGIN_PATHS = ("/authwall", "/login", "/uas/login", "/checkpoint")  # a redirect there is a block
 ABOUT_SIZE = "about-us__size"
 ABOUT_FOUNDED = "about-us__foundedOn"
@@ -61,18 +65,29 @@ class Reply:
 
 def fetch_page(url: str, http: httpx.Client | None = None) -> Reply:
     """GET `url` once, with the intake timeout and no retry, and report what came back, whatever
-    the status. Raises `FetchError` for an address that is no http(s) URL and `httpx.HTTPError`
-    for a transport failure (refused, timed out, redirect loop)."""
+    the status. In an alert run, each redirect hop waits on the run's `host_throttle` for its
+    host; the first request is the caller's to space (`look_up` does). Raises `FetchError` for
+    an address that is no http(s) URL and `httpx.HTTPError` for a transport failure (refused,
+    timed out, redirect loop)."""
     require_http(url)
-    with http or httpx.Client(timeout=TIMEOUT_SECONDS, follow_redirects=True,
-                              headers={"User-Agent": USER_AGENT}) as client:
+    sent = []
+
+    def space_hops(request: httpx.Request) -> None:
+        if sent and (throttle := host_throttle.get()):
+            throttle.wait(url_host(str(request.url)))
+        sent.append(request)
+
+    client = http or httpx.Client(timeout=TIMEOUT_SECONDS, follow_redirects=True,
+                                  headers={"User-Agent": USER_AGENT})
+    with client, request_hooks(client, space_hops):
         response = client.get(url)
     return Reply(response.status_code, str(response.url), response.text)
 
 
 class Throttle:
-    """Spaces requests to one host by at least `interval` seconds: `wait(host)` sleeps until
-    the host's last request lies that far back, and counts the request as made when it returns."""
+    """Spaces requests to one host by at least `interval` seconds: `wait(host)` reserves the
+    host's next free slot, at least `interval` after the previous one, and sleeps until it
+    comes. The sleep runs outside the lock, so a wait for one host never holds back another."""
 
     # ponytail: one process; a second app process would need a limit shared through a file
     def __init__(self, interval: float = MIN_INTERVAL_SECONDS,
@@ -84,19 +99,22 @@ class Throttle:
 
     def wait(self, host: str) -> None:
         with self._lock:
-            if (due := self._last.get(host, float("-inf")) + self.interval) > self._clock():
-                self._sleep(due - self._clock())
-            self._last[host] = self._clock()
+            now = self._clock()
+            slot = max(now, self._last.get(host, float("-inf")) + self.interval)
+            self._last[host] = slot
+        if slot > now:
+            self._sleep(slot - now)
 
 
 THROTTLE = Throttle()
 
 
 def look_up(root: Path, company: str, company_url: str | None = None, *,
-            fetch: Callable[[str], Reply] = fetch_page, throttle: Throttle = THROTTLE,
+            fetch: Callable[[str], Reply] = fetch_page, throttle: Throttle | None = None,
             now: datetime | None = None) -> Company | None:
     """Look up `company`'s facts once and store them as its record under `root`; returns the
-    stored record, or `None` when nothing was stored.
+    stored record, or `None` when nothing was stored. Requests wait on `throttle`, by default
+    the `fetch.host_throttle` of the alert run in force, else `THROTTLE`.
 
     Sources in order: the LinkedIn company page `company_url` (when the posting's page gave
     one), then the employer's website guessed from the company's stored postings; the second
@@ -109,6 +127,7 @@ def look_up(root: Path, company: str, company_url: str | None = None, *,
     Never raises: the intake must not fail because a lookup did.
     """
     try:
+        throttle = throttle or host_throttle.get() or THROTTLE
         name = company.strip()
         cid = company_id(name)
         if name == UNKNOWN or not cid or read_company(root, cid) is not None:

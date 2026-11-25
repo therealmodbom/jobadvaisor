@@ -118,7 +118,7 @@ export function useAlertRun(store: RunStore) {
   /** Shows run `id`, as far as known with `entries` as its waiting rows. */
   function attach(id: string, entries?: { url: string; title: string }[]) {
     store.set(id)
-    setProgress(entries ? { run_id: id, status: 'running', error: null, total: entries.length, done: 0,
+    setProgress(entries ? { run_id: id, status: 'running', error: null, cancel_requested: false, total: entries.length, done: 0,
                             entries: entries.map((entry) => ({ url: entry.url, title: entry.title, state: 'waiting' as const })) }
                          : null)
     setForced(null)
@@ -149,7 +149,7 @@ export function useAlertRun(store: RunStore) {
                                      overlays: [...(prior?.overlays ?? []), { run: id, index: row.index }] } : undefined)
       setForced(row ?? null)
       setPollFailed(false)
-      setProgress({ run_id: id, status: 'running', error: null, total: entries.length, done: 0,
+      setProgress({ run_id: id, status: 'running', error: null, cancel_requested: false, total: entries.length, done: 0,
                     entries: entries.map((entry) => ({ url: entry.url, title: entry.title, state: row ? 'running' : 'waiting' })) })
       setRunId(id)
     } catch (error) {

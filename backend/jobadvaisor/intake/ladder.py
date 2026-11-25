@@ -37,12 +37,34 @@ GONE_OUTCOMES = {"HTTP 404", "HTTP 410", CLOSED_REDIRECT, CLOSED_TEXT}
 CLOSED_OUTCOMES = (CLOSED_REDIRECT, CLOSED_TEXT)  # a closed page: no further step is tried
 
 
+def disputed(outcome: str) -> bool:
+    """Whether an attempt's `outcome` leaves the question of the page open: an HTTP status
+    other than 200, 404 and 410 (the server answered, but not about the page), or a connection
+    or browser failure. "no posting text", a refused redirect and a closed marker do not."""
+    status = outcome.removeprefix("HTTP ")
+    if status != outcome and status.isdigit():
+        return int(status) not in (200, 404, 410)
+    return outcome.startswith(("connection failed", "browser failed"))
+
+
+def _on(attempts: list[dict], url: str) -> list[str]:
+    return [a["outcome"] for a in attempts if a["url"] == url]
+
+
 def is_gone(attempts: list[dict], url: str) -> bool:
     """Whether `attempts` (the dicts of a `PostingNotFoundError`) show the page at `url` itself
-    answering 404 or 410, redirecting to a closed rule's marker or showing a closed notice
-    (`GONE_OUTCOMES`): the link is gone, not merely unreachable. An attempt on another address
-    (a redirect target, an alternative source) does not count."""
-    return any(a["url"] == url and a["outcome"] in GONE_OUTCOMES for a in attempts)
+    gone: redirecting to a closed rule's marker or showing a closed notice, or answering 404 or
+    410 with no other attempt on `url` disputed (`disputed`). An attempt on another address (a
+    redirect target, an alternative source) does not count."""
+    outcomes = _on(attempts, url)
+    return any(o in CLOSED_OUTCOMES for o in outcomes) or (
+        any(o in GONE_OUTCOMES for o in outcomes) and not any(map(disputed, outcomes)))
+
+
+def gone_disputed(attempts: list[dict], url: str) -> bool:
+    """Whether `url` answered 404 or 410 but `disputed` keeps it from counting as gone: the
+    link could not be judged. False when a closed marker settles it."""
+    return any(o in GONE_OUTCOMES for o in _on(attempts, url)) and not is_gone(attempts, url)
 
 
 @dataclass(frozen=True)
@@ -102,11 +124,11 @@ def fetch_posting(url: str, walled_hosts: list[str], *,
         try:
             page = fetcher(url)
         except FetchError as error:
-            attempts.append(Attempt(step, url, str(error)))
+            attempts += [Attempt(step, url, text) for text in (*error.earlier, str(error))]
             if str(error) in CLOSED_OUTCOMES:
                 break
             continue
-        attempts.append(Attempt(step, url, "ok"))
+        attempts += [Attempt(step, url, text) for text in (*page.earlier, "ok")]
         return LadderResult(page, attempts)
     if walled:
         attempts.append(Attempt("login_wall", url, "skipped"))

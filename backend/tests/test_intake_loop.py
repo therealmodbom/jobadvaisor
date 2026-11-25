@@ -1,12 +1,14 @@
 import json
 
+import httpx
 import pytest
-from conftest import FakeStructuredModel, ToolScriptModel, write_json
+from conftest import FakeStructuredModel, SpacingClock, ToolScriptModel, write_json
 from fastapi.testclient import TestClient
 from test_triage_graph import POLICY_PACK, Harness, StubClassifier
 
 from jobadvaisor.api.app import create_app
 from jobadvaisor.data.loader import load
+from jobadvaisor.intake.fetch import download_plain, host_throttle
 from jobadvaisor.intake.ladder import DEFAULT_LOGIN_WALL_HOSTS, Attempt
 from jobadvaisor.intake.loop import MAX_TOOL_CALLS, run_intake_loop
 from jobadvaisor.intake.postings import Intake
@@ -64,6 +66,36 @@ def test_all_attempts_failing_lists_every_attempt(site):
     assert [(a.step, a.outcome) for a in result.attempts] == [
         ("plain", "HTTP 404"), ("loop:fetch_plain", "HTTP 404"),
         ("loop:fetch_rendered", "HTTP 404")]
+
+
+def test_the_loop_records_the_first_answer_of_a_retried_fetch():
+    replies = iter([httpx.Response(429), httpx.Response(404)])
+    http = httpx.Client(transport=httpx.MockTransport(lambda request: next(replies)))
+    url = "https://jobs.example.org/job"
+    model = ToolScriptModel(plan=[("fetch_plain", {"url": url})])
+    result = loop(model, walled=(), plain=lambda address: download_plain(address, http))
+    assert [(a.step, a.url, a.outcome) for a in result.attempts] == [
+        ("loop:fetch_plain", url, "HTTP 429"), ("loop:fetch_plain", url, "HTTP 404")]
+
+
+@pytest.mark.parametrize(("html", "outcome"), [
+    ("<p>" + "You build data pipelines in Python and SQL for our sensor fleet. " * 14 + "</p>",
+     "ok"),
+    ("<p>nothing</p>", "no posting text")], ids=["a posting", "no posting text"])
+def test_the_loop_records_the_first_answer_of_a_retry_that_succeeded(html, outcome):
+    replies = iter([httpx.Response(429), httpx.Response(200, text=html)])
+    http = httpx.Client(transport=httpx.MockTransport(lambda request: next(replies)))
+    url = "https://jobs.example.org/job"
+    model = ToolScriptModel(plan=[("fetch_plain", {"url": url})])
+    result = loop(model, walled=(), plain=lambda address: download_plain(address, http))
+    assert [(a.step, a.outcome) for a in result.attempts] == [
+        ("loop:fetch_plain", "HTTP 429"), ("loop:fetch_plain", outcome)]
+
+
+def test_a_first_try_success_of_the_loop_has_no_extra_attempt(site):
+    model = ToolScriptModel(plan=[("fetch_plain", {"url": f"{site}/static.html"})])
+    result = loop(model, walled=())
+    assert [a.outcome for a in result.attempts] == ["ok"]
 
 
 def test_a_flagged_page_never_reaches_the_model_and_the_loop_goes_on(site):
@@ -244,3 +276,17 @@ def test_an_invalid_login_wall_host_is_rejected_and_nothing_written(tmp_path, ro
                                             json={"hosts": ["xing.com", "https://x.com/jobs"]})
     assert response.status_code == 422 and "https://x.com/jobs" in response.json()["detail"]
     assert (root / "policy-pack.json").read_text() == before
+
+
+def test_the_loops_tool_threads_wait_on_the_runs_host_throttle(site):
+    """`fetch.host_throttle` is set on the calling thread, as an alert run sets it; the loop runs
+    its tools elsewhere and must still space their requests."""
+    spacing = SpacingClock()
+    model = ToolScriptModel(plan=[("fetch_plain", {"url": f"{site}/static.html"}),
+                                  ("fetch_plain", {"url": f"{site}/static.html"})])
+    token = host_throttle.set(spacing.throttle())
+    try:
+        loop(model, url=f"{site}/dead.html", walled=())
+    finally:
+        host_throttle.reset(token)
+    assert spacing.sleeps == [3]  # two requests to 127.0.0.1, the second one waited

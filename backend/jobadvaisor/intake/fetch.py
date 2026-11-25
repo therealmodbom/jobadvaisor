@@ -3,15 +3,25 @@ schema.org `JobPosting` JSON-LD, and Playwright Chromium for script-rendered pag
 
 import json
 import re
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from html.parser import HTMLParser
+from typing import TYPE_CHECKING
 from urllib.parse import urldefrag, urljoin, urlsplit
 
 import httpx
 
 from jobadvaisor.data.models import ClosedRule
 from jobadvaisor.intake.links import navigation_allowed, public_link
+
+if TYPE_CHECKING:  # company_facts imports this module, so the class is named for typing only
+    from jobadvaisor.intake.company_facts import Throttle
+
+# The throttle of the alert run being worked on (`alert_runs.AlertRuns`), set like `guarded_link`:
+# every request of the run's intake waits on it for its host. `None` outside a run.
+host_throttle: ContextVar["Throttle | None"] = ContextVar("host_throttle", default=None)
 
 # The cleaned link of the alert-mail entry being added (`design.md` → Cleaning): a fetch that
 # starts at it checks every redirect hop with `navigation_allowed` before requesting it.
@@ -51,7 +61,13 @@ LINKEDIN_TEXT_PARTS = ("pay", "description", "criteria")
 
 
 class FetchError(Exception):
-    """A fetch step yields no posting; the message is the reason shown in the attempts."""
+    """A fetch step yields no posting; the message is the reason shown in the attempts.
+    `earlier` holds the failure texts of the attempts that came before the final one (a plain
+    fetch's retry: `("HTTP 429",)`), oldest first; empty for a single attempt."""
+
+    def __init__(self, reason: str, earlier: tuple[str, ...] = ()):
+        super().__init__(reason)
+        self.earlier = earlier
 
 
 @dataclass(frozen=True)
@@ -67,12 +83,33 @@ class Page:
     supplied: dict[str, str] = field(default_factory=dict)
     company_url: str | None = None
     closed: bool = False
+    earlier: tuple[str, ...] = ()  # failures of the attempts before the one that gave this page
+
+
+class Download(tuple):
+    """What `download_plain` returns: the `(final_url, html)` pair, so a caller can unpack two
+    values, plus `earlier`, the failure texts of the attempts before the successful one (a
+    retry's first answer, `("HTTP 429",)`); empty when the first attempt succeeded."""
+
+    earlier: tuple[str, ...]
+
+    def __new__(cls, final_url: str, html: str, earlier: tuple[str, ...] = ()):
+        download = super().__new__(cls, (final_url, html))
+        download.earlier = earlier
+        return download
 
 
 def fetch_plain(url: str, http: httpx.Client | None = None) -> Page:
-    """Fetch `url` over HTTP (`download_plain`) and read its posting (`page_from_html`).
-    Raises `FetchError` naming the failure."""
-    return page_from_html(*download_plain(url, http))
+    """Fetch `url` over HTTP (`download_plain`) and read its posting (`page_from_html`). The
+    failures of the attempts before the successful one are `Page.earlier`, or `FetchError.earlier`
+    when the page holds no posting. Raises `FetchError` naming the failure."""
+    download = download_plain(url, http)
+    earlier = getattr(download, "earlier", ())
+    try:
+        page = page_from_html(*download)
+    except FetchError as error:
+        raise FetchError(str(error), (*earlier, *error.earlier)) from None
+    return replace(page, earlier=earlier)
 
 
 def fetch_rendered(url: str) -> Page:
@@ -119,24 +156,36 @@ def _closed_text(url: str, text: str) -> bool:
 
 
 def download_plain(url: str, http: httpx.Client | None = None, *,
-                   retry: bool = True) -> tuple[str, str]:
+                   retry: bool = True) -> "Download":
     """The address after redirects and the HTML of `url` over HTTP, retrying once after a
     transport error or a 429/5xx answer unless `retry` is false (one request, whatever the
-    answer). A redirect hop that matches a closed rule's redirect marker is not sent
+    answer). A retry that succeeds still names the failure of the first attempt
+    (`Download.earlier`). A redirect hop that matches a closed rule's redirect marker is not sent
     (`FetchError(CLOSED_REDIRECT)`), whatever the link. While `guarded_link` is `url`, a hop
     other than `url` itself that fails `navigation_allowed` is not sent either
     (`FetchError(REFUSED_REDIRECT)`), after the closed question; `url` is sent as it is.
-    Raises `FetchError` naming the failure."""
+    Waits on the `host_throttle` in force before every request it sends: the first, the retry
+    and each redirect hop, on the hop's own host (a refused hop takes no slot). Raises
+    `FetchError` naming the failure of the last attempt; `FetchError.earlier` lists the
+    failures of the attempts before it (a 429 before a 404 reads as `("HTTP 429",)`)."""
     require_http(url)
     http = http or httpx.Client(timeout=TIMEOUT_SECONDS, follow_redirects=True,
                                 headers={"User-Agent": USER_AGENT})
-    hooks = http.event_hooks
-    hook = _check_hop if guarded_link.get() == url else _check_closed_hop
-    http.event_hooks = {**hooks, "request": [*hooks.get("request", []), hook]}
-    try:
+    check = _check_hop if guarded_link.get() == url else _check_closed_hop
+    with request_hooks(http, check, _wait_before_request):
         return _download_plain(url, http, retry)
+
+
+@contextmanager
+def request_hooks(http: httpx.Client, *hooks: Callable[[httpx.Request], None]) -> Iterator[None]:
+    """Run `hooks` before every request `http` sends (each redirect hop included), after its own
+    request hooks, until the block ends."""
+    original = http.event_hooks
+    http.event_hooks = {**original, "request": [*original.get("request", []), *hooks]}
+    try:
+        yield
     finally:
-        http.event_hooks = hooks
+        http.event_hooks = original
 
 
 def _refusal(url: str, start: str | None) -> str | None:
@@ -170,24 +219,39 @@ def _check_hop(request: httpx.Request) -> None:
         raise FetchError(reason)
 
 
-def _download_plain(url: str, http: httpx.Client, retry: bool) -> tuple[str, str]:
+def _wait_before_request(request: httpx.Request) -> None:
+    _wait_for_host(str(request.url))
+
+
+def _wait_for_host(url: str) -> None:
+    """Wait on the `host_throttle` in force, if any, for `url`'s host before a request to it."""
+    if throttle := host_throttle.get():
+        throttle.wait(url_host(url))
+
+
+def _download_plain(url: str, http: httpx.Client, retry: bool) -> "Download":
     attempts = 2 if retry else 1
+    earlier: list[str] = []  # the failure texts of the attempts so far
     for attempt in range(1, attempts + 1):
         try:
             response = http.get(url)
+        except FetchError as error:  # a refused redirect hop, raised by a request hook
+            raise FetchError(str(error), (*earlier, *error.earlier)) from None
         except httpx.InvalidURL:
-            raise FetchError("invalid URL") from None
+            raise FetchError("invalid URL", tuple(earlier)) from None
         except httpx.HTTPError as error:
+            failure = f"connection failed: {type(error).__name__}"
             if attempt == attempts:
-                raise FetchError(f"connection failed: {type(error).__name__}") from None
+                raise FetchError(failure, tuple(earlier)) from None
+            earlier.append(failure)
             continue
-        if response.status_code == 429 or response.status_code >= 500:
-            if attempt == attempts:
-                raise FetchError(f"HTTP {response.status_code}")
+        if response.status_code == 200:
+            return Download(str(response.url), response.text, tuple(earlier))
+        failure = f"HTTP {response.status_code}"
+        if (response.status_code == 429 or response.status_code >= 500) and attempt < attempts:
+            earlier.append(failure)
             continue
-        if response.status_code != 200:
-            raise FetchError(f"HTTP {response.status_code}")
-        return str(response.url), response.text
+        raise FetchError(failure, tuple(earlier))
     raise AssertionError("unreachable")
 
 
@@ -196,8 +260,12 @@ def download_rendered(url: str) -> tuple[str, str]:
     the network is idle. A main-frame navigation that matches a closed rule's redirect marker
     is aborted before it is sent (`FetchError(CLOSED_REDIRECT)`), whatever the link. While
     `guarded_link` is `url`, one that fails `_refusal` is aborted too (`FetchError(
-    REFUSED_REDIRECT)` or `REFUSED_HOST`). Raises `FetchError` naming the failure."""
+    REFUSED_REDIRECT)` or `REFUSED_HOST`). Waits on the `host_throttle` once before the
+    navigation; the browser's own subresource requests are not counted. Raises `FetchError`
+    naming the failure; a main-frame answer other than 200 is `HTTP <status>`, as in the plain
+    fetch."""
     require_http(url)
+    _wait_for_host(url)
     from playwright.sync_api import Error, sync_playwright
 
     refused, hops = [], []
@@ -259,7 +327,7 @@ def download_rendered(url: str) -> tuple[str, str]:
                     raise FetchError("too many redirects")
                 if refused:
                     raise FetchError(refused[0])
-                if response is not None and response.status >= 400:
+                if response is not None and response.status != 200:  # like the plain fetch
                     raise FetchError(f"HTTP {response.status}")
                 html, final_url = tab.content(), tab.url
             finally:

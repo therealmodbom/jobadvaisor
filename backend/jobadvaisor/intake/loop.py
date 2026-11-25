@@ -86,13 +86,16 @@ def run_intake_loop(url: str, attempts: list[Attempt], walled_hosts: list[str],
             attempts.append(Attempt(step, target, "login-walled host, not fetched"))
             return "login-walled host, not fetched"
         try:
-            final_url, html = download(target)
+            result = download(target)
+            final_url, html = result
         except FetchError as error:
-            attempts.append(Attempt(step, target, str(error)))
+            attempts.extend(Attempt(step, target, text) for text in (*error.earlier, str(error)))
             return f"fetch failed: {error}"
         except Exception as error:  # a malformed third-party link must not end intake
             attempts.append(Attempt(step, target, f"fetch failed: {type(error).__name__}"))
             return f"fetch failed: {type(error).__name__}"
+        attempts.extend(Attempt(step, target, text)  # a fake download returns a plain tuple
+                        for text in getattr(result, "earlier", ()))
         try:
             page = page_from_html(final_url, html)
         except FetchError:

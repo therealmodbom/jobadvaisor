@@ -3,7 +3,7 @@ import { Info, Lock } from 'lucide-react'
 import type { AlertEntry } from '@/api'
 import { Badge } from '@/components/posting'
 import { Button } from '@/components/ui/button'
-import { PANEL, ROW, ROW_BUTTON } from '@/lib/alert'
+import { locked as isLocked, PANEL, ROW, ROW_BUTTON } from '@/lib/alert'
 import { cn } from '@/lib/utils'
 
 /** A hint above the pick list, in the muted box of the intake view. */
@@ -50,7 +50,8 @@ export function StartFailed() {
 }
 
 /** One entry of the pick list: a checkbox named by the title, the cleaned link, and what keeps
- * the entry from being picked or preselected. `id` is the checkbox's ID, unique in the page; the
+ * the entry from being picked or preselected (a copy of a link another mail offers names that
+ * mail). `id` is the checkbox's ID, unique in the page; the
  * reason below it gets `<id>-why`. */
 export function PickRow({ entry, id, checked, onToggle, onText }: {
   entry: AlertEntry
@@ -59,7 +60,7 @@ export function PickRow({ entry, id, checked, onToggle, onText }: {
   onToggle: () => void
   onText: () => void
 }) {
-  const locked = Boolean(entry.duplicate) || entry.ambiguous
+  const locked = isLocked(entry)
   const why = `${id}-why`
   return (
     <li className={cn(ROW, locked && 'bg-background')}>
@@ -76,7 +77,7 @@ export function PickRow({ entry, id, checked, onToggle, onText }: {
                className="text-[15px] text-primary underline">Gespeicherte Anzeige ansehen</a>
           </div>
         )}
-        {entry.login_walled && !entry.duplicate && (
+        {entry.login_walled && !entry.duplicate && !entry.offered_in && (
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
             <Badge className="bg-muted text-foreground">
               <Lock className="size-4" aria-hidden="true" />Seite mit Login-Pflicht
@@ -85,6 +86,12 @@ export function PickRow({ entry, id, checked, onToggle, onText }: {
               Nicht vorausgewählt: Die Seite selbst wird nicht abgerufen, die Anzeige wird über eine Websuche gesucht.
             </span>
           </div>
+        )}
+        {entry.offered_in && !entry.duplicate && !entry.ambiguous && (
+          <span id={why} className="text-sm text-muted-foreground">
+            Auch in der Mail von {entry.offered_in.sender || 'Unbekannter Absender'}, „{entry.offered_in.subject || 'ohne Betreff'}“.
+            Dort auswählbar.
+          </span>
         )}
         {entry.ambiguous && !entry.duplicate && (
           <>

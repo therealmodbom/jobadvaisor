@@ -5,7 +5,8 @@ temporary data repository, the built frontend in Chromium, the fake IMAP client 
 `tests/fake_imap.py` injected through `create_app(connect=...)`, the mails of the `.eml` fixtures
 (three rule senders, so no model reads them), and fake page fetches (no request leaves the
 machine). The tests share one server and run in order, each building on the one before; run them
-as a set: `pytest -m e2e` after `npm --prefix frontend run build`."""
+as a set: `pytest -m e2e` after `npm --prefix frontend run build`. The last test adds two mails that
+offer one posting and a link whose fetch is disputed, to see the run and the next check."""
 
 import json
 import threading
@@ -15,7 +16,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 import uvicorn
-from conftest import ScriptedModel, ToolScriptModel, write_json
+from conftest import ScriptedModel, SpacingClock, ToolScriptModel, write_json
 from cryptography.fernet import Fernet
 from fake_imap import FakeFolder, FakeImap, FakeMail, build_mail
 from playwright.sync_api import Page, expect, sync_playwright
@@ -24,6 +25,8 @@ from test_triage_graph import POLICY_PACK, Harness
 from jobadvaisor.api.app import create_app
 from jobadvaisor.data.loader import load
 from jobadvaisor.data.writer import read_mailbox
+from jobadvaisor.intake.alert_runs import AlertRuns
+from jobadvaisor.intake.fetch import FetchError
 from jobadvaisor.intake.fetch import Page as FetchedPage
 from jobadvaisor.intake.mailbox import imap_errors
 from jobadvaisor.intake.postings import Intake
@@ -44,6 +47,15 @@ LINKEDIN, BA, CAREER = "linkedin-mime", "ba-mime", "career-site-mime"
 SUBJECTS = {LINKEDIN: "Neue Stellen für Sie: Leitung Softwarebetrieb",
             BA: "2 neue Treffer für Ihre Suche: Datenschutz",
             CAREER: "Neue Positionen für dich"}
+# The two mails of the last test: both list SHARED, the second also DISPUTED, whose plain fetch
+# answers 404 and every other request 429.
+FIRST, SECOND = "Stellen im Kundendienst", "Stellen in der Beschaffung"
+SHARED = "https://www.linkedin.com/jobs/view/4100000401"
+OWN = "https://www.linkedin.com/jobs/view/4100000402"
+DISPUTED = "https://www.linkedin.com/jobs/view/4100000403"
+TITLES = {SHARED: "Leitung Kundendienst (m/w/d)", OWN: "Fachkraft Lagerlogistik (m/w/d)",
+          DISPUTED: "Referent Beschaffung (m/w/d)"}
+fetched: list[str] = []  # every URL the fake fetches were asked for, in order
 
 
 def expected(case: str) -> list[dict]:
@@ -62,11 +74,22 @@ def inert_agent(messages):
     raise AssertionError("the walkthrough must not call the chat agent")
 
 
-def fake_page(url: str) -> FetchedPage:
-    """The page behind a fake fetch: a short text of its own per URL (no two fake postings count
-    as similar)."""
+def fake_plain(url: str) -> FetchedPage:
+    """The plain fetch: a short text of its own per URL (no two fake postings count as similar),
+    except for `DISPUTED`, which answers 404. Records the URL in `fetched`."""
+    fetched.append(url)
+    if url == DISPUTED:
+        raise FetchError("HTTP 404")
     tail = url.rstrip("/").rsplit("/", 1)[-1]
     return FetchedPage(url, f"Wir suchen Verstärkung im Team, Kennung {tail}.")
+
+
+def fake_rendered(url: str) -> FetchedPage:
+    """The rendered fetch: as `fake_plain`, but `DISPUTED` answers 429."""
+    if url == DISPUTED:
+        fetched.append(url)
+        raise FetchError("HTTP 429")
+    return fake_plain(url)
 
 
 def mailbox_server() -> FakeImap:
@@ -111,9 +134,9 @@ def state_root(tmp_path_factory):
 @pytest.fixture(scope="module")
 def app_url(data_root, state_root, fake, tmp_path_factory):
     """Base URL of the real app on a free localhost port over `data_root`, with a valid mailbox
-    key, the IMAP connection replaced by `fake`, the ladder's fetches by `fake_page` and no
-    content-guard classifier. Fails with a build hint when `frontend/dist` is missing; stops the
-    server afterwards."""
+    key, the IMAP connection replaced by `fake`, the ladder's fetches by `fake_plain` and
+    `fake_rendered`, the alert runs' host spacing by a fake clock and no content-guard classifier.
+    Fails with a build hint when `frontend/dist` is missing; stops the server afterwards."""
     if not (FRONTEND / "index.html").is_file():
         pytest.fail("frontend/dist is missing: run `npm --prefix frontend run build` first")
 
@@ -127,14 +150,15 @@ def app_url(data_root, state_root, fake, tmp_path_factory):
     try:
         patch.setenv("STATE_DIRECTORY", str(state_root))
         patch.setenv("MAILBOX_KEY", KEY)
-        patch.setattr("jobadvaisor.intake.ladder.fetch_plain", fake_page)
-        patch.setattr("jobadvaisor.intake.ladder.fetch_rendered", fake_page)
+        patch.setattr("jobadvaisor.intake.ladder.fetch_plain", fake_plain)
+        patch.setattr("jobadvaisor.intake.ladder.fetch_rendered", fake_rendered)
         harness = Harness(tmp_path_factory.mktemp("e2e-mailbox-triage"), data_root)
+        intake = Intake(data_root, ScriptedModel(fill_by_text), ContentGuard(None, {}),
+                        loop_model=ToolScriptModel(plan=[]))
         app = create_app(
-            Runs(harness.graph, harness.context),
-            Intake(data_root, ScriptedModel(fill_by_text), ContentGuard(None, {}),
-                   loop_model=ToolScriptModel(plan=[])),
-            agent=inert_agent, frontend=FRONTEND, connect=connect)
+            Runs(harness.graph, harness.context), intake, agent=inert_agent,
+            frontend=FRONTEND, connect=connect,
+            alert_runs=AlertRuns(intake, throttle=SpacingClock().throttle()))
         server = uvicorn.Server(
             uvicorn.Config(app, host="127.0.0.1", port=0, log_level="warning"))
         thread = threading.Thread(target=server.run, daemon=True)
@@ -279,3 +303,65 @@ def test_a_second_check_finds_nothing_new(page, fake):
     assert full_reads(fake) == reads  # no mail was fetched again, the cleared one included
     assert fake.violations == []
     assert not any(call[0] == "login" and call[1] != "name@example.org" for call in fake.calls)
+
+
+def alert_mail(uid: int, subject: str, links: list[str], received: datetime) -> FakeMail:
+    """A fictional LinkedIn-style alert mail with one anchor per link in `links` (title from
+    `TITLES`); the rules read it without a model."""
+    html = "".join(f'<p><a href="{link}">{TITLES[link]}</a></p>' for link in links)
+    return FakeMail(uid, build_mail(f"<shared-link-{uid}@example.org>", subject=subject, html=html),
+                    received)
+
+
+def test_a_posting_in_two_mails_is_fetched_once_and_a_disputed_link_brings_its_mail_back(
+        page, fake, data_root):
+    now = datetime.now(UTC)
+    fake.folders["Posteingang"].mails += [
+        alert_mail(5, FIRST, [SHARED, OWN], now - timedelta(hours=2)),
+        alert_mail(6, SECOND, [SHARED, DISPUTED], now - timedelta(hours=1))]
+    reads = full_reads(fake)
+    page.get_by_role("button", name="Postfach prüfen").click()
+    mails = page.get_by_role("list", name="Mails der Prüfung").locator("> li")
+    expect(mails).to_have_count(2, timeout=WAIT)
+    first, second = (page.get_by_role("listitem", name=f"Mail „{subject}“", exact=True)
+                     for subject in (FIRST, SECOND))  # by name: the note names the first mail
+    expect(first).to_contain_text("2 von 2 ausgewählt")
+    expect(second).to_contain_text("1 von 1 ausgewählt")  # the copy of the link does not count
+    expect(second).to_contain_text(f"Auch in der Mail von jobs@example.org, „{FIRST}“")
+    copy = second.get_by_role("checkbox", name=TITLES[SHARED])  # shown, but not to be ticked
+    expect(copy).to_be_disabled()
+    expect(copy).not_to_be_checked()
+    expect(first).not_to_contain_text("Auch in der Mail")
+    expect(page.get_by_text("Eine Mail gilt danach als gelesen")).to_be_visible()
+    expect(page.get_by_role("button", name="3 Anzeigen hinzufügen")).to_be_enabled()
+    assert full_reads(fake) == reads + 2
+
+    fetched.clear()
+    page.get_by_role("button", name="3 Anzeigen hinzufügen").click()
+    expect(page.get_by_role("heading", name="3 von 3 erledigt")).to_be_visible(timeout=WAIT)
+    rows = page.get_by_role("list", name="Stand je Anzeige").locator("> li")
+    expect(rows).to_have_count(3)  # the link of both mails is in the run once
+    expect(page.get_by_text("Hinzugefügt", exact=True)).to_have_count(2)
+    expect(page.get_by_text("Gleicher Link wie oben")).to_have_count(0)
+    disputed = rows.filter(has_text=DISPUTED)
+    expect(disputed.get_by_text("Nicht beurteilbar", exact=True)).to_be_visible()
+    expect(disputed).to_contain_text("andere Abrufe wurden aber abgewiesen")
+    expect(rows.get_by_text("Stelle geschlossen", exact=True)).to_have_count(0)  # not closed
+    expect(page.get_by_role("button", name="Lauf abbrechen")).to_have_count(0)  # the run is over
+    expect(page.get_by_text("bietet die Mails dieser Anzeigen wieder an")).to_be_visible()
+    assert fetched.count(SHARED) == 1  # one fetch for the link both mails list
+    assert fetched.count(OWN) == 1
+    assert fetched.count(DISPUTED) == 2  # the plain 404, then the rendered 429
+    assert {SHARED, OWN} <= stored_urls(data_root)
+    assert DISPUTED not in stored_urls(data_root)
+    handled = read_mailbox(data_root).handled
+    assert handled.uids["Posteingang"].uids == [1, 2, 3, 4, 5]  # the second mail is not handled
+
+    reads = full_reads(fake)
+    page.get_by_role("button", name="Zurück zum Postfach").click()
+    page.get_by_role("button", name="Postfach prüfen").click()
+    expect(mails).to_have_count(1, timeout=WAIT)
+    expect(second).to_contain_text("Schon gespeichert")  # the shared link, stored by the run
+    expect(first).to_have_count(0)
+    assert full_reads(fake) == reads + 1  # only the mail with the disputed link was read again
+    assert fake.violations == []
