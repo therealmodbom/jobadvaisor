@@ -11,6 +11,7 @@
 ## 2. Posting link (#120)
 
 - [ ] 2.1 `OriginalLink` gains `name` (the visually hidden prefix „Anzeige „<name>“ öffnen, neuer Tab:“, or „Anzeige öffnen, neuer Tab:“ without one) and `className`; `PickRow` and `RunRow` render the entry's link through it in the mono style of the design. `rel` becomes `noopener noreferrer`; an address that is not http(s) stays plain text in both rows. Test first: the scenarios „Link in the pick list“ (accessible name, `href`, `target="_blank"`, `rel="noopener noreferrer"`, the checkbox still toggles) for the pasted and the mailbox pick list, „Open the posting of an entry that could not be judged“ (the run row's link), and an entry with a non-http address showing the address as text; update the `rel` assertion in `ImportView.test.tsx:613`, and verify that `PostingPage` and `ImportView` otherwise render `OriginalLink` as before
+- [ ] 2.2 `IntakeResult` links „Anzeige ansehen“ to `#/anzeigen/<posting_id>` beside „Anzeige öffnen“ (#80). Test first in `IntakeView.test.tsx`: the scenarios „New posting“ and „Posting already stored“ (link by role and name, `href`) for a link add
 
 ## 3. German attempt reasons (#160)
 

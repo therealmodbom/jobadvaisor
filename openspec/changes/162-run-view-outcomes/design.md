@@ -49,6 +49,7 @@ The look is the approved design: https://claude.ai/artifact/FLjijowheuanP61kDCif
   | `search failed` (`loop.py`) | Websuche gescheitert |
 
   The regression test lists these reasons and checks that none shows through untranslated. Rejected: German reasons from the backend, which would change the API, its tests and the list import for a display concern.
+- **Link after a single add.** `IntakeResult` puts a plain link „Anzeige ansehen“ to `#/anzeigen/<posting_id>` beside „Anzeige öffnen“ in the `PostingFields` slot, as `BatchResults` and `RunRow`'s `postingHref` do; same tab, since it is the app's own page. No new component.
 - **Status line.** A `<p role="status">` under the filter row: „Zeigt alle n Anzeigen“ or „Zeigt k von n Anzeigen: <Ergebnis>“ („Zeigt 1 von n Anzeigen“ for one), k being the rows shown. Under a filter it changes only when an entry of that outcome ends or the filter changes, so a running run does not announce every poll.
 
 No ADR: the rejected alternatives are local implementation choices, not a significant decision.

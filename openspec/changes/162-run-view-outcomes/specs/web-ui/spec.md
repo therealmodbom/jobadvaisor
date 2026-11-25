@@ -103,7 +103,7 @@ In the pick list of a pasted mail or a mailbox check, and in the rows of a run, 
 
 #### Scenario: Open the posting of an entry that could not be judged
 - **WHEN** the user activates the link of a „Nicht beurteilbar“ row with the keyboard
-- **THEN** the posting's page opens in a new tab, and the run view stays as it was
+- **THEN** the original ad opens in a new tab, and the run view stays as it was
 
 #### Scenario: Link in the pick list
 - **WHEN** a pick list shows an entry titled „Data Engineer“
@@ -123,3 +123,14 @@ Wherever the view lists attempts (a single link, several links, an alert run), e
 #### Scenario: Unknown reason
 - **WHEN** an attempt reports a reason the view does not know
 - **THEN** its line shows that reason as it came
+
+### Requirement: Stored posting linked after a single add
+When a single add of a link, a text or a PDF has stored a posting or found it already stored, the result SHALL link to that posting's page („Anzeige ansehen“) next to the link to the original ad, reachable by keyboard and named for screen readers.
+
+#### Scenario: New posting
+- **WHEN** a single add stores a new posting
+- **THEN** the result offers „Anzeige ansehen“, which opens the page of that posting in the app
+
+#### Scenario: Posting already stored
+- **WHEN** a single add ends „Schon gespeichert“
+- **THEN** the result offers „Anzeige ansehen“, which opens the page of the stored posting it matched
