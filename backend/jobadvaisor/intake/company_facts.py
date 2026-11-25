@@ -73,8 +73,9 @@ def fetch_page(url: str, http: httpx.Client | None = None) -> Reply:
 
 
 class Throttle:
-    """Spaces requests to one host by at least `interval` seconds: `wait(host)` sleeps until
-    the host's last request lies that far back, and counts the request as made when it returns."""
+    """Spaces requests to one host by at least `interval` seconds: `wait(host)` reserves the
+    host's next free slot, at least `interval` after the previous one, and sleeps until it
+    comes. The sleep runs outside the lock, so a wait for one host never holds back another."""
 
     # ponytail: one process; a second app process would need a limit shared through a file
     def __init__(self, interval: float = MIN_INTERVAL_SECONDS,
@@ -86,9 +87,11 @@ class Throttle:
 
     def wait(self, host: str) -> None:
         with self._lock:
-            if (due := self._last.get(host, float("-inf")) + self.interval) > self._clock():
-                self._sleep(due - self._clock())
-            self._last[host] = self._clock()
+            now = self._clock()
+            slot = max(now, self._last.get(host, float("-inf")) + self.interval)
+            self._last[host] = slot
+        if slot > now:
+            self._sleep(slot - now)
 
 
 THROTTLE = Throttle()

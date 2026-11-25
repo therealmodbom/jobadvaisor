@@ -2,6 +2,7 @@
 the request limits (`company-facts` spec). A fake fetcher stands in for the network."""
 
 import json
+import threading
 from datetime import UTC, datetime
 
 import httpx
@@ -213,6 +214,39 @@ def test_requests_to_one_host_are_spaced():
     throttle.wait("www.linkedin.com")
     throttle.wait("acme-solar.example")  # another host is not held back
     assert clock.slept == [pytest.approx(1.5)]
+
+
+def test_a_wait_for_one_host_does_not_hold_back_another_host():
+    clock = FakeClock()
+    sleeping, release, slept = threading.Event(), threading.Event(), []
+
+    def sleep(seconds):
+        slept.append(seconds)
+        sleeping.set()
+        assert release.wait(10), "the test never released the sleep"
+
+    throttle = Throttle(3.0, clock=clock.time, sleep=sleep)
+    throttle.wait("a.example")  # its slot is taken now, the next wait for it sleeps
+    waiter = threading.Thread(target=throttle.wait, args=("a.example",), daemon=True)
+    waiter.start()
+    assert sleeping.wait(10)
+    other = threading.Thread(target=throttle.wait, args=("b.example",), daemon=True)
+    other.start()
+    other.join(5)
+    assert not other.is_alive(), "host B waited for host A's sleep"
+    assert slept == [pytest.approx(3.0)]
+    release.set()
+    waiter.join(10)
+
+
+def test_a_wait_reserves_its_slot_before_it_sleeps():
+    """With a sleep that does not move the clock, the second waiter on a host that is already
+    waiting for its slot must queue behind it, not take the same slot."""
+    clock, slept = FakeClock(), []
+    throttle = Throttle(3.0, clock=clock.time, sleep=slept.append)
+    for _ in range(3):
+        throttle.wait("a.example")
+    assert slept == [pytest.approx(3.0), pytest.approx(6.0)]
 
 
 def test_the_lookup_waits_for_each_host_before_its_request(repository):
