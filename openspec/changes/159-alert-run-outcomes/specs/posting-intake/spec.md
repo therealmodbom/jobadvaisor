@@ -165,11 +165,15 @@ An alert run SHALL put each link through intake at most once, compared as duplic
 - **THEN** the link is fetched once, both entries end with the same outcome, and the second names the first
 
 ### Requirement: Cancel an alert run
-The user SHALL be able to cancel a running alert run. The run SHALL stop after the entry it works on and end cancelled. The entries stored before SHALL stay stored, and the entries it did not reach SHALL stay not started. A cancel SHALL be refused for a run that has ended.
+The user SHALL be able to cancel a running alert run. The run SHALL stop after the entry it works on and end cancelled when an entry was left out. The entries stored before SHALL stay stored, and the entries it did not reach SHALL stay not started. A cancel SHALL be refused for a run that has ended.
 
 #### Scenario: Cancelled after some entries
 - **WHEN** a run over 120 entries has ended 50 and the user cancels it
 - **THEN** it adds no further entry after the current one, ends cancelled, and its report says how many entries it ended
+
+#### Scenario: Cancel during the last entry
+- **WHEN** the user cancels a run while it works on its last entry
+- **THEN** that entry ends, and the run ends done, not cancelled, since no entry was left out
 
 #### Scenario: Mails of a cancelled mailbox run
 - **WHEN** a mailbox run is cancelled before it reached the entries of some mails

@@ -428,6 +428,20 @@ def test_a_cancel_stops_after_the_current_entry_and_the_rest_stay_waiting(runs, 
     assert call["status"] == "running"
 
 
+def test_a_cancel_during_the_last_entry_ends_done_with_the_request_noted(runs, monkeypatch):
+    """No entry was left out, so the run is `done`, not `cancelled` (spec: Cancel during the
+    last entry)."""
+    entered, release = holding_first(monkeypatch)
+    run_id = runs.start([RunEntry(LINKS[0], "A")])
+    assert entered.wait(10)
+    assert runs.cancel(run_id) == run_id
+    release.set()
+    state = finished(runs, run_id)
+    assert (state["status"], state["done"], state["total"]) == ("done", 1, 1)
+    assert state["cancel_requested"] is True
+    assert [e["state"] for e in state["entries"]] == ["stored"]
+
+
 def test_an_entry_whose_first_link_was_never_reached_stays_waiting(runs, monkeypatch):
     entered, release = holding_first(monkeypatch)
     run_id = runs.start([RunEntry(LINKS[0], "A"), RunEntry(LINKS[1], "B"),
