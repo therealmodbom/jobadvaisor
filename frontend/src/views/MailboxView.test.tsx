@@ -381,6 +381,21 @@ test('the entries of all mails are grouped by mail, the new ones selected', asyn
   expect(within(mailItemOf('Neue Stellen m3')).getByText('1 von 1 ausgewählt')).toBeVisible()
 })
 
+test('an entry another mail of the list offers names that mail, cannot be picked and is not counted', async () => {
+  const first = mailItem('m1', 3)
+  const second = mailItem('m2', 2, {}, 4)
+  const copy = { ...first.preview!.entries[0], offered_in: { key: 'm1', sender: 'LinkedIn Job Alerts <jobalerts@linkedin.com>', subject: 'Neue Stellen m1' } }
+  await openPicks(mailCheck({ status: 'done', total: 2, read: 2,
+    mails: [first, { ...second, preview: { ...second.preview!, entries: [copy, ...second.preview!.entries] } }] }))
+  const head = mailItemOf('Neue Stellen m2')
+  const box = within(head).getByRole('checkbox', { name: 'Stelle 1' })
+  expect(box).toBeDisabled()
+  expect(box).not.toBeChecked()
+  expect(box).toHaveAccessibleDescription('Auch in der Mail von LinkedIn Job Alerts <jobalerts@linkedin.com>, „Neue Stellen m1“. Dort auswählbar.')
+  expect(within(head).getByText('2 von 2 ausgewählt')).toBeVisible()
+  expect(addButton(5)).toBeEnabled()
+})
+
 test('"Postfach prüfen" stays offered beside a pick list, and a new check replaces the list', async () => {
   let started = false
   const calls = await openPicks(THREE(), {

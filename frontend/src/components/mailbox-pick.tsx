@@ -4,14 +4,11 @@ import { api, type AlertEntry, type AlertRunState, type MailboxCheckState, type 
 import { Note, PickRow } from '@/components/alert-pick'
 import { Button } from '@/components/ui/button'
 import { WhyDisabled } from '@/components/why'
-import { PANEL, plural, preselected, ROW } from '@/lib/alert'
+import { locked, PANEL, plural, preselected, ROW } from '@/lib/alert'
 import { whenLabel } from '@/lib/german'
 import { mailboxReason, oversizedFailure } from '@/lib/mailbox'
 import { POLL_FAILURES, POLL_MS } from '@/lib/run'
 import { cn } from '@/lib/utils'
-
-/** An entry that cannot be picked: a stored duplicate, or a link several postings share. */
-const locked = (entry: AlertEntry) => Boolean(entry.duplicate) || entry.ambiguous
 
 /** A mail as the report names it: its sender and its subject in quotes. */
 const named = (mail: MailboxMailHead) => `${mail.sender || 'Unbekannter Absender'}, „${mail.subject || 'ohne Betreff'}“`

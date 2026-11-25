@@ -311,13 +311,15 @@ export type AlertMailBody = { html: string | null; text: string }
 
 /** One posting the finder found in a mail, links already cleaned. `duplicate` names the stored
  * posting the link matches, `login_walled` marks a host the app never fetches, and `ambiguous`
- * a link several different postings share. */
+ * a link several different postings share. `offered_in` (mailbox pick list only) names the mail
+ * of the check that offers the same link first; this copy cannot be picked. */
 export type AlertEntry = {
   url: string
   title: string
   duplicate: { posting_id: string; title: string } | null
   login_walled: boolean
   ambiguous: boolean
+  offered_in?: { key: string; sender: string; subject: string }
 }
 
 /** `POST /alert-mails/preview`: the postings found (at most 100, `truncated` when there were more),
