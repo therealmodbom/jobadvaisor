@@ -1288,6 +1288,23 @@ def test_a_link_offered_twice_inside_one_mail_is_not_marked(root):
     assert all("offered_in" not in entry for entry in state["mails"][0]["preview"]["entries"])
 
 
+def test_an_ambiguous_entry_never_becomes_the_offer_for_its_link(root):
+    ambiguous = found(JOB, JOB)  # one link, two titles in this mail
+    ambiguous["entries"] = [entry | {"ambiguous": True} for entry in ambiguous["entries"]]
+    finder = StubFinder({"mail 1": ambiguous, "mail 2": found(JOB_SLUG)})
+    checks = make(root, imap(mail(1), mail(2)), finder)
+    check_id = checks.start()
+    first, second = settle(checks, check_id)["mails"]
+    assert all("offered_in" not in entry for entry in first["preview"]["entries"])
+    assert "offered_in" not in entry_of(second)
+    chosen = [RunEntry(JOB_SLUG, "Platform Engineer")]
+    assert checks.finish(check_id, chosen) == "run-1"
+    assert checks._alert_runs.started == [chosen]
+    assert handled(root) == set()
+    checks._alert_runs.end({JOB_SLUG: "stored"})
+    assert handled(root) == {1, 2}  # the run's one entry settles both mails that list the link
+
+
 def test_an_oversized_mail_read_on_request_names_the_mail_that_offers_its_link(root):
     finder = StubFinder({"mail 1": found(JOB), "mail 2": found(JOB_SLUG)})
     checks = make(root, imap(mail(1, html=f"<p>{HUGE}</p>"), mail(2)), finder)

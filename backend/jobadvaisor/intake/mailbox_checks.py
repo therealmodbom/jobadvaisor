@@ -92,12 +92,14 @@ class EntryNotOfferedError(ValueError):
 @dataclass
 class _Check:
     """One check: the `state` that `read` answers, the `refs` of the mails in its pick list by
-    key, and the `kept` parts of its unread oversized mails by key. The last two never leave
-    this module."""
+    key, the `kept` parts of its unread oversized mails by key, and the `offers`: for each link
+    (`normalize_url`) the mail of the pick list that offers it, as `{key, sender, subject}`. The
+    last three never leave this module."""
 
     state: dict
     refs: dict[str, MailRef] = field(default_factory=dict)
     kept: dict[str, tuple[str | None, str]] = field(default_factory=dict)
+    offers: dict[str, dict] = field(default_factory=dict)
 
 
 def _header(message, name: str) -> str:
@@ -117,23 +119,18 @@ def _display(message, candidate: Candidate) -> dict:
             "subject": _header(message, "Subject"), "date": sent}
 
 
-def _marked_offered(check: _Check, key: str, answer: dict) -> dict:
-    """`answer` with `offered_in: {key, sender, subject}` on every entry whose link
-    (`normalize_url`) another mail of `check` offers, naming the first such mail; entries
-    without the field are the ones the pick list offers. The mail `key` itself is skipped. The
-    lock is held."""
-    offering = {}
-    for other in check.state["mails"]:
-        if other["key"] != key and other["preview"]:
-            for entry in other["preview"]["entries"]:
-                if "offered_in" not in entry:
-                    offering.setdefault(normalize_url(entry["url"]), other)
-    entries = []
-    for entry in answer["entries"]:
-        if holder := offering.get(normalize_url(entry["url"])):
-            entry = entry | {"offered_in": {name: holder[name] for name in ("key", "sender",
-                                                                             "subject")}}
-        entries.append(entry)
+def _marked_offered(check: _Check, mail: dict, answer: dict) -> dict:
+    """`answer` of the mail `mail` with `offered_in: {key, sender, subject}` on every entry
+    whose link (`normalize_url`) another mail of `check` already offers (`check.offers`),
+    naming the first such mail. The entries without the field are the ones the pick list
+    offers: they join `check.offers`, except an `ambiguous` one, which cannot be picked and so
+    offers nothing (a later mail with the same link offers it itself). The lock is held."""
+    entries = [entry | {"offered_in": holder} if (holder := check.offers.get(
+        normalize_url(entry["url"]))) else entry for entry in answer["entries"]]
+    for entry in entries:  # after the first loop: a link twice in one mail is no copy of itself
+        if "offered_in" not in entry and not entry["ambiguous"]:
+            check.offers.setdefault(normalize_url(entry["url"]), {
+                name: mail[name] for name in ("key", "sender", "subject")})
     return answer | {"entries": entries}
 
 
@@ -292,7 +289,7 @@ class MailboxChecks:
                     mail["read_failed"] = str(error)
             raise
         with self._lock:
-            mail |= {"preview": _marked_offered(check, key, answer), "reading": False,
+            mail |= {"preview": _marked_offered(check, mail, answer), "reading": False,
                      "read_failed": None}
             check.kept.pop(key, None)
             return copy.deepcopy(mail)
@@ -545,7 +542,7 @@ class MailboxChecks:
         if answer["entries"]:
             with self._lock:
                 check.state["mails"].append(
-                    mail | {"preview": _marked_offered(check, key, answer)})
+                    mail | {"preview": _marked_offered(check, mail, answer)})
                 check.refs[key] = candidate
         elif _waits(answer):
             mark_mails(self._root, waiting=[candidate])
