@@ -143,6 +143,10 @@ An HTTP 404 or 410 answer SHALL NOT make a link closed when another attempt on t
 - **WHEN** the plain fetch of a link is answered with HTTP 429, or fails to connect, and its retry is answered with HTTP 404
 - **THEN** both answers are among the entry's attempts, and the 404 does not make the link closed
 
+#### Scenario: A rate limit before a page without posting text
+- **WHEN** the plain fetch of a link is answered with HTTP 429, its retry with a page without posting text, and the rendered fetch with HTTP 404
+- **THEN** the 429 is among the entry's attempts, and the 404 does not make the link closed
+
 ### Requirement: Requests in an alert run spaced per host
 During an alert run, the system SHALL send a request to a host only when its last request to that host lies at least 3 seconds back. This SHALL count every request of the run's intake: each fetch, its retry and each redirect it follows, the intake loop's fetches and the lookup of a company's facts. A page rendered in the browser SHALL count as one request.
 
