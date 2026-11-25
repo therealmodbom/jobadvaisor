@@ -31,7 +31,7 @@ See `proposal.md` for the why. The state the design starts from:
 
 The rule stays in `is_gone`, so `add_from_url`, `find_posting` and `imports.py` follow it without their own code. For the import this means a disputed row is no longer stopped before the intake loop, because `find_posting` gates the loop on the same function. That costs the loop's model calls for such rows, and is what a failed link gets anyway. The reason column for a disputed import row stays the last outcome on the link, as for any failed row.
 
-Rationale and the rejected alternatives: [ADR 0018](../../../docs/decisions/0018-closed-only-on-undisputed-evidence.md).
+Rationale and the rejected alternatives: [ADR 0018](../../../../docs/decisions/0018-closed-only-on-undisputed-evidence.md).
 
 ### D2. Spacing through a context variable in `fetch`
 
@@ -66,7 +66,7 @@ The end hook takes no lock of `MailboxChecks`. It holds the refs it was given an
 
 Account change during a run: `mark_mails(..., account=(host, user))` marks nothing when the stored account is another one, checked inside the gated read-modify-write. The new account's record stays fresh, and no refusal is needed.
 
-Rationale and the rejected alternatives: [ADR 0019](../../../docs/decisions/0019-a-mail-counts-as-handled-by-the-outcome-of-its-entries.md).
+Rationale and the rejected alternatives: [ADR 0019](../../../../docs/decisions/0019-a-mail-counts-as-handled-by-the-outcome-of-its-entries.md).
 
 ### D5. No check while a run computes
 
