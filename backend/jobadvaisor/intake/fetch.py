@@ -214,7 +214,8 @@ def download_rendered(url: str) -> tuple[str, str]:
     `guarded_link` is `url`, one that fails `_refusal` is aborted too (`FetchError(
     REFUSED_REDIRECT)` or `REFUSED_HOST`). Waits on the `host_throttle` once before the
     navigation; the browser's own subresource requests are not counted. Raises `FetchError`
-    naming the failure."""
+    naming the failure; a main-frame answer other than 200 is `HTTP <status>`, as in the plain
+    fetch."""
     require_http(url)
     _wait_for_host(url)
     from playwright.sync_api import Error, sync_playwright
@@ -278,7 +279,7 @@ def download_rendered(url: str) -> tuple[str, str]:
                     raise FetchError("too many redirects")
                 if refused:
                     raise FetchError(refused[0])
-                if response is not None and response.status >= 400:
+                if response is not None and response.status != 200:  # like the plain fetch
                     raise FetchError(f"HTTP {response.status}")
                 html, final_url = tab.content(), tab.url
             finally:

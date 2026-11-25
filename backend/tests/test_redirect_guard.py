@@ -16,7 +16,7 @@ from jobadvaisor.intake.fetch import (
     download_rendered,
     guarded_link,
 )
-from jobadvaisor.intake.ladder import fetch_posting
+from jobadvaisor.intake.ladder import fetch_posting, gone_disputed, is_gone
 
 PAGE = "<html><body><main>" + "Eine Stelle. " * 60 + "</main></body></html>"
 
@@ -141,7 +141,7 @@ def redirecting_site(monkeypatch):
                 self.send_header("Location", targets[self.path])
                 self.end_headers()
                 return
-            self.send_response(200)
+            self.send_response(202 if self.path == "/accepted" else 200)
             self.send_header("Content-Type", "text/html")
             self.end_headers()
             self.wfile.write(PAGE.encode())
@@ -205,6 +205,25 @@ def test_rendered_redirect_to_a_closed_marker_is_never_requested(
         download_rendered(f"{base}/expired")
     assert str(error.value) == CLOSED_REDIRECT
     assert log == ["/expired"]
+
+
+def test_a_rendered_page_answered_202_is_an_http_failure(redirecting_site):
+    base, _ = redirecting_site
+    with pytest.raises(FetchError, match="HTTP 202"):
+        download_rendered(f"{base}/accepted")
+
+
+def test_a_404_then_a_rendered_202_is_disputed_not_gone(redirecting_site):
+    """A bot answer of 202 is no word about the page, so the plain 404 does not settle it."""
+    base, _ = redirecting_site
+
+    def missing(url):
+        raise FetchError("HTTP 404")
+    url = f"{base}/accepted"
+    result = fetch_posting(url, [], plain=missing)
+    attempts = [{"url": a.url, "outcome": a.outcome} for a in result.attempts]
+    assert [a["outcome"] for a in attempts] == ["HTTP 404", "HTTP 202"]
+    assert not is_gone(attempts, url) and gone_disputed(attempts, url)
 
 
 def test_a_429_then_a_rendered_redirect_to_a_closed_marker_is_closed(
