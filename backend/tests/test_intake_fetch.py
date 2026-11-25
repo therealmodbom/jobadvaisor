@@ -506,6 +506,42 @@ def test_plain_download_waits_for_its_host_before_every_request_the_retry_includ
     assert clock.sleeps == [3]  # the retry lies 3 s behind the first request
 
 
+def redirecting(target: str) -> httpx.Client:
+    """A client whose `/start` pages redirect to `target` and everything else answers 200."""
+    def handle(request):
+        if request.url.path == "/start":
+            return httpx.Response(302, headers={"location": target})
+        return httpx.Response(200, text="<p>ok</p>")
+    return httpx.Client(transport=httpx.MockTransport(handle), follow_redirects=True)
+
+
+def test_a_redirect_hop_on_the_same_host_waits_before_it_is_sent(clock):
+    download_plain("https://jobs.example.org/start", redirecting("https://jobs.example.org/job"))
+    assert clock.sleeps == [3]
+
+
+def test_a_redirect_hop_to_another_host_reserves_that_host(clock):
+    http = redirecting("https://careers.example.net/job")
+    download_plain("https://jobs.example.org/start", http)
+    assert clock.sleeps == []  # a hop to a host not used before is due at once
+    download_plain("https://careers.example.net/other", http)
+    assert clock.sleeps == [3]
+
+
+def test_a_refused_hop_takes_no_slot(clock):
+    marker = DEFAULT_CLOSED_RULES[0].redirect_marker
+    http = redirecting(f"https://www.linkedin.com/x?{marker}")
+    with pytest.raises(FetchError, match="closed page"):
+        download_plain("https://jobs.example.org/start", http)
+    download_plain("https://www.linkedin.com/job", http)
+    assert clock.sleeps == []
+
+
+def test_a_redirect_hop_outside_a_run_waits_for_nothing(monkeypatch):
+    monkeypatch.setattr(time, "sleep", lambda seconds: pytest.fail("slept"))
+    download_plain("https://jobs.example.org/start", redirecting("https://jobs.example.org/job"))
+
+
 def test_plain_downloads_of_two_hosts_do_not_wait_for_each_other(clock):
     http = httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(200)))
     download_plain("https://jobs.example.org/a", http)

@@ -3,6 +3,8 @@ schema.org `JobPosting` JSON-LD, and Playwright Chromium for script-rendered pag
 
 import json
 import re
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
@@ -140,19 +142,28 @@ def download_plain(url: str, http: httpx.Client | None = None, *,
     (`FetchError(CLOSED_REDIRECT)`), whatever the link. While `guarded_link` is `url`, a hop
     other than `url` itself that fails `navigation_allowed` is not sent either
     (`FetchError(REFUSED_REDIRECT)`), after the closed question; `url` is sent as it is.
-    Waits on the `host_throttle` in force before every request, the retry included. Raises
+    Waits on the `host_throttle` in force before every request it sends: the first, the retry
+    and each redirect hop, on the hop's own host (a refused hop takes no slot). Raises
     `FetchError` naming the failure of the last attempt; `FetchError.earlier` lists the
     failures of the attempts before it (a 429 before a 404 reads as `("HTTP 429",)`)."""
     require_http(url)
     http = http or httpx.Client(timeout=TIMEOUT_SECONDS, follow_redirects=True,
                                 headers={"User-Agent": USER_AGENT})
-    hooks = http.event_hooks
-    hook = _check_hop if guarded_link.get() == url else _check_closed_hop
-    http.event_hooks = {**hooks, "request": [*hooks.get("request", []), hook]}
-    try:
+    check = _check_hop if guarded_link.get() == url else _check_closed_hop
+    with request_hooks(http, check, _wait_before_request):
         return _download_plain(url, http, retry)
+
+
+@contextmanager
+def request_hooks(http: httpx.Client, *hooks: Callable[[httpx.Request], None]) -> Iterator[None]:
+    """Run `hooks` before every request `http` sends (each redirect hop included), after its own
+    request hooks, until the block ends."""
+    original = http.event_hooks
+    http.event_hooks = {**original, "request": [*original.get("request", []), *hooks]}
+    try:
+        yield
     finally:
-        http.event_hooks = hooks
+        http.event_hooks = original
 
 
 def _refusal(url: str, start: str | None) -> str | None:
@@ -186,6 +197,10 @@ def _check_hop(request: httpx.Request) -> None:
         raise FetchError(reason)
 
 
+def _wait_before_request(request: httpx.Request) -> None:
+    _wait_for_host(str(request.url))
+
+
 def _wait_for_host(url: str) -> None:
     """Wait on the `host_throttle` in force, if any, for `url`'s host before a request to it."""
     if throttle := host_throttle.get():
@@ -196,7 +211,6 @@ def _download_plain(url: str, http: httpx.Client, retry: bool) -> tuple[str, str
     attempts = 2 if retry else 1
     earlier: list[str] = []  # the failure texts of the attempts so far
     for attempt in range(1, attempts + 1):
-        _wait_for_host(url)
         try:
             response = http.get(url)
         except FetchError as error:  # a refused redirect hop, raised by a request hook

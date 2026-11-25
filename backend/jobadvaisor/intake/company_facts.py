@@ -23,7 +23,9 @@ from jobadvaisor.intake.fetch import (
     USER_AGENT,
     host_throttle,
     json_ld_documents,
+    request_hooks,
     require_http,
+    url_host,
 )
 from jobadvaisor.tools.extraction import UNKNOWN
 from jobadvaisor.tools.research import employer_website, matching_postings
@@ -63,11 +65,21 @@ class Reply:
 
 def fetch_page(url: str, http: httpx.Client | None = None) -> Reply:
     """GET `url` once, with the intake timeout and no retry, and report what came back, whatever
-    the status. Raises `FetchError` for an address that is no http(s) URL and `httpx.HTTPError`
-    for a transport failure (refused, timed out, redirect loop)."""
+    the status. In an alert run, each redirect hop waits on the run's `host_throttle` for its
+    host; the first request is the caller's to space (`look_up` does). Raises `FetchError` for
+    an address that is no http(s) URL and `httpx.HTTPError` for a transport failure (refused,
+    timed out, redirect loop)."""
     require_http(url)
-    with http or httpx.Client(timeout=TIMEOUT_SECONDS, follow_redirects=True,
-                              headers={"User-Agent": USER_AGENT}) as client:
+    sent = []
+
+    def space_hops(request: httpx.Request) -> None:
+        if sent and (throttle := host_throttle.get()):
+            throttle.wait(url_host(str(request.url)))
+        sent.append(request)
+
+    client = http or httpx.Client(timeout=TIMEOUT_SECONDS, follow_redirects=True,
+                                  headers={"User-Agent": USER_AGENT})
+    with client, request_hooks(client, space_hops):
         response = client.get(url)
     return Reply(response.status_code, str(response.url), response.text)
 

@@ -3,6 +3,7 @@ the request limits (`company-facts` spec). A fake fetcher stands in for the netw
 
 import json
 import threading
+import time
 from datetime import UTC, datetime
 
 import httpx
@@ -299,6 +300,31 @@ def test_fetch_page_reports_status_final_url_and_text():
     http = httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=True)
     assert fetch_page("https://x.example/start", http) == Reply(
         200, "https://x.example/end", "<p>done</p>")
+
+
+def redirect_client() -> httpx.Client:
+    def handler(request):
+        if request.url.path == "/start":
+            return httpx.Response(302, headers={"location": "https://x.example/end"})
+        return httpx.Response(200, text="<p>done</p>")
+    return httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=True)
+
+
+def test_fetch_page_waits_on_the_runs_throttle_before_a_redirect_hop():
+    spacing = SpacingClock()
+    run_throttle = spacing.throttle()
+    token = host_throttle.set(run_throttle)
+    try:
+        run_throttle.wait("x.example")  # `look_up` waits before the first request of a source
+        fetch_page("https://x.example/start", redirect_client())
+    finally:
+        host_throttle.reset(token)
+    assert spacing.sleeps == [3]  # the first request is not waited for here, the hop is
+
+
+def test_fetch_page_outside_a_run_waits_for_nothing(monkeypatch):
+    monkeypatch.setattr(time, "sleep", lambda seconds: pytest.fail("slept"))
+    assert fetch_page("https://x.example/start", redirect_client()).status == 200
 
 
 def test_fetch_page_gives_an_error_status_as_a_reply_and_a_transport_error_as_an_exception():
