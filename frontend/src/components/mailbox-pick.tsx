@@ -58,9 +58,14 @@ export function MailReport({ check }: { check: MailboxCheckState }) {
   )
 }
 
-/** The progress of the alert run that blocked finishing the pick list (`id`), polled until it
- * ends or the server no longer knows it; then `onEnded` runs. */
-function BusyRun({ id, onEnded }: { id: string; onEnded: () => void }) {
+/** The progress of the alert run that blocked finishing the pick list or starting a check (`id`),
+ * polled until it ends or the server no longer knows it; then `onEnded` runs. `after` says what
+ * the user can do then. */
+export function BusyRun({ id, after = 'Deine Auswahl bleibt, du kannst sie danach hinzufügen.', onEnded }: {
+  id: string
+  after?: string
+  onEnded: () => void
+}) {
   const [state, setState] = useState<AlertRunState | null>(null)
   useEffect(() => {
     let failures = 0
@@ -85,7 +90,7 @@ function BusyRun({ id, onEnded }: { id: string; onEnded: () => void }) {
       <p>
         <strong>Ein anderer Lauf rechnet noch</strong>
         {state && <>: {state.done} von {state.total} erledigt</>}.
-        {' '}Deine Auswahl bleibt, du kannst sie danach hinzufügen.
+        {' '}{after}
       </p>
       <progress aria-label="Fortschritt des anderen Laufs" className="h-2 w-full accent-primary"
                 value={state?.done ?? 0} max={Math.max(state?.total ?? 1, 1)} />
@@ -289,8 +294,9 @@ export function MailboxPickList({ check, reading, failures, finishing, finishFai
         </div>
       </div>
       <p className="text-sm text-muted-foreground">
-        Die Anzeigen werden nacheinander abgerufen. Danach gelten die Mails dieser Prüfung als gelesen und werden nicht noch
-        einmal angeboten, auch die, aus denen du nichts hinzufügst.
+        Die Anzeigen werden nacheinander abgerufen. Eine Mail gilt danach als gelesen, wenn ihre hinzugefügten Anzeigen
+        gespeichert sind; eine Mail, aus der du nichts hinzufügst, sofort. Eine Mail mit einer Anzeige, die nicht gelesen
+        werden konnte, bietet die nächste Prüfung wieder an.
       </p>
     </section>
   )

@@ -3,7 +3,7 @@ import { Square } from 'lucide-react'
 import { api, ApiError, type AlertEntry, type MailboxAccount, type MailboxCheckState, type MailboxMail } from '@/api'
 import { AlertRunView } from '@/components/alert-run'
 import { DismissButton } from '@/components/dismiss'
-import { MailReport, MailboxPickList } from '@/components/mailbox-pick'
+import { BusyRun, MailReport, MailboxPickList } from '@/components/mailbox-pick'
 import { ProgressBlock } from '@/components/progress'
 import { ErrorWithRetry, Loading } from '@/components/states'
 import { Button } from '@/components/ui/button'
@@ -203,6 +203,7 @@ export function MailboxView({ active, onText, onPdf }: { active: boolean; onText
         )}
         {flash && <p className="rounded-xl border bg-card px-4 py-3">{flash}</p>}
       </div>
+      {box.busyRun && <BusyRun id={box.busyRun} after="Die Prüfung kann starten, sobald er fertig ist." onEnded={box.endBusy} />}
       {box.notice && <p role="alert" className="rounded-xl border border-danger bg-danger-soft px-4 py-3">{box.notice}</p>}
       {running && box.pollFailed && (
         <p role="alert" className="flex flex-col items-start gap-2 rounded-xl border border-danger bg-danger-soft px-4 py-3">

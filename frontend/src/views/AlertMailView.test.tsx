@@ -734,3 +734,44 @@ test('a closed run has no axe violations', async () => {
   await screen.findByRole('list', { name: 'Stand je Anzeige' })
   expect(await axe(container)).toHaveNoViolations()
 })
+
+// ---- #159: same link, entries that could not be judged ----
+
+test('a row taken from an earlier entry shows its outcome, says the link was fetched once and links the same posting', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /alert-mails/runs/r1': { body: run([
+    row(1, 'stored', { posting_id: 'p-1' }),
+    row(2, 'stored', { posting_id: 'p-1', same_as: 0 }),
+  ], { status: 'done' }) } })
+  view()
+  const rows = rowsOf(await screen.findByRole('list', { name: 'Stand je Anzeige' }))
+  expect(rows[0]).not.toHaveTextContent('Gleicher Link')
+  expect(rows[1]).toHaveTextContent('Hinzugefügt')
+  expect(rows[1]).toHaveTextContent('Gleicher Link wie oben, nur einmal abgerufen.')
+  expect(within(rows[1]).getByRole('link', { name: 'Anzeige ansehen' })).toHaveAttribute('href', '#/anzeigen/p-1')
+})
+
+test('a failed row that could not be judged says so, lists its attempts and offers text and PDF', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /alert-mails/runs/r1': { body: run([
+    row(1, 'failed', { unclear: true, attempts: [{ step: 'plain', url: entry(1).url, outcome: 'HTTP 404' },
+                                               { step: 'rendered', url: entry(1).url, outcome: 'HTTP 429' }] }),
+  ], { status: 'done' }) } })
+  view()
+  const [failed] = rowsOf(await screen.findByRole('list', { name: 'Stand je Anzeige' }))
+  expect(within(failed).getByText('Nicht beurteilbar')).toBeVisible()
+  expect(failed).not.toHaveTextContent('Nicht gelesen')
+  expect(failed).toHaveTextContent('Der Link hat einmal geantwortet, die Stelle sei geschlossen, andere Abrufe wurden aber abgewiesen. Ob sie wirklich geschlossen ist, ist unklar.')
+  expect(failed).toHaveTextContent('Einfacher Abruf: Stelle geschlossen (HTTP 404)')
+  expect(within(failed).getByRole('button', { name: 'Text einfügen' })).toBeVisible()
+  expect(within(failed).getByRole('button', { name: 'PDF hochladen' })).toBeVisible()
+  expect(screen.getByText(/1 nicht beurteilbar/)).toBeVisible()
+})
+
+test('a pasted run with failed entries does not promise that the next check offers their mails', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /alert-mails/runs/r1': { body: run([row(1, 'failed')], { status: 'done' }) } })
+  view()
+  await screen.findByRole('list', { name: 'Stand je Anzeige' })
+  expect(screen.queryByText(/Die nächste Prüfung/)).toBeNull()
+})

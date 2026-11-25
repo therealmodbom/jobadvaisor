@@ -70,11 +70,13 @@ function RunPanel({ entries, status, words, start, onText, onPdf, onOver }: {
   const ended = (entry: AlertRunEntry) => ['stored', 'duplicate', 'closed', 'failed'].includes(entry.state)
   const finished = entries.filter(ended).length
   const count = (state: AlertRunEntry['state']) => entries.filter((entry) => entry.state === state).length
+  const unclear = entries.filter((entry) => entry.state === 'failed' && entry.unclear).length
   const summary = [
     count('stored') > 0 && `${count('stored')} hinzugefügt`,
     count('duplicate') > 0 && `${count('duplicate')} schon gespeichert`,
     count('closed') > 0 && `${count('closed')} geschlossen`,
-    count('failed') > 0 && `${count('failed')} nicht gelesen`,
+    count('failed') > unclear && `${count('failed') - unclear} nicht gelesen`,
+    unclear > 0 && `${unclear} nicht beurteilbar`,
   ].filter(Boolean).join(', ')
   return (
     <>
@@ -109,6 +111,9 @@ function RunPanel({ entries, status, words, start, onText, onPdf, onOver }: {
             <p className="mt-0.5 text-[15px] text-muted-foreground">
               {summary}.{count('stored') > 0 && ' Prüfe Titel, Firma und Ort der neuen Anzeigen auf ihren Seiten.'}
             </p>
+          )}
+          {status === 'done' && words.again && count('failed') > 0 && (
+            <p className="mt-0.5 text-[15px] text-muted-foreground">{words.again}</p>
           )}
         </div>
         {status === 'running' && (
@@ -179,7 +184,7 @@ function RunRow({ entry, ended, onText, onPdf, onForce }: {
                                                icon={<Copy className={ICON} aria-hidden="true" />} />}
         {entry.state === 'closed' && <Label tone="text-muted-foreground" text="Stelle geschlossen"
                                             icon={<CircleSlash className={ICON} aria-hidden="true" />} />}
-        {entry.state === 'failed' && <Label tone="text-danger" text="Nicht gelesen"
+        {entry.state === 'failed' && <Label tone="text-danger" text={entry.unclear ? 'Nicht beurteilbar' : 'Nicht gelesen'}
                                             icon={<CircleAlert className={ICON} aria-hidden="true" />} />}
         {entry.state === 'running' && <Label text="wird abgerufen…"
                                              icon={<LoaderCircle className={cn(ICON, 'motion-safe:animate-spin')} aria-hidden="true" />} />}
@@ -188,6 +193,9 @@ function RunRow({ entry, ended, onText, onPdf, onForce }: {
         {entry.title && <span className="font-bold">{entry.title}</span>}
         <span className="font-mono text-sm break-all text-muted-foreground">{entry.url}</span>
 
+        {entry.same_as !== undefined && (
+          <p className="text-[15px] text-muted-foreground">Gleicher Link wie oben, nur einmal abgerufen.</p>
+        )}
         {entry.state === 'stored' && (
           <a href={postingHref} className="self-start text-[15px] text-primary underline">Anzeige ansehen</a>
         )}
@@ -233,6 +241,12 @@ function RunRow({ entry, ended, onText, onPdf, onForce }: {
         )}
         {entry.state === 'failed' && (
           <>
+            {entry.unclear && (
+              <p className="text-[15px]">
+                Der Link hat einmal geantwortet, die Stelle sei geschlossen, andere Abrufe wurden aber abgewiesen. Ob sie
+                wirklich geschlossen ist, ist unklar.
+              </p>
+            )}
             {entry.attempts && entry.attempts.length > 0 ? (
               <>
                 <p className="text-[15px]">Diese Versuche wurden gemacht:</p>

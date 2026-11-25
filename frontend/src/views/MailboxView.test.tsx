@@ -451,7 +451,7 @@ const mailEntry = (n: number) => mailEntries(1, n)[0]
 
 test('"Nichts hinzufügen" adds nothing, says the mails count as handled and returns to the mailbox', async () => {
   const calls = await openPicks(THREE(), { 'POST /mailbox/checks/c1/finish': { status: 202, body: { run_id: null } } })
-  expect(screen.getByText(/Danach gelten die Mails dieser Prüfung als gelesen/)).toBeVisible()
+  expect(screen.getByText(/Eine Mail gilt danach als gelesen, wenn ihre hinzugefügten Anzeigen gespeichert sind; eine Mail, aus der du nichts hinzufügst, sofort\. Eine Mail mit einer Anzeige, die nicht gelesen werden konnte, bietet die nächste Prüfung wieder an\./)).toBeVisible()
   await userEvent.click(screen.getByRole('button', { name: 'Nichts hinzufügen' }))
   expect(finishes(calls)[0].body).toEqual({ entries: [] })
   expect(await screen.findByText(/Nichts hinzugefügt/)).toHaveTextContent(/nicht noch einmal angeboten/)
@@ -483,6 +483,54 @@ test('a refused finish, because another alert run computes, shows that run and k
   await userEvent.click(addButton(6))
   expect(finishes(calls)).toHaveLength(2)
   expect(await screen.findByRole('heading', { name: /erledigt/ })).toBeVisible()
+})
+
+test('a mailbox run with failed entries says that the next check offers their mails again', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /mailbox': { body: CHECKED },
+            'GET /alert-mails/runs/r1': { body: { run_id: 'r1', status: 'done', error: null, cancel_requested: false, total: 4, done: 4,
+              entries: [{ url: mailEntry(1).url, title: 'Stelle 1', state: 'stored', posting_id: 'p-1' },
+                        ...[2, 3, 4].map((n) => ({ url: mailEntry(n).url, title: `Stelle ${n}`, state: 'failed' }))] } } })
+  view()
+  expect(await screen.findByText(/1 hinzugefügt, 3 nicht gelesen/)).toBeVisible()
+  expect(screen.getByText('Die nächste Prüfung bietet die Mails dieser Anzeigen wieder an.')).toBeVisible()
+})
+
+test('a mailbox run whose entries all ended well does not say it', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /mailbox': { body: CHECKED },
+            'GET /alert-mails/runs/r1': { body: { run_id: 'r1', status: 'done', error: null, cancel_requested: false, total: 1, done: 1,
+              entries: [{ url: mailEntry(1).url, title: 'Stelle 1', state: 'stored', posting_id: 'p-1' }] } } })
+  view()
+  await screen.findByRole('list', { name: 'Stand je Anzeige' })
+  expect(screen.queryByText(/Die nächste Prüfung/)).toBeNull()
+})
+
+test('a check refused because an alert run computes shows that run and lets the check start again once it ended', async () => {
+  let runStatus = 'running'
+  const calls = stubApi({
+    'GET /mailbox': { body: CHECKED },
+    'POST /mailbox/checks': () => (runStatus === 'running'
+      ? { status: 409, body: { error: 'alert run in progress', detail: 'x', run_id: 'r7' } }
+      : { status: 202, body: { check_id: 'c2' } }),
+    'GET /alert-mails/runs/r7': () => ({ body: { run_id: 'r7', status: runStatus, error: null, cancel_requested: false, total: 4,
+                                                 done: runStatus === 'running' ? 1 : 4, entries: [] } }),
+    'GET /mailbox/checks/c2': { body: mailCheck({ check_id: 'c2', total: 3, read: 1 }) },
+  })
+  view()
+  await userEvent.click(await screen.findByRole('button', { name: 'Postfach prüfen' }))
+  const busy = await screen.findByRole('region', { name: 'Ein anderer Lauf rechnet' })
+  expect(busy).toHaveTextContent('1 von 4 erledigt')
+  expect(busy).toHaveTextContent('Ein anderer Lauf rechnet noch: 1 von 4 erledigt. Die Prüfung kann starten, sobald er fertig ist.')
+  expect(screen.queryByRole('alert')).toBeNull()
+  expect(localStorage.getItem(CHECK_KEY)).toBeNull()
+  runStatus = 'done'
+  await tick()
+  await vi.waitFor(() => expect(screen.queryByRole('region', { name: 'Ein anderer Lauf rechnet' })).toBeNull())
+  expect(checkButton()).toBeEnabled()
+  await userEvent.click(checkButton())
+  expect(await screen.findByText(/3 neue Mails gefunden, 1 gelesen/)).toBeVisible()
+  expect(calls.filter((call) => call.path === '/mailbox/checks')).toHaveLength(2)
 })
 
 test('a failed finish keeps the pick list and says so', async () => {

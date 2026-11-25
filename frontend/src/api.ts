@@ -338,7 +338,10 @@ export type AlertPreview = {
 
 /** One entry of an alert run: `state` is where it is; a stored or duplicate entry has its
  * `posting_id`, a duplicate its `duplicate_by`, a closed one (gone, and no other source holds the
- * posting) its `attempts`, a failed one its `attempts` or an English `reason` (not shown). */
+ * posting) its `attempts`, a failed one its `attempts` or an English `reason` (not shown).
+ * A failed entry is `unclear` when its closed answer was disputed by refused requests. An entry
+ * whose link an earlier entry already put through intake carries that entry's outcome and
+ * `same_as`, its index: the link was fetched once. */
 export type AlertRunEntry = {
   url: string
   title: string
@@ -347,6 +350,8 @@ export type AlertRunEntry = {
   duplicate_by?: 'url' | 'text' | 'similar_text'
   attempts?: Attempt[]
   reason?: string
+  unclear?: boolean
+  same_as?: number
 }
 
 /** `GET /alert-mails/runs/{id}`: progress of an alert run. `error` is a code, never shown. */
