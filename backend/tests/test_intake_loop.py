@@ -78,6 +78,26 @@ def test_the_loop_records_the_first_answer_of_a_retried_fetch():
         ("loop:fetch_plain", url, "HTTP 429"), ("loop:fetch_plain", url, "HTTP 404")]
 
 
+@pytest.mark.parametrize(("html", "outcome"), [
+    ("<p>" + "You build data pipelines in Python and SQL for our sensor fleet. " * 14 + "</p>",
+     "ok"),
+    ("<p>nothing</p>", "no posting text")], ids=["a posting", "no posting text"])
+def test_the_loop_records_the_first_answer_of_a_retry_that_succeeded(html, outcome):
+    replies = iter([httpx.Response(429), httpx.Response(200, text=html)])
+    http = httpx.Client(transport=httpx.MockTransport(lambda request: next(replies)))
+    url = "https://jobs.example.org/job"
+    model = ToolScriptModel(plan=[("fetch_plain", {"url": url})])
+    result = loop(model, walled=(), plain=lambda address: download_plain(address, http))
+    assert [(a.step, a.outcome) for a in result.attempts] == [
+        ("loop:fetch_plain", "HTTP 429"), ("loop:fetch_plain", outcome)]
+
+
+def test_a_first_try_success_of_the_loop_has_no_extra_attempt(site):
+    model = ToolScriptModel(plan=[("fetch_plain", {"url": f"{site}/static.html"})])
+    result = loop(model, walled=())
+    assert [a.outcome for a in result.attempts] == ["ok"]
+
+
 def test_a_flagged_page_never_reaches_the_model_and_the_loop_goes_on(site):
     model = ToolScriptModel(plan=[
         ("fetch_plain", {"url": f"{site}/injected.html"}),

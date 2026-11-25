@@ -467,6 +467,58 @@ def test_a_download_that_fails_once_and_then_succeeds_returns_the_page():
     assert download_plain("https://jobs.example.org/job", http)[1] == "<p>ok</p>"
 
 
+def test_a_successful_retry_still_names_the_failure_of_its_first_attempt():
+    http = answering(httpx.Response(429), httpx.Response(200, text="<p>ok</p>"))
+    final_url, html = download_plain("https://jobs.example.org/job", http)  # still a 2-tuple
+    assert html == "<p>ok</p>"
+    assert download_plain("https://jobs.example.org/job", answering(
+        httpx.ConnectError("down"), httpx.Response(200, text="x"))).earlier == (
+        "connection failed: ConnectError",)
+    assert download_plain("https://jobs.example.org/job", answering(
+        httpx.Response(200, text="x"))).earlier == ()
+
+
+def test_a_page_read_after_a_retry_carries_the_first_failure():
+    http = answering(httpx.Response(429), httpx.Response(200, text=page_with("x", BODY)))
+    assert fetch_plain("https://jobs.example.org/job", http).earlier == ("HTTP 429",)
+    http = answering(httpx.Response(429), httpx.Response(200, text="<p>nothing</p>"))
+    with pytest.raises(FetchError, match="no posting text") as error:
+        fetch_plain("https://jobs.example.org/job", http)
+    assert error.value.earlier == ("HTTP 429",)
+
+
+def ladder_through(url: str, *replies, rendered: str = "HTTP 404"):
+    """`fetch_posting` with the plain step reading `replies` and the rendered step failing with
+    `rendered`; returns the attempts as dicts."""
+    http = answering(*replies)
+
+    def fail(address):
+        raise FetchError(rendered)
+    result = fetch_posting(url, [], plain=lambda address: fetch_plain(address, http),
+                           rendered=fail)
+    return [vars(a) for a in result.attempts]
+
+
+def test_a_429_before_a_page_without_posting_text_keeps_the_link_disputed():
+    url = "https://jobs.example.org/job"
+    attempts = ladder_through(url, httpx.Response(429), httpx.Response(200, text="<p>x</p>"))
+    assert [a["outcome"] for a in attempts] == ["HTTP 429", "no posting text", "HTTP 404"]
+    assert not is_gone(attempts, url) and gone_disputed(attempts, url)
+
+
+def test_a_429_before_a_page_with_a_posting_shows_both_attempts():
+    page = httpx.Response(200, text=page_with("x", BODY))
+    attempts = ladder_through("https://jobs.example.org/job", httpx.Response(429), page)
+    assert [(a["step"], a["outcome"]) for a in attempts] == [("plain", "HTTP 429"),
+                                                             ("plain", "ok")]
+
+
+def test_a_first_try_success_has_no_extra_attempt():
+    page = httpx.Response(200, text=page_with("x", BODY))
+    attempts = ladder_through("https://jobs.example.org/job", page)
+    assert [a["outcome"] for a in attempts] == ["ok"]
+
+
 def test_a_download_without_a_retry_has_no_earlier_failures():
     with pytest.raises(FetchError) as error:
         download_plain("https://jobs.example.org/job", answering(httpx.Response(404)))

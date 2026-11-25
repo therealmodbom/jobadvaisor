@@ -128,7 +128,7 @@ def fetch_posting(url: str, walled_hosts: list[str], *,
             if str(error) in CLOSED_OUTCOMES:
                 break
             continue
-        attempts.append(Attempt(step, url, "ok"))
+        attempts += [Attempt(step, url, text) for text in (*page.earlier, "ok")]
         return LadderResult(page, attempts)
     if walled:
         attempts.append(Attempt("login_wall", url, "skipped"))

@@ -155,6 +155,19 @@ def test_a_404_after_a_retried_429_is_failed_and_unclear_not_closed(idle_intake,
     assert [a["outcome"] for a in outcome["attempts"]] == ["HTTP 429", "HTTP 404", "HTTP 404"]
 
 
+def test_a_429_before_a_page_without_posting_text_and_a_rendered_404_is_unclear_not_closed(
+        idle_intake, monkeypatch):
+    replies = iter([httpx.Response(429), httpx.Response(200, text="<p>nothing</p>")])
+    http = httpx.Client(transport=httpx.MockTransport(lambda request: next(replies)))
+    monkeypatch.setattr(ladder_module, "fetch_plain", lambda url: fetch_plain(url, http))
+    monkeypatch.setattr(ladder_module, "fetch_rendered", lambda url: (_ for _ in ()).throw(
+        FetchError("HTTP 404")))
+    outcome = add_entry(idle_intake, RunEntry(LINKS[0], "A"))
+    assert outcome["state"] == "failed" and outcome["unclear"] is True
+    assert [a["outcome"] for a in outcome["attempts"]] == [
+        "HTTP 429", "no posting text", "HTTP 404"]
+
+
 def test_a_404_beside_a_page_without_posting_text_is_closed_and_not_unclear(
         idle_intake, monkeypatch):
     ladder_answering(monkeypatch, "HTTP 404", "no posting text")

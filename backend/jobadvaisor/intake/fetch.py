@@ -6,7 +6,7 @@ import re
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from html.parser import HTMLParser
 from typing import TYPE_CHECKING
 from urllib.parse import urldefrag, urljoin, urlsplit
@@ -83,12 +83,33 @@ class Page:
     supplied: dict[str, str] = field(default_factory=dict)
     company_url: str | None = None
     closed: bool = False
+    earlier: tuple[str, ...] = ()  # failures of the attempts before the one that gave this page
+
+
+class Download(tuple):
+    """What `download_plain` returns: the `(final_url, html)` pair, so a caller can unpack two
+    values, plus `earlier`, the failure texts of the attempts before the successful one (a
+    retry's first answer, `("HTTP 429",)`); empty when the first attempt succeeded."""
+
+    earlier: tuple[str, ...]
+
+    def __new__(cls, final_url: str, html: str, earlier: tuple[str, ...] = ()):
+        download = super().__new__(cls, (final_url, html))
+        download.earlier = earlier
+        return download
 
 
 def fetch_plain(url: str, http: httpx.Client | None = None) -> Page:
-    """Fetch `url` over HTTP (`download_plain`) and read its posting (`page_from_html`).
-    Raises `FetchError` naming the failure."""
-    return page_from_html(*download_plain(url, http))
+    """Fetch `url` over HTTP (`download_plain`) and read its posting (`page_from_html`). The
+    failures of the attempts before the successful one are `Page.earlier`, or `FetchError.earlier`
+    when the page holds no posting. Raises `FetchError` naming the failure."""
+    download = download_plain(url, http)
+    earlier = getattr(download, "earlier", ())
+    try:
+        page = page_from_html(*download)
+    except FetchError as error:
+        raise FetchError(str(error), (*earlier, *error.earlier)) from None
+    return replace(page, earlier=earlier)
 
 
 def fetch_rendered(url: str) -> Page:
@@ -135,10 +156,11 @@ def _closed_text(url: str, text: str) -> bool:
 
 
 def download_plain(url: str, http: httpx.Client | None = None, *,
-                   retry: bool = True) -> tuple[str, str]:
+                   retry: bool = True) -> "Download":
     """The address after redirects and the HTML of `url` over HTTP, retrying once after a
     transport error or a 429/5xx answer unless `retry` is false (one request, whatever the
-    answer). A redirect hop that matches a closed rule's redirect marker is not sent
+    answer). A retry that succeeds still names the failure of the first attempt
+    (`Download.earlier`). A redirect hop that matches a closed rule's redirect marker is not sent
     (`FetchError(CLOSED_REDIRECT)`), whatever the link. While `guarded_link` is `url`, a hop
     other than `url` itself that fails `navigation_allowed` is not sent either
     (`FetchError(REFUSED_REDIRECT)`), after the closed question; `url` is sent as it is.
@@ -207,7 +229,7 @@ def _wait_for_host(url: str) -> None:
         throttle.wait(url_host(url))
 
 
-def _download_plain(url: str, http: httpx.Client, retry: bool) -> tuple[str, str]:
+def _download_plain(url: str, http: httpx.Client, retry: bool) -> "Download":
     attempts = 2 if retry else 1
     earlier: list[str] = []  # the failure texts of the attempts so far
     for attempt in range(1, attempts + 1):
@@ -224,7 +246,7 @@ def _download_plain(url: str, http: httpx.Client, retry: bool) -> tuple[str, str
             earlier.append(failure)
             continue
         if response.status_code == 200:
-            return str(response.url), response.text
+            return Download(str(response.url), response.text, tuple(earlier))
         failure = f"HTTP {response.status_code}"
         if (response.status_code == 429 or response.status_code >= 500) and attempt < attempts:
             earlier.append(failure)
