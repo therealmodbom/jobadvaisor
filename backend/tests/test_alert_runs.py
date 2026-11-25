@@ -195,3 +195,28 @@ def test_a_crash_of_the_loop_fails_the_run(runs, monkeypatch):
 
 def test_an_unknown_run_reads_none(runs):
     assert runs.read("nope") is None
+
+
+def test_a_link_in_two_tracking_forms_is_fetched_once_and_the_copy_names_the_first(
+        runs, monkeypatch):
+    seen = []
+    first, second = LINKS[0], f"{LINKS[0]}?utm_source=mail"
+    monkeypatch.setattr(runs_module, "add_from_url", fake_add(
+        {first: ("a", None), LINKS[1]: ("b", None)}, seen))
+    state = finished(runs, runs.start([RunEntry(first, "A"), RunEntry(second, "A again"),
+                                       RunEntry(LINKS[1], "B")]))
+    assert [url for url, _, _ in seen] == [first, LINKS[1]]
+    one, two, three = state["entries"]
+    assert (one["state"], one["posting_id"]) == (two["state"], two["posting_id"]) == ("stored", "a")
+    assert "same_as" not in one and "same_as" not in three and two["same_as"] == 0
+    assert two["url"] == second and two["title"] == "A again" and state["done"] == 3
+
+
+def test_a_copy_takes_every_outcome_field_of_the_first(runs, monkeypatch):
+    attempts = [{"step": "plain", "url": LINKS[0], "outcome": "HTTP 404"}]
+    monkeypatch.setattr(runs_module, "add_from_url", fake_add({
+        LINKS[0]: PostingNotFoundError(attempts, closed=False)}))
+    state = finished(runs, runs.start([RunEntry(LINKS[0], "A"), RunEntry(f"{LINKS[0]}/", "B")]))
+    first, copy = state["entries"]
+    assert copy["state"] == "failed" and copy["attempts"] == attempts and copy["same_as"] == 0
+    assert copy | {"url": first["url"], "title": first["title"]} == first | {"same_as": 0}

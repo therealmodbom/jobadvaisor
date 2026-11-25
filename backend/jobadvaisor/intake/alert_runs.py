@@ -10,6 +10,7 @@ from dataclasses import dataclass
 
 from pydantic import ValidationError
 
+from jobadvaisor.intake.duplicates import normalize_url
 from jobadvaisor.intake.fetch import guarded_link
 from jobadvaisor.intake.postings import Intake, PostingNotFoundError, add_from_url
 
@@ -92,7 +93,9 @@ class AlertRuns:
         (`running`, `done`, `failed`), `error` (the exception's type name when the run
         crashed), `total`, `done` (entries ended, closed ones included), and `entries` in
         order, each `{url, title, state}` with `state` one of `waiting`, `running`, `stored`,
-        `duplicate`, `closed`, `failed`, plus the outcome's fields (`add_entry`)."""
+        `duplicate`, `closed`, `failed`, plus the outcome's fields (`add_entry`). An entry whose
+        link (`normalize_url`) an earlier entry already put through intake is not fetched: it
+        carries that entry's outcome fields and `same_as`, the earlier entry's index."""
         with self._lock:
             state = self._state.get(run_id)
             if state is None:
@@ -104,8 +107,17 @@ class AlertRuns:
 
     def _run(self, run_id: str, entries: list[RunEntry]) -> None:
         status, error = "done", None
+        seen: dict[str, int] = {}  # link key → index of the entry that was fetched for it
         try:
             for index, entry in enumerate(entries):
+                key = normalize_url(entry.url)
+                if key in seen:
+                    with self._lock:
+                        shown = self._state[run_id]["entries"]
+                        shown[index] |= {name: value for name, value in shown[seen[key]].items()
+                                         if name not in ("url", "title")} | {"same_as": seen[key]}
+                    continue
+                seen[key] = index
                 with self._lock:
                     self._state[run_id]["entries"][index]["state"] = "running"
                 outcome = add_entry(self._intake, entry)
