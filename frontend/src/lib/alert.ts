@@ -19,10 +19,14 @@ export const ROW_BUTTON = 'h-auto min-h-8 whitespace-normal text-center max-sm:m
 
 /** What the run view says about leaving a run, which depends on where the entries came from:
  * `over` is the button that leaves a finished run, `lost` the text and `lostAction` the button
- * for a run the server forgot, `crash` the closing sentence of a crashed run's notice. `again`
- * (null: nothing to say) is the sentence of a finished run with failed or unreached entries,
- * for a run whose mails are offered again by the next check. */
-export type RunWords = { over: string; lost: string; lostAction: string; crash: string; again: string | null }
+ * for a run the server forgot, `crash` the closing sentence of a crashed run's notice. `cancelled`
+ * says how to add the entries of a cancelled run that were not reached (null: `again` covers
+ * it), and `again` is the sentence of a finished or cancelled run with failed or unreached
+ * entries, for a run whose mails the next check offers again (null: not the case). */
+export type RunWords = {
+  over: string; lost: string; lostAction: string; crash: string
+  cancelled: string | null; again: string | null
+}
 
 /** The words of a run of a pasted alert mail. */
 export const PASTE_WORDS: RunWords = {
@@ -30,6 +34,7 @@ export const PASTE_WORDS: RunWords = {
   lost: 'Die App wurde neu gestartet, der Stand dieses Laufs ist weg. Schon gespeicherte Anzeigen bleiben gespeichert. Füge die Mail noch einmal ein: Gespeicherte Stellen sind dann markiert, die übrigen kannst du erneut hinzufügen.',
   lostAction: 'Mail noch einmal einfügen',
   crash: 'Füge die Mail noch einmal ein: Gespeicherte Stellen sind dann markiert.',
+  cancelled: 'Füge die Mail erneut ein, um die übrigen hinzuzufügen. Was schon gespeichert ist, erscheint dann als gespeichert.',
   again: null,
 }
 
@@ -40,5 +45,6 @@ export const MAILBOX_WORDS: RunWords = {
   lost: 'Die App wurde neu gestartet, der Stand dieses Laufs ist weg. Schon gespeicherte Anzeigen bleiben gespeichert. Die Mails der Prüfung gelten als gelesen: Füge fehlende Anzeigen einzeln als Link oder Text ein.',
   lostAction: 'Zurück zum Postfach',
   crash: 'Die Mails der Prüfung gelten als gelesen: Füge fehlende Anzeigen einzeln als Link oder Text ein.',
+  cancelled: null,
   again: 'Die nächste Prüfung bietet die Mails dieser Anzeigen wieder an.',
 }

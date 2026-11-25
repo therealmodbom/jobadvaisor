@@ -496,6 +496,19 @@ test('a mailbox run with failed entries says that the next check offers their ma
   expect(screen.getByText('Die nächste Prüfung bietet die Mails dieser Anzeigen wieder an.')).toBeVisible()
 })
 
+test('a cancelled mailbox run says after how many entries and that the next check offers the mails of the rest again', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /mailbox': { body: CHECKED },
+            'GET /alert-mails/runs/r1': { body: { run_id: 'r1', status: 'cancelled', error: null, cancel_requested: true, total: 3, done: 1,
+              entries: [{ url: mailEntry(1).url, title: 'Stelle 1', state: 'stored', posting_id: 'p-1' },
+                        ...[2, 3].map((n) => ({ url: mailEntry(n).url, title: `Stelle ${n}`, state: 'waiting' }))] } } })
+  view()
+  expect(await screen.findByText('Abgebrochen nach 1 von 3 Anzeigen')).toBeVisible()
+  expect(screen.getByText('Die nächste Prüfung bietet die Mails dieser Anzeigen wieder an.')).toBeVisible()
+  expect(screen.queryByText(/Füge die Mail erneut ein/)).toBeNull()
+  expect(screen.getAllByText('nicht gestartet')).toHaveLength(2)
+})
+
 test('a mailbox run whose entries all ended well does not say it', async () => {
   sessionStorage.setItem(RUN_KEY, 'r1')
   stubApi({ 'GET /mailbox': { body: CHECKED },

@@ -27,7 +27,7 @@ const found = (entries: AlertEntry[], over: Partial<AlertPreview> = {}) =>
 const done = (state: AlertRunState['entries'][number]['state']) => ['stored', 'duplicate', 'closed', 'failed'].includes(state)
 
 const run = (entries: AlertRunState['entries'], over: Partial<AlertRunState> = {}): AlertRunState => ({
-  run_id: 'r1', status: 'running', error: null, total: entries.length,
+  run_id: 'r1', status: 'running', error: null, cancel_requested: false, total: entries.length,
   done: entries.filter((item) => done(item.state)).length, entries, ...over,
 })
 
@@ -766,6 +766,94 @@ test('a failed row that could not be judged says so, lists its attempts and offe
   expect(within(failed).getByRole('button', { name: 'Text einfügen' })).toBeVisible()
   expect(within(failed).getByRole('button', { name: 'PDF hochladen' })).toBeVisible()
   expect(screen.getByText(/1 nicht beurteilbar/)).toBeVisible()
+})
+
+// ---- #153: cancel a run ----
+
+const cancelButton = () => screen.getByRole('button', { name: /Lauf abbrechen|Wird abgebrochen/ })
+
+test('a running run offers "Lauf abbrechen" with what it does, and pressing it cancels at once and waits', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  const calls = stubApi({ 'GET /alert-mails/runs/r1': { body: RUNNING },
+                          'POST /alert-mails/runs/r1/cancel': { status: 202, body: { run_id: 'r1' } } })
+  view()
+  await screen.findByRole('list', { name: 'Stand je Anzeige' })
+  expect(cancelButton()).toHaveTextContent('Lauf abbrechen')
+  expect(cancelButton()).not.toHaveAttribute('aria-disabled')
+  expect(cancelButton()).toHaveAccessibleDescription('Der Lauf stoppt nach der aktuellen Anzeige. Was gespeichert ist, bleibt gespeichert.')
+  await userEvent.click(cancelButton())
+  expect(calls.filter((call) => call.path === '/alert-mails/runs/r1/cancel')).toHaveLength(1)
+  expect(cancelButton()).toHaveTextContent('Wird abgebrochen …')
+  expect(cancelButton()).toHaveAttribute('aria-disabled', 'true')
+  await userEvent.click(cancelButton())
+  expect(calls.filter((call) => call.path === '/alert-mails/runs/r1/cancel')).toHaveLength(1)
+})
+
+test('a run that reports cancel_requested shows the waiting button without a press', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /alert-mails/runs/r1': { body: { ...RUNNING, cancel_requested: true } } })
+  view()
+  await screen.findByRole('list', { name: 'Stand je Anzeige' })
+  expect(cancelButton()).toHaveTextContent('Wird abgebrochen …')
+  expect(cancelButton()).toHaveAttribute('aria-disabled', 'true')
+})
+
+test('a cancel request that fails says so and offers the button again', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /alert-mails/runs/r1': { body: RUNNING }, 'POST /alert-mails/runs/r1/cancel': { status: 500 } })
+  view()
+  await screen.findByRole('list', { name: 'Stand je Anzeige' })
+  await userEvent.click(cancelButton())
+  expect(await screen.findByRole('alert')).toHaveTextContent('Das Abbrechen hat nicht geklappt')
+  expect(cancelButton()).toHaveTextContent('Lauf abbrechen')
+  expect(cancelButton()).not.toHaveAttribute('aria-disabled')
+})
+
+test('a cancel refused because the run ended is left to the next poll', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /alert-mails/runs/r1': { body: RUNNING },
+            'POST /alert-mails/runs/r1/cancel': { status: 409, body: { error: 'run not running', detail: 'x' } } })
+  view()
+  await screen.findByRole('list', { name: 'Stand je Anzeige' })
+  await userEvent.click(cancelButton())
+  expect(screen.queryByRole('alert')).toBeNull()
+  expect(cancelButton()).toHaveAttribute('aria-disabled', 'true')
+})
+
+test('a running and a cancelled run have no accessibility violations', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /alert-mails/runs/r1': { body: RUNNING } })
+  const first = view()
+  await screen.findByRole('list', { name: 'Stand je Anzeige' })
+  expect(await axe(first.container)).toHaveNoViolations()
+  first.unmount()
+  stubApi({ 'GET /alert-mails/runs/r1': { body: run([row(1, 'stored', { posting_id: 'p-1' }), row(2, 'waiting')],
+                                                     { status: 'cancelled', cancel_requested: true }) } })
+  const second = view()
+  await screen.findByText('Abgebrochen nach 1 von 2 Anzeigen')
+  expect(await axe(second.container)).toHaveNoViolations()
+})
+
+test('an ended run offers no cancel button', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /alert-mails/runs/r1': { body: run([row(1, 'stored', { posting_id: 'p-1' })], { status: 'done' }) } })
+  view()
+  await screen.findByRole('list', { name: 'Stand je Anzeige' })
+  expect(screen.queryByRole('button', { name: /Lauf abbrechen|Wird abgebrochen/ })).toBeNull()
+})
+
+test('a cancelled pasted run says after how many entries, shows the rest as not started and says to paste the mail again', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  const rows = Array.from({ length: 10 }, (_, i) => i < 4 ? row(i + 1, 'stored', { posting_id: `p-${i + 1}` }) : row(i + 1, 'waiting'))
+  stubApi({ 'GET /alert-mails/runs/r1': { body: run(rows, { status: 'cancelled', cancel_requested: true }) } })
+  view()
+  const list = await screen.findByRole('list', { name: 'Stand je Anzeige' })
+  expect(screen.getByText('Abgebrochen nach 4 von 10 Anzeigen')).toBeVisible()
+  expect(screen.getByText('Füge die Mail erneut ein, um die übrigen hinzuzufügen. Was schon gespeichert ist, erscheint dann als gespeichert.')).toBeVisible()
+  expect(rowsOf(list).filter((item) => item.textContent?.includes('nicht gestartet'))).toHaveLength(6)
+  expect(screen.queryByRole('button', { name: /Lauf abbrechen|Wird abgebrochen/ })).toBeNull()
+  expect(screen.getByRole('button', { name: 'Andere Mail einfügen' })).toBeVisible()
+  expect(screen.queryByText(/Die nächste Prüfung/)).toBeNull()
 })
 
 test('a pasted run with failed entries does not promise that the next check offers their mails', async () => {

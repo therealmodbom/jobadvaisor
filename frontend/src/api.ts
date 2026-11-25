@@ -354,11 +354,14 @@ export type AlertRunEntry = {
   same_as?: number
 }
 
-/** `GET /alert-mails/runs/{id}`: progress of an alert run. `error` is a code, never shown. */
+/** `GET /alert-mails/runs/{id}`: progress of an alert run. `error` is a code, never shown.
+ * `cancelled` is a run stopped on request, its entries not reached still `waiting`;
+ * `cancel_requested` is true from the request until the run has ended. */
 export type AlertRunState = {
   run_id: string
-  status: 'running' | 'done' | 'failed'
+  status: 'running' | 'done' | 'failed' | 'cancelled'
   error: string | null
+  cancel_requested: boolean
   total: number
   done: number
   entries: AlertRunEntry[]
