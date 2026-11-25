@@ -918,13 +918,17 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
         """Check the mailbox in the background; answers `{check_id}` at once. The body `{since}`
         (a date) is required while no start date is stored and ignored after that. A check that
         fails (no key, no password, the server) still answers 202 and ends `failed` with its
-        `reason`. 409 `check in progress` (with `check_id`), `read in progress` (an oversized
-        mail of the pending pick list is being read) or `not configured`; 422 `invalid request`
-        for a missing start date."""
+        `reason`. 409 `check in progress` (with `check_id`), `alert run in progress` (with
+        `run_id`, like finish: an alert run computes, also one of a pasted mail), `read in
+        progress` (an oversized mail of the pending pick list is being read) or `not
+        configured`; 422 `invalid request` for a missing start date."""
         try:
             return {"check_id": mailbox.start(body.since if body else None)}
         except mailbox_checks.SinceRequiredError as error:
             return problem(422, "invalid request", f"since: {error}")
+        except AlertRunBusyError as error:
+            return JSONResponse({"error": "alert run in progress", "detail": str(error),
+                                 "run_id": error.run_id}, status_code=409)
 
     @app.get("/mailbox/checks/{check_id}")
     def read_mailbox_check(check_id: str) -> dict:
@@ -968,8 +972,10 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
     @app.post("/mailbox/checks/{check_id}/finish", status_code=202)
     def finish_mailbox_check(check_id: str, body: MailboxFinishBody) -> dict:
         """Finish a done check's pick list with `{entries: [{url, title, force?}]}` (none up to
-        all offered, each link cleaned again): one alert run adds them and the check's mails
-        count as handled; answers `{run_id}` (null without entries). 404 for an unknown check,
+        all offered, each link cleaned again): one alert run adds them. The mails with no link
+        in the run count as handled at once, the others when the run has ended and every link
+        of theirs in it was stored, a duplicate or closed. Answers `{run_id}` (null without
+        entries). 404 for an unknown check,
         409 `alert run in progress` (with `run_id`; nothing marked), `check not done` (also a
         second finish) or `read in progress`, 422 `entry not offered` for a link the check did
         not offer, 422 `invalid request`."""

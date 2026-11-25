@@ -10,6 +10,7 @@ from datetime import UTC, date, datetime, timedelta
 from email import message_from_bytes, policy
 
 import pytest
+from conftest import SpacingClock
 from cryptography.fernet import Fernet
 from fake_imap import FakeFolder, FakeImap, FakeMail, build_mail
 from test_alert_mail import NoGuard, Untouchable, fixture
@@ -19,7 +20,7 @@ from jobadvaisor.data.models import Folders, MailRef
 from jobadvaisor.data.writer import read_mailbox, update_mailbox, update_mailbox_account
 from jobadvaisor.intake import mailbox
 from jobadvaisor.intake.alert_mail import FinderError
-from jobadvaisor.intake.alert_runs import AlertRunBusyError, RunEntry
+from jobadvaisor.intake.alert_runs import AlertRunBusyError, AlertRuns, RunEntry
 from jobadvaisor.intake.mailbox import imap_errors
 from jobadvaisor.intake.mailbox_checks import (
     CheckBusyError,
@@ -580,6 +581,96 @@ def test_a_busy_alert_run_leaves_everything_unmarked_and_the_pick_list_open(root
     assert handled(root) == {3, 5} and checks.read(check_id)["status"] == "done"
     runs.error = None
     assert checks.finish(check_id, [RunEntry(A, "a")]) == "run-1"
+
+
+def test_a_check_is_refused_while_an_alert_run_computes_and_names_the_run(root):
+    runs = StubRuns()
+    runs.computing = "run-9"
+    checks = make(root, imap(mail(1)), runs=runs)
+    with pytest.raises(AlertRunBusyError) as refused:
+        checks.start()
+    assert refused.value.run_id == "run-9" and checks._checks == {} and checks.current() is None
+    runs.computing = None
+    assert run(checks)["status"] == "done"
+
+
+def test_a_check_started_after_the_run_ended_sees_the_marks_of_that_run(root, monkeypatch):
+    release = threading.Event()
+
+    def held(intake, url, *, allow_text_duplicate=False):
+        release.wait(10)
+        return "p1", None, None, []
+    monkeypatch.setattr("jobadvaisor.intake.alert_runs.add_from_url", held)
+    fake = imap(mail(1))
+    finder = StubFinder({"mail 1": found(A)})
+    runs = AlertRuns(Intake(root, Untouchable(), NoGuard()), SpacingClock().throttle())
+    checks = make(root, fake, finder, runs=runs)
+    check_id = checks.start()
+    settle(checks, check_id)
+    run_id = checks.finish(check_id, [RunEntry(A, "a")])
+    with pytest.raises(AlertRunBusyError) as refused:
+        checks.start()
+    assert refused.value.run_id == run_id
+    release.set()
+    for _ in range(500):
+        if runs.current() is None:
+            break
+        time.sleep(0.01)
+    assert handled(root) == {1}  # marked before the slot was freed
+    assert run(checks)["total"] == 0 and len(finder.calls) == 1  # mail 1 is not read again
+
+
+def test_the_busy_read_happens_under_the_checks_lock(root):
+    seen = []
+
+    class Spy(StubRuns):
+        def current(self):
+            seen.append(checks._lock.locked())
+            return None
+
+    checks = make(root, imap(mail(1)), runs=Spy())
+    run(checks)
+    assert seen == [True]
+
+
+def test_a_finish_and_a_start_racing_never_leave_a_running_check_beside_a_marking_run(root):
+    class Running(StubRuns):
+        def start(self, entries, on_end=None):
+            self.computing = super().start(entries, on_end)  # the run computes from now on
+            return self.computing
+
+    def race(checks, check_id) -> dict:
+        """Run `finish` of the pick list and a new `start` on two threads; the answer of each
+        (`None` for a refusal)."""
+        outcomes = {}
+
+        def finish():
+            try:
+                outcomes["finish"] = checks.finish(check_id, [RunEntry(A, "a")])
+            except CheckNotDoneError:
+                outcomes["finish"] = None
+
+        def start():
+            try:
+                outcomes["start"] = checks.start()
+            except AlertRunBusyError:
+                outcomes["start"] = None
+
+        threads = [threading.Thread(target=finish), threading.Thread(target=start)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(10)
+        return outcomes
+
+    runs = Running()
+    checks = make(root, imap(mail(1)), StubFinder({"mail 1": found(A)}), runs=runs)
+    for _ in range(25):
+        runs.computing = None
+        outcomes = race(checks, settle(checks, checks.start())["check_id"])
+        assert (outcomes["start"] is None) != (outcomes["finish"] is None)  # exactly one went on
+        if outcomes["start"]:
+            settle(checks, outcomes["start"])
 
 
 def test_a_second_finish_is_refused(root):

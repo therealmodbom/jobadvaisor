@@ -24,7 +24,7 @@ from jobadvaisor.data.models import Mailbox, MailRef
 from jobadvaisor.data.writer import mark_mails, read_mailbox, update_mailbox
 from jobadvaisor.intake import alert_mail
 from jobadvaisor.intake.alert_mail import FinderError
-from jobadvaisor.intake.alert_runs import AlertRuns, RunEntry
+from jobadvaisor.intake.alert_runs import AlertRunBusyError, AlertRuns, RunEntry
 from jobadvaisor.intake.duplicates import normalize_url
 from jobadvaisor.intake.mailbox import (
     Candidate,
@@ -188,11 +188,15 @@ class MailboxChecks:
         check: a stored one always wins, and it is stored only after a successful login. A
         check that fails (no key, no password, the server) answers an ID too and ends `failed`
         with its `reason`. Replaces the pending pick list. Raises `CheckBusyError`,
-        `NotConfiguredError` and `SinceRequiredError`."""
+        `AlertRunBusyError` (an alert run computes: `finish` starts its run under this lock, so
+        a check and a run that marks mails never overlap, and a run that has ended has marked
+        all it will), `NotConfiguredError` and `SinceRequiredError`."""
         check_id = uuid.uuid4().hex
         with self._lock:
             if self._computing:
                 raise CheckBusyError(self._computing)
+            if busy := self._alert_runs.current():
+                raise AlertRunBusyError(busy)
             self._refuse_while_reading()
             account = read_mailbox(self._root)
             if account is None:

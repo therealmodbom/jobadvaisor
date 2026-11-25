@@ -496,6 +496,18 @@ def test_a_second_check_while_one_runs_is_a_409_naming_it(tmp_path, root):
     app.wait(check_id)
 
 
+def test_a_check_while_an_alert_run_computes_is_a_409_naming_the_run(tmp_path, root):
+    app = api(tmp_path, root, empty_mail(1))
+    app.configure()
+    app.runs.computing = "run-7"
+    answer = app.post("/mailbox/checks", {"since": "2026-10-24"})
+    assert answer.status_code == 409 and answer.json()["error"] == "alert run in progress"
+    assert answer.json()["run_id"] == "run-7" and "run-7" in answer.json()["detail"]
+    assert app.get("/mailbox").json()["check_id"] is None
+    app.runs.computing = None
+    app.wait(app.start())
+
+
 def test_a_failed_check_names_its_reason_and_never_an_exception_text(tmp_path, root):
     app = Api(tmp_path, root, FakeImap({}, password="another password"))
     app.configure()
