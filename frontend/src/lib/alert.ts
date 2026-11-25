@@ -38,13 +38,14 @@ export const PASTE_WORDS: RunWords = {
   again: null,
 }
 
-/** The words of a run of entries picked from a mailbox check: the mails count as handled, so a lost
- * or crashed run is made up for by adding the missing postings one by one. */
+/** The words of a run of entries picked from a mailbox check: a mail is marked handled only when
+ * all its entries ended well, so after a lost or crashed run the next check offers the mails of
+ * the postings that were not stored or not reached again. */
 export const MAILBOX_WORDS: RunWords = {
   over: 'Zurück zum Postfach',
-  lost: 'Die App wurde neu gestartet, der Stand dieses Laufs ist weg. Schon gespeicherte Anzeigen bleiben gespeichert. Die Mails der Prüfung gelten als gelesen: Füge fehlende Anzeigen einzeln als Link oder Text ein.',
+  lost: 'Der Server kennt den Lauf nicht mehr. Die nächste Prüfung bietet die Mails der Anzeigen, die nicht gespeichert wurden, wieder an.',
   lostAction: 'Zurück zum Postfach',
-  crash: 'Die Mails der Prüfung gelten als gelesen: Füge fehlende Anzeigen einzeln als Link oder Text ein.',
+  crash: 'Die nächste Prüfung bietet die Mails der Anzeigen, die nicht erreicht wurden, wieder an.',
   cancelled: null,
   again: 'Die nächste Prüfung bietet die Mails dieser Anzeigen wieder an.',
 }

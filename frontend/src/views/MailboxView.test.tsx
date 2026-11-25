@@ -509,6 +509,29 @@ test('a cancelled mailbox run says after how many entries and that the next chec
   expect(screen.getAllByText('nicht gestartet')).toHaveLength(2)
 })
 
+test('a mailbox run the server forgot says that the next check offers the mails of the unsaved postings again', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /mailbox': { body: CHECKED }, 'GET /alert-mails/runs/r1': { status: 404, body: { error: 'run not found' } } })
+  view()
+  const notice = await screen.findByText(/Der Server kennt den Lauf nicht mehr\./)
+  expect(notice).toHaveTextContent('Die nächste Prüfung bietet die Mails der Anzeigen, die nicht gespeichert wurden, wieder an.')
+  expect(notice).not.toHaveTextContent(/gelten als gelesen/)
+  expect(screen.getByRole('button', { name: 'Zurück zum Postfach' })).toBeVisible()
+})
+
+test('a crashed mailbox run says that the next check offers the mails of the unreached postings again', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /mailbox': { body: CHECKED },
+            'GET /alert-mails/runs/r1': { body: { run_id: 'r1', status: 'failed', error: 'boom', cancel_requested: false, total: 2, done: 1,
+              entries: [{ url: mailEntry(1).url, title: 'Stelle 1', state: 'stored', posting_id: 'p-1' },
+                        { url: mailEntry(2).url, title: 'Stelle 2', state: 'waiting' }] } } })
+  view()
+  const notice = await screen.findByRole('alert')
+  expect(notice).toHaveTextContent('Die nächste Prüfung bietet die Mails der Anzeigen, die nicht erreicht wurden, wieder an.')
+  expect(notice).not.toHaveTextContent(/gelten als gelesen/)
+  expect(screen.getAllByText(/Die nächste Prüfung bietet/)).toHaveLength(1)
+})
+
 test('a mailbox run whose entries all ended well does not say it', async () => {
   sessionStorage.setItem(RUN_KEY, 'r1')
   stubApi({ 'GET /mailbox': { body: CHECKED },
