@@ -1012,3 +1012,54 @@ def test_the_folder_list_waits_while_the_credentials_are_being_saved(root):
         threading.Thread(target=lambda: (checks.folders(), listed.set()), daemon=True).start()
         assert not listed.wait(0.2)
     assert listed.wait(5)
+
+
+# --- one link offered once per check -------------------------------------------------------
+
+JOB = "https://www.linkedin.com/jobs/view/3912345678"
+JOB_SLUG = "https://de.linkedin.com/jobs/view/platform-engineer-at-acme-3912345678?trk=alert"
+JOB_COMM = "https://www.linkedin.com/comm/jobs/view/3912345678?refId=abc&trackingId=def"
+
+
+def entry_of(mail_: dict, index: int = 0) -> dict:
+    return mail_["preview"]["entries"][index]
+
+
+def test_the_same_posting_in_three_mails_is_offered_in_the_first_only(root):
+    finder = StubFinder({"mail 1": found(JOB), "mail 2": found(JOB_SLUG),
+                         "mail 3": found(JOB_COMM, A)})
+    state = run(make(root, imap(mail(1), mail(2), mail(3)), finder))
+    first, second, third = state["mails"]
+    assert "offered_in" not in entry_of(first)
+    expected = {"key": "0", "sender": "jobs@example.org", "subject": "Subject 1"}
+    assert entry_of(second)["offered_in"] == expected
+    assert entry_of(third)["offered_in"] == expected and "offered_in" not in entry_of(third, 1)
+
+
+def test_a_link_offered_twice_inside_one_mail_is_not_marked(root):
+    finder = StubFinder({"mail 1": found(JOB, JOB_SLUG)})
+    state = run(make(root, imap(mail(1)), finder))
+    assert all("offered_in" not in entry for entry in state["mails"][0]["preview"]["entries"])
+
+
+def test_an_oversized_mail_read_on_request_names_the_mail_that_offers_its_link(root):
+    finder = StubFinder({"mail 1": found(JOB), "mail 2": found(JOB_SLUG)})
+    checks = make(root, imap(mail(1, html=f"<p>{HUGE}</p>"), mail(2)), finder)
+    check_id = checks.start()
+    settle(checks, check_id)
+    mail_ = checks.read_oversized(check_id, "0")
+    assert entry_of(mail_)["offered_in"] == {
+        "key": "1", "sender": "jobs@example.org", "subject": "Subject 2"}
+    assert entry_of(checks.read(check_id)["mails"][0])["offered_in"]["key"] == "1"
+
+
+def test_a_finish_accepts_another_tracking_form_of_an_offered_link_and_refuses_the_rest(root):
+    finder = StubFinder({"mail 1": found(JOB), "mail 2": found(JOB_SLUG)})
+    checks = make(root, imap(mail(1), mail(2)), finder)
+    check_id = checks.start()
+    settle(checks, check_id)
+    with pytest.raises(EntryNotOfferedError):
+        checks.finish(check_id, [RunEntry("https://www.linkedin.com/jobs/view/1", "x")])
+    chosen = [RunEntry(JOB_COMM, "Platform Engineer")]
+    assert checks.finish(check_id, chosen) == "run-1"
+    assert checks._alert_runs.started == [chosen]

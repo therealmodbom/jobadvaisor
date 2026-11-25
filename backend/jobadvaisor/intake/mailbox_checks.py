@@ -25,6 +25,7 @@ from jobadvaisor.data.writer import mark_mails, read_mailbox, update_mailbox
 from jobadvaisor.intake import alert_mail
 from jobadvaisor.intake.alert_mail import FinderError
 from jobadvaisor.intake.alert_runs import AlertRuns, RunEntry
+from jobadvaisor.intake.duplicates import normalize_url
 from jobadvaisor.intake.mailbox import (
     Candidate,
     Folder,
@@ -116,6 +117,26 @@ def _display(message, candidate: Candidate) -> dict:
             "subject": _header(message, "Subject"), "date": sent}
 
 
+def _marked_offered(check: _Check, key: str, answer: dict) -> dict:
+    """`answer` with `offered_in: {key, sender, subject}` on every entry whose link
+    (`normalize_url`) another mail of `check` offers, naming the first such mail; entries
+    without the field are the ones the pick list offers. The mail `key` itself is skipped. The
+    lock is held."""
+    offering = {}
+    for other in check.state["mails"]:
+        if other["key"] != key and other["preview"]:
+            for entry in other["preview"]["entries"]:
+                if "offered_in" not in entry:
+                    offering.setdefault(normalize_url(entry["url"]), other)
+    entries = []
+    for entry in answer["entries"]:
+        if holder := offering.get(normalize_url(entry["url"])):
+            entry = entry | {"offered_in": {name: holder[name] for name in ("key", "sender",
+                                                                             "subject")}}
+        entries.append(entry)
+    return answer | {"entries": entries}
+
+
 def _waits(answer: dict) -> bool:
     """Whether an answer means no model read the mail because screening is off."""
     return answer["model_skipped"] == "screening off"
@@ -204,7 +225,9 @@ class MailboxChecks:
         next check), `missing_folders`, and the reports `mails` (the pick list), `failed`,
         `held` and `not_screened`. A mail of `mails` is `{key, folder, sender, subject, date,
         oversized, reading, read_failed, preview}` with `preview` the finder's answer or `None`
-        for an unread oversized mail; the other reports hold `{folder, sender, subject, date}`
+        for an unread oversized mail. An entry of a preview whose link (`normalize_url`) another
+        mail of the check offers carries `offered_in: {key, sender, subject}` of that mail and
+        is not selectable; the other reports hold `{folder, sender, subject, date}`
         and, for `failed`, `reason`. Never the kept parts of an oversized mail."""
         with self._lock:
             check = self._checks.get(check_id)
@@ -244,7 +267,8 @@ class MailboxChecks:
                     mail["read_failed"] = str(error)
             raise
         with self._lock:
-            mail |= {"preview": answer, "reading": False, "read_failed": None}
+            mail |= {"preview": _marked_offered(check, key, answer), "reading": False,
+                     "read_failed": None}
             check.kept.pop(key, None)
             return copy.deepcopy(mail)
 
@@ -311,10 +335,10 @@ class MailboxChecks:
         `EntryNotOfferedError`, and `AlertRunBusyError` with nothing marked."""
         with self._lock:
             check = self._open(check_id)
-            offered = {entry["url"] for mail in check.state["mails"] if mail["preview"]
-                       for entry in mail["preview"]["entries"]}
+            offered = {normalize_url(entry["url"]) for mail in check.state["mails"]
+                       if mail["preview"] for entry in mail["preview"]["entries"]}
             for entry in entries:
-                if entry.url not in offered:
+                if normalize_url(entry.url) not in offered:
                     raise EntryNotOfferedError(entry.url)
             run_id = self._alert_runs.start(entries) if entries else None
             handled, waiting = [], []
@@ -478,7 +502,8 @@ class MailboxChecks:
             return
         if answer["entries"]:
             with self._lock:
-                check.state["mails"].append(mail | {"preview": answer})
+                check.state["mails"].append(
+                    mail | {"preview": _marked_offered(check, key, answer)})
                 check.refs[key] = candidate
         elif _waits(answer):
             mark_mails(self._root, waiting=[candidate])
