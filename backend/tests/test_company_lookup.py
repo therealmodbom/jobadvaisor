@@ -6,11 +6,12 @@ from datetime import UTC, datetime
 
 import httpx
 import pytest
-from conftest import POSTING, write_json
+from conftest import POSTING, SpacingClock, write_json
 
 from jobadvaisor.data.loader import load
 from jobadvaisor.data.models import company_id
 from jobadvaisor.intake.company_facts import Reply, Throttle, fetch_page, look_up
+from jobadvaisor.intake.fetch import host_throttle
 from jobadvaisor.tools.research import employer_website
 
 NOW = datetime(2026, 10, 29, 12, 0, tzinfo=UTC)
@@ -224,6 +225,35 @@ def test_the_lookup_waits_for_each_host_before_its_request(repository):
     web = FakeWeb(**{LINKEDIN: ok(LINKEDIN, "<p>x</p>"), WEBSITE: ok(WEBSITE, "<p>y</p>")})
     look_up(repository, "Acme Solar", LINKEDIN, fetch=web, throttle=Recording(), now=NOW)
     assert waited == ["www.linkedin.com", "acme-solar.example"]
+
+
+def test_a_lookup_in_an_alert_run_shares_the_runs_throttle(repository):
+    spacing = SpacingClock()
+    run_throttle = spacing.throttle()
+    token = host_throttle.set(run_throttle)
+    try:
+        run_throttle.wait("www.linkedin.com")  # the run's posting fetch on the same host
+        web = FakeWeb(**{LINKEDIN: ok(LINKEDIN, about())})
+        assert look_up(repository, "Acme Solar", LINKEDIN, fetch=web, now=NOW)
+    finally:
+        host_throttle.reset(token)
+    assert spacing.sleeps == [3]
+
+
+def test_an_explicit_throttle_wins_over_the_runs(repository):
+    waited = []
+
+    class Recording:
+        def wait(self, host):
+            waited.append(host)
+
+    run_throttle = SpacingClock().throttle()
+    token = host_throttle.set(run_throttle)
+    try:
+        look_up(repository, "Acme Solar", LINKEDIN, fetch=FakeWeb(), throttle=Recording(), now=NOW)
+    finally:
+        host_throttle.reset(token)
+    assert waited == ["www.linkedin.com", "acme-solar.example"] and run_throttle._last == {}
 
 
 def test_fetch_page_reports_status_final_url_and_text():

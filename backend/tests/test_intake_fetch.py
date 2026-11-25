@@ -1,6 +1,8 @@
+import time
+
 import httpx
 import pytest
-from conftest import FakeStructuredModel
+from conftest import FakeStructuredModel, SpacingClock
 
 from jobadvaisor.data.models import ClosedRule, PolicyPack
 from jobadvaisor.intake.fetch import (
@@ -12,6 +14,7 @@ from jobadvaisor.intake.fetch import (
     download_rendered,
     fetch_plain,
     fetch_rendered,
+    host_throttle,
     page_from_html,
     page_links,
 )
@@ -411,3 +414,51 @@ def test_plain_download_without_retry_sends_one_request_after_a_transport_error(
     with pytest.raises(FetchError, match="connection failed"):
         download_plain("https://example.test/job", http, retry=False)
     assert len(seen) == 1
+
+
+# --- spacing in an alert run (`fetch.host_throttle`) ----------------------------------------
+
+
+@pytest.fixture
+def clock():
+    """A fake clock and the 3 s throttle on it, set as `host_throttle` for the test."""
+    spacing = SpacingClock()
+    token = host_throttle.set(spacing.throttle())
+    yield spacing
+    host_throttle.reset(token)
+
+
+def test_plain_download_waits_for_its_host_before_every_request_the_retry_included(clock):
+    replies = iter([httpx.Response(429), httpx.Response(200, text="<p>ok</p>")])
+    http = httpx.Client(transport=httpx.MockTransport(lambda request: next(replies)))
+    download_plain("https://jobs.example.org/job", http)
+    assert clock.sleeps == [3]  # the retry lies 3 s behind the first request
+
+
+def test_plain_downloads_of_two_hosts_do_not_wait_for_each_other(clock):
+    http = httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(200)))
+    download_plain("https://jobs.example.org/a", http)
+    download_plain("https://careers.example.net/b", http)
+    assert clock.sleeps == []
+    download_plain("https://JOBS.example.org/c", http)
+    assert clock.sleeps == [3]
+
+
+def test_a_download_outside_a_run_waits_for_nothing(monkeypatch):
+    monkeypatch.setattr(time, "sleep", lambda seconds: pytest.fail("slept"))
+    http = httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(200)))
+    assert host_throttle.get() is None
+    download_plain("https://jobs.example.org/a", http)
+    download_plain("https://jobs.example.org/b", http)
+
+
+def test_a_rendered_download_waits_once_for_its_host_before_the_navigation(clock, monkeypatch):
+    from playwright import sync_api
+
+    def no_browser():
+        raise sync_api.Error("no browser in this test")
+    monkeypatch.setattr(sync_api, "sync_playwright", no_browser)
+    for _ in range(2):
+        with pytest.raises(FetchError, match="browser failed"):
+            download_rendered("https://jobs.example.org/a")
+    assert clock.sleeps == [3]  # the first call is due at once, the second waits

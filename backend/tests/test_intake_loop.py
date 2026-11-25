@@ -1,12 +1,13 @@
 import json
 
 import pytest
-from conftest import FakeStructuredModel, ToolScriptModel, write_json
+from conftest import FakeStructuredModel, SpacingClock, ToolScriptModel, write_json
 from fastapi.testclient import TestClient
 from test_triage_graph import POLICY_PACK, Harness, StubClassifier
 
 from jobadvaisor.api.app import create_app
 from jobadvaisor.data.loader import load
+from jobadvaisor.intake.fetch import host_throttle
 from jobadvaisor.intake.ladder import DEFAULT_LOGIN_WALL_HOSTS, Attempt
 from jobadvaisor.intake.loop import MAX_TOOL_CALLS, run_intake_loop
 from jobadvaisor.intake.postings import Intake
@@ -244,3 +245,17 @@ def test_an_invalid_login_wall_host_is_rejected_and_nothing_written(tmp_path, ro
                                             json={"hosts": ["xing.com", "https://x.com/jobs"]})
     assert response.status_code == 422 and "https://x.com/jobs" in response.json()["detail"]
     assert (root / "policy-pack.json").read_text() == before
+
+
+def test_the_loops_tool_threads_wait_on_the_runs_host_throttle(site):
+    """`fetch.host_throttle` is set on the calling thread, as an alert run sets it; the loop runs
+    its tools elsewhere and must still space their requests."""
+    spacing = SpacingClock()
+    model = ToolScriptModel(plan=[("fetch_plain", {"url": f"{site}/static.html"}),
+                                  ("fetch_plain", {"url": f"{site}/static.html"})])
+    token = host_throttle.set(spacing.throttle())
+    try:
+        loop(model, url=f"{site}/dead.html", walled=())
+    finally:
+        host_throttle.reset(token)
+    assert spacing.sleeps == [3]  # two requests to 127.0.0.1, the second one waited

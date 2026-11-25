@@ -4,13 +4,13 @@ import threading
 import time
 
 import pytest
-from conftest import FakeStructuredModel, ToolScriptModel, write_json
+from conftest import FakeStructuredModel, SpacingClock, ToolScriptModel, write_json
 from test_triage_graph import POLICY_PACK
 
 import jobadvaisor.intake.alert_runs as runs_module
 from jobadvaisor.intake import ladder as ladder_module
 from jobadvaisor.intake.alert_runs import AlertRunBusyError, AlertRuns, RunEntry, add_entry
-from jobadvaisor.intake.fetch import FetchError, guarded_link
+from jobadvaisor.intake.fetch import FetchError, guarded_link, host_throttle
 from jobadvaisor.intake.postings import Intake, PostingNotFoundError
 from jobadvaisor.tools.guard import ContentGuard
 
@@ -18,9 +18,15 @@ LINKS = [f"https://jobs.example.org/stelle/{n}" for n in (1, 2, 3)]
 
 
 @pytest.fixture
-def runs(tmp_path):
+def clock():
+    return SpacingClock()
+
+
+@pytest.fixture
+def runs(tmp_path, clock):
     write_json(tmp_path / "policy-pack.json", POLICY_PACK)
-    return AlertRuns(Intake(tmp_path, FakeStructuredModel(), ContentGuard(None, {})))
+    return AlertRuns(Intake(tmp_path, FakeStructuredModel(), ContentGuard(None, {})),
+                     clock.throttle())
 
 
 def finished(runs: AlertRuns, run_id: str) -> dict:
@@ -261,3 +267,36 @@ def test_a_copy_takes_every_outcome_field_of_the_first(runs, monkeypatch):
     first, copy = state["entries"]
     assert copy["state"] == "failed" and copy["attempts"] == attempts and copy["same_as"] == 0
     assert copy | {"url": first["url"], "title": first["title"]} == first | {"same_as": 0}
+
+
+# --- spacing (`fetch.host_throttle`) ---------------------------------------------------------
+
+
+def test_two_entries_on_one_host_are_spaced_by_the_runs_throttle(tmp_path, closed_site, clock):
+    write_json(tmp_path / "profile.json", {"schema_version": "1", "summary": "Developer"})
+    write_json(tmp_path / "policy-pack.json", {**POLICY_PACK, "closed_rules": closed_site.rules})
+    fields = {"title": "Platform Engineer", "company": "Acme", "location_raw": "Remote"}
+    intake = Intake(tmp_path, FakeStructuredModel(fields), ContentGuard(None, {}),
+                    loop_model=ToolScriptModel(plan=[]))
+    runs = AlertRuns(intake, clock.throttle())
+    state = finished(runs, runs.start([RunEntry(f"{closed_site.url}/open", "A"),
+                                       RunEntry(f"{closed_site.url}/alt", "B")]))
+    assert [e["state"] for e in state["entries"]][0] == "stored"
+    assert closed_site.hits == ["/open", "/alt"] and clock.sleeps == [3]
+
+
+def test_the_runs_throttle_is_set_around_each_entry_and_cleared_after(runs, monkeypatch):
+    seen = []
+
+    def add(intake, url, *, allow_text_duplicate=False):
+        seen.append(host_throttle.get())
+        return "p", None, None, []
+    monkeypatch.setattr(runs_module, "add_from_url", add)
+    finished(runs, runs.start([RunEntry(LINKS[0], "A"), RunEntry(LINKS[1], "B")]))
+    assert seen == [runs._throttle, runs._throttle]
+    assert runs._executor.submit(host_throttle.get).result() is None
+
+
+def test_a_run_throttles_requests_by_three_seconds_unless_told_otherwise(tmp_path):
+    runs = AlertRuns(Intake(tmp_path, FakeStructuredModel(), ContentGuard(None, {})))
+    assert runs._throttle.interval == 3

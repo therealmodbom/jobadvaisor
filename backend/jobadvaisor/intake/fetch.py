@@ -6,12 +6,20 @@ import re
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
+from typing import TYPE_CHECKING
 from urllib.parse import urldefrag, urljoin, urlsplit
 
 import httpx
 
 from jobadvaisor.data.models import ClosedRule
 from jobadvaisor.intake.links import navigation_allowed, public_link
+
+if TYPE_CHECKING:  # company_facts imports this module, so the class is named for typing only
+    from jobadvaisor.intake.company_facts import Throttle
+
+# The throttle of the alert run being worked on (`alert_runs.AlertRuns`), set like `guarded_link`:
+# every request of the run's intake waits on it for its host. `None` outside a run.
+host_throttle: ContextVar["Throttle | None"] = ContextVar("host_throttle", default=None)
 
 # The cleaned link of the alert-mail entry being added (`design.md` → Cleaning): a fetch that
 # starts at it checks every redirect hop with `navigation_allowed` before requesting it.
@@ -126,7 +134,8 @@ def download_plain(url: str, http: httpx.Client | None = None, *,
     (`FetchError(CLOSED_REDIRECT)`), whatever the link. While `guarded_link` is `url`, a hop
     other than `url` itself that fails `navigation_allowed` is not sent either
     (`FetchError(REFUSED_REDIRECT)`), after the closed question; `url` is sent as it is.
-    Raises `FetchError` naming the failure."""
+    Waits on the `host_throttle` in force before every request, the retry included. Raises
+    `FetchError` naming the failure."""
     require_http(url)
     http = http or httpx.Client(timeout=TIMEOUT_SECONDS, follow_redirects=True,
                                 headers={"User-Agent": USER_AGENT})
@@ -170,9 +179,16 @@ def _check_hop(request: httpx.Request) -> None:
         raise FetchError(reason)
 
 
+def _wait_for_host(url: str) -> None:
+    """Wait on the `host_throttle` in force, if any, for `url`'s host before a request to it."""
+    if throttle := host_throttle.get():
+        throttle.wait(url_host(url))
+
+
 def _download_plain(url: str, http: httpx.Client, retry: bool) -> tuple[str, str]:
     attempts = 2 if retry else 1
     for attempt in range(1, attempts + 1):
+        _wait_for_host(url)
         try:
             response = http.get(url)
         except httpx.InvalidURL:
@@ -196,8 +212,11 @@ def download_rendered(url: str) -> tuple[str, str]:
     the network is idle. A main-frame navigation that matches a closed rule's redirect marker
     is aborted before it is sent (`FetchError(CLOSED_REDIRECT)`), whatever the link. While
     `guarded_link` is `url`, one that fails `_refusal` is aborted too (`FetchError(
-    REFUSED_REDIRECT)` or `REFUSED_HOST`). Raises `FetchError` naming the failure."""
+    REFUSED_REDIRECT)` or `REFUSED_HOST`). Waits on the `host_throttle` once before the
+    navigation; the browser's own subresource requests are not counted. Raises `FetchError`
+    naming the failure."""
     require_http(url)
+    _wait_for_host(url)
     from playwright.sync_api import Error, sync_playwright
 
     refused, hops = [], []

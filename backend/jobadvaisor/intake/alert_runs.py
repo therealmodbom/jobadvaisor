@@ -10,8 +10,9 @@ from dataclasses import dataclass
 
 from pydantic import ValidationError
 
+from jobadvaisor.intake.company_facts import HOST_SPACING_SECONDS, Throttle
 from jobadvaisor.intake.duplicates import normalize_url
-from jobadvaisor.intake.fetch import guarded_link
+from jobadvaisor.intake.fetch import guarded_link, host_throttle
 from jobadvaisor.intake.ladder import gone_disputed
 from jobadvaisor.intake.postings import Intake, PostingNotFoundError, add_from_url
 
@@ -64,10 +65,13 @@ def add_entry(intake: Intake, entry: RunEntry) -> dict:
 
 
 class AlertRuns:
-    """Starts and reads alert runs into `intake`, one at a time, state in memory only."""
+    """Starts and reads alert runs into `intake`, one at a time, state in memory only. Every
+    request of a run's intake waits on `throttle` (default: one request per host per
+    `HOST_SPACING_SECONDS`) through `fetch.host_throttle`; tests pass one on a fake clock."""
 
-    def __init__(self, intake: Intake):
+    def __init__(self, intake: Intake, throttle: Throttle | None = None):
         self._intake = intake
+        self._throttle = throttle or Throttle(HOST_SPACING_SECONDS)
         self._executor = ThreadPoolExecutor(max_workers=1)
         self._lock = threading.Lock()
         self._state: dict[str, dict] = {}
@@ -125,7 +129,11 @@ class AlertRuns:
                 seen[key] = index
                 with self._lock:
                     self._state[run_id]["entries"][index]["state"] = "running"
-                outcome = add_entry(self._intake, entry)
+                token = host_throttle.set(self._throttle)
+                try:
+                    outcome = add_entry(self._intake, entry)
+                finally:
+                    host_throttle.reset(token)
                 with self._lock:
                     self._state[run_id]["entries"][index] |= outcome
         except Exception as crash:  # the thread must not die silently

@@ -21,6 +21,7 @@ from jobadvaisor.data.writer import read_company, write_company
 from jobadvaisor.intake.fetch import (
     TIMEOUT_SECONDS,
     USER_AGENT,
+    host_throttle,
     json_ld_documents,
     require_http,
 )
@@ -28,6 +29,7 @@ from jobadvaisor.tools.extraction import UNKNOWN
 from jobadvaisor.tools.research import employer_website, matching_postings
 
 MIN_INTERVAL_SECONDS = 2.0
+HOST_SPACING_SECONDS = 3  # between two requests to one host; the spike still met 429s at 3 s
 LOGIN_PATHS = ("/authwall", "/login", "/uas/login", "/checkpoint")  # a redirect there is a block
 ABOUT_SIZE = "about-us__size"
 ABOUT_FOUNDED = "about-us__foundedOn"
@@ -93,10 +95,11 @@ THROTTLE = Throttle()
 
 
 def look_up(root: Path, company: str, company_url: str | None = None, *,
-            fetch: Callable[[str], Reply] = fetch_page, throttle: Throttle = THROTTLE,
+            fetch: Callable[[str], Reply] = fetch_page, throttle: Throttle | None = None,
             now: datetime | None = None) -> Company | None:
     """Look up `company`'s facts once and store them as its record under `root`; returns the
-    stored record, or `None` when nothing was stored.
+    stored record, or `None` when nothing was stored. Requests wait on `throttle`, by default
+    the `fetch.host_throttle` of the alert run in force, else `THROTTLE`.
 
     Sources in order: the LinkedIn company page `company_url` (when the posting's page gave
     one), then the employer's website guessed from the company's stored postings; the second
@@ -109,6 +112,7 @@ def look_up(root: Path, company: str, company_url: str | None = None, *,
     Never raises: the intake must not fail because a lookup did.
     """
     try:
+        throttle = throttle or host_throttle.get() or THROTTLE
         name = company.strip()
         cid = company_id(name)
         if name == UNKNOWN or not cid or read_company(root, cid) is not None:
