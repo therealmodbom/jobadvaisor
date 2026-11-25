@@ -620,6 +620,35 @@ def test_a_check_started_after_the_run_ended_sees_the_marks_of_that_run(root, mo
     assert run(checks)["total"] == 0 and len(finder.calls) == 1  # mail 1 is not read again
 
 
+def test_the_mails_of_a_cancelled_run_that_were_not_reached_come_again(root, monkeypatch):
+    entered, release = threading.Event(), threading.Event()
+    added = []
+
+    def held(intake, url, *, allow_text_duplicate=False):
+        added.append(url)
+        entered.set()
+        assert release.wait(10)
+        return "p1", None, None, []
+    monkeypatch.setattr("jobadvaisor.intake.alert_runs.add_from_url", held)
+    fake = imap(mail(1), mail(2))
+    finder = StubFinder({"mail 1": found(A), "mail 2": found(C)})
+    runs = AlertRuns(Intake(root, Untouchable(), NoGuard()), SpacingClock().throttle())
+    checks = make(root, fake, finder, runs=runs)
+    check_id = checks.start()
+    settle(checks, check_id)
+    run_id = checks.finish(check_id, [RunEntry(A, "a"), RunEntry(C, "c")])
+    assert entered.wait(10)
+    runs.cancel(run_id)
+    release.set()
+    for _ in range(500):
+        if runs.current() is None:
+            break
+        time.sleep(0.01)
+    assert runs.read(run_id)["status"] == "cancelled" and added == [A]
+    assert handled(root) == {1}  # mail 1 ended stored; mail 2 was not reached
+    assert run(make(root, fake, finder))["total"] == 1
+
+
 def test_the_busy_read_happens_under_the_checks_lock(root):
     seen = []
 

@@ -64,7 +64,12 @@ from jobadvaisor.data.writer import (
 )
 from jobadvaisor.index import LabelIndex, PostingIndex, state_path
 from jobadvaisor.intake import alert_mail, mailbox_checks
-from jobadvaisor.intake.alert_runs import AlertRunBusyError, AlertRuns, RunEntry
+from jobadvaisor.intake.alert_runs import (
+    AlertRunBusyError,
+    AlertRuns,
+    RunEntry,
+    RunNotRunningError,
+)
 from jobadvaisor.intake.entries import parse_entries, preview, tables_left_out
 from jobadvaisor.intake.imports import ImportBusyError, Imports
 from jobadvaisor.intake.ladder import login_wall_hosts
@@ -799,10 +804,24 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
 
     @app.get("/alert-mails/runs/{run_id}")
     def read_alert_run(run_id: str) -> dict:
-        """A run's state (`AlertRuns.read`): `{run_id, status, error, total, done, entries:
-        [{url, title, state, posting_id?, duplicate_by?, attempts?, reason?}]}`. 404 for an
+        """A run's state (`AlertRuns.read`): `{run_id, status, error, cancel_requested, total,
+        done, entries: [{url, title, state, posting_id?, duplicate_by?, attempts?, unclear?,
+        reason?, same_as?}]}`; `status` is running, done, cancelled or failed. 404 for an
         unknown run (state is in memory, a restart forgets it)."""
         return alert_runs.read(run_id) or problem(404, "not found", f"no alert run {run_id}")
+
+    @app.post("/alert-mails/runs/{run_id}/cancel", status_code=202)
+    def cancel_alert_run(run_id: str) -> dict:
+        """Ask the running run to stop after the entry it works on; answers `{run_id}` at once,
+        and the run reports `cancel_requested` until it has ended `cancelled`, the entries it
+        did not reach `waiting`. 404 `not found` for an unknown run, 409 `run not running` for
+        one that has ended."""
+        try:
+            if alert_runs.cancel(run_id) is None:
+                return problem(404, "not found", f"no alert run {run_id}")
+        except RunNotRunningError as error:
+            return problem(409, "run not running", str(error))
+        return {"run_id": run_id}
 
     @app.post("/availability/checks", status_code=202)
     def start_availability_check() -> dict:

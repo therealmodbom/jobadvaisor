@@ -186,6 +186,40 @@ def test_an_unknown_run_is_404(tmp_path, root):
     assert client(tmp_path, root).get("/alert-mails/runs/nope").status_code == 404
 
 
+def test_a_cancel_is_202_while_running_and_the_run_ends_cancelled(tmp_path, root, monkeypatch):
+    import threading
+    entered, release = threading.Event(), threading.Event()
+
+    def held(intake, url, *, allow_text_duplicate=False):
+        entered.set()
+        release.wait(30)
+        return "a", None, None, []
+    monkeypatch.setattr(runs_module, "add_from_url", held)
+    http = client(tmp_path, root)
+    run_id = http.post("/alert-mails/runs", json={"entries": [
+        {"url": A, "title": "A"}, {"url": B, "title": "B"}]}).json()["run_id"]
+    assert entered.wait(10)
+    answer = http.post(f"/alert-mails/runs/{run_id}/cancel")
+    assert answer.status_code == 202 and answer.json() == {"run_id": run_id}
+    assert http.get(f"/alert-mails/runs/{run_id}").json()["cancel_requested"] is True
+    release.set()
+    state = settled(http, run_id)
+    assert (state["status"], state["done"], state["total"]) == ("cancelled", 1, 2)
+    assert [e["state"] for e in state["entries"]] == ["stored", "waiting"]
+
+
+def test_a_cancel_of_an_ended_run_is_409_and_of_an_unknown_run_404(tmp_path, root, monkeypatch):
+    monkeypatch.setattr(runs_module, "add_from_url", fake_add({A: ("a", None)}))
+    http = client(tmp_path, root)
+    run_id = http.post("/alert-mails/runs", json={"entries": [{"url": A, "title": "A"}]}
+                       ).json()["run_id"]
+    settled(http, run_id)
+    ended = http.post(f"/alert-mails/runs/{run_id}/cancel")
+    assert ended.status_code == 409 and ended.json()["error"] == "run not running"
+    unknown = http.post("/alert-mails/runs/nope/cancel")
+    assert unknown.status_code == 404 and unknown.json()["error"] == "not found"
+
+
 def test_a_raw_link_is_cleaned_on_start(tmp_path, root, monkeypatch):
     seen = []
 

@@ -9,7 +9,13 @@ from test_triage_graph import POLICY_PACK
 
 import jobadvaisor.intake.alert_runs as runs_module
 from jobadvaisor.intake import ladder as ladder_module
-from jobadvaisor.intake.alert_runs import AlertRunBusyError, AlertRuns, RunEntry, add_entry
+from jobadvaisor.intake.alert_runs import (
+    AlertRunBusyError,
+    AlertRuns,
+    RunEntry,
+    RunNotRunningError,
+    add_entry,
+)
 from jobadvaisor.intake.fetch import FetchError, guarded_link, host_throttle
 from jobadvaisor.intake.postings import Intake, PostingNotFoundError
 from jobadvaisor.tools.guard import ContentGuard
@@ -382,3 +388,84 @@ def test_a_failed_submit_never_calls_the_end_hook(runs, monkeypatch):
     with pytest.raises(RuntimeError):
         runs.start([RunEntry(LINKS[0], "A")], hook)
     assert hook.calls == [] and runs.current() is None
+
+
+# --- cancel -----------------------------------------------------------------------------------
+
+
+def holding_first(monkeypatch, urls_seen: list | None = None):
+    """An `add_from_url` that stores every entry, but holds the first call until the returned
+    `release` is set; `entered` is set once it is inside that call."""
+    entered, release = threading.Event(), threading.Event()
+
+    def add(intake, url, *, allow_text_duplicate=False):
+        if urls_seen is not None:
+            urls_seen.append(url)
+        if not entered.is_set():
+            entered.set()
+            assert release.wait(30)
+        return "p", None, None, []
+    monkeypatch.setattr(runs_module, "add_from_url", add)
+    return entered, release
+
+
+def test_a_cancel_stops_after_the_current_entry_and_the_rest_stay_waiting(runs, monkeypatch):
+    seen = []
+    entered, release = holding_first(monkeypatch, seen)
+    hook = EndHook(runs)
+    run_id = runs.start([RunEntry(url, "T") for url in LINKS], hook)
+    assert entered.wait(10)
+    assert runs.read(run_id)["cancel_requested"] is False
+    assert runs.cancel(run_id) == run_id
+    assert runs.read(run_id)["cancel_requested"] is True
+    release.set()
+    state = finished(runs, run_id)
+    assert (state["status"], state["done"], state["total"]) == ("cancelled", 1, 3)
+    assert [e["state"] for e in state["entries"]] == ["stored", "waiting", "waiting"]
+    assert seen == [LINKS[0]] and runs.current() is None
+    call, = hook.calls  # the end hook runs after a cancel too, before the status left running
+    assert [e["state"] for e in call["entries"]] == ["stored", "waiting", "waiting"]
+    assert call["status"] == "running"
+
+
+def test_an_entry_whose_first_link_was_never_reached_stays_waiting(runs, monkeypatch):
+    entered, release = holding_first(monkeypatch)
+    run_id = runs.start([RunEntry(LINKS[0], "A"), RunEntry(LINKS[1], "B"),
+                         RunEntry(f"{LINKS[1]}?utm_source=mail", "B again")])
+    assert entered.wait(10)
+    runs.cancel(run_id)
+    release.set()
+    entries = finished(runs, run_id)["entries"]
+    assert [e["state"] for e in entries] == ["stored", "waiting", "waiting"]
+    assert "same_as" not in entries[2]
+
+
+def test_a_cancel_before_the_first_entry_runs_none(runs, monkeypatch):
+    seen = []
+    release = threading.Event()
+    runs._executor.submit(release.wait, 30)  # the worker is busy until released
+    monkeypatch.setattr(runs_module, "add_from_url", fake_add({LINKS[0]: ("a", None)}, seen))
+    run_id = runs.start([RunEntry(LINKS[0], "A")])
+    runs.cancel(run_id)
+    release.set()
+    state = finished(runs, run_id)
+    assert state["status"] == "cancelled" and state["done"] == 0 and seen == []
+    with pytest.raises(RunNotRunningError):  # a cancelled run is ended
+        runs.cancel(run_id)
+
+
+def test_a_cancel_of_an_unknown_run_answers_none(runs):
+    assert runs.cancel("nope") is None
+
+
+@pytest.mark.parametrize("how", ["done", "failed"])
+def test_a_cancel_of_an_ended_run_is_refused_and_changes_nothing(runs, monkeypatch, how):
+    if how == "failed":
+        monkeypatch.setattr(runs_module, "add_entry", lambda intake, entry: 1 / 0)
+    else:
+        monkeypatch.setattr(runs_module, "add_from_url", fake_add({LINKS[0]: ("a", None)}))
+    state = finished(runs, runs.start([RunEntry(LINKS[0], "A")]))
+    assert state["status"] == how
+    with pytest.raises(RunNotRunningError):
+        runs.cancel(state["run_id"])
+    assert runs.read(state["run_id"]) == state

@@ -29,6 +29,10 @@ class AlertRunBusyError(Exception):
         super().__init__(f"alert run {run_id} is still computing")
 
 
+class RunNotRunningError(Exception):
+    """The run is `done`, `failed` or `cancelled`, so it takes no cancel."""
+
+
 @dataclass(frozen=True)
 class RunEntry:
     """A chosen entry: its cleaned link, its title from the mail, and `force` when the user
@@ -95,7 +99,8 @@ class AlertRuns:
                 raise AlertRunBusyError(self._computing)
             self._computing = run_id
             self._state[run_id] = {
-                "run_id": run_id, "status": "running", "error": None, "total": len(entries),
+                "run_id": run_id, "status": "running", "error": None,
+                "cancel_requested": False, "total": len(entries),
                 "entries": [{"url": e.url, "title": e.title, "state": "waiting"} for e in entries]}
         try:
             self._executor.submit(self._run, run_id, entries, on_end)
@@ -111,14 +116,29 @@ class AlertRuns:
         with self._lock:
             return self._computing
 
+    def cancel(self, run_id: str) -> str | None:
+        """Ask the running run to stop; returns its ID at once. The worker looks for the request
+        before each entry, so the entry it works on is finished, then the run ends `cancelled`
+        and the entries it did not reach stay `waiting`. Answers `None` for an unknown ID and
+        raises `RunNotRunningError` for a run that has ended."""
+        with self._lock:
+            state = self._state.get(run_id)
+            if state is None:
+                return None
+            if state["status"] != "running":
+                raise RunNotRunningError(f"alert run {run_id} is {state['status']}")
+            state["cancel_requested"] = True
+            return run_id
+
     def read(self, run_id: str) -> dict | None:
         """A copy of the run's state, or `None` for an unknown ID: `run_id`, `status`
-        (`running`, `done`, `failed`), `error` (the exception's type name when the run
-        crashed), `total`, `done` (entries ended, closed ones included), and `entries` in
-        order, each `{url, title, state}` with `state` one of `waiting`, `running`, `stored`,
-        `duplicate`, `closed`, `failed`, plus the outcome's fields (`add_entry`). An entry whose
-        link (`normalize_url`) an earlier entry already put through intake is not fetched: it
-        carries that entry's outcome fields and `same_as`, the earlier entry's index."""
+        (`running`, `done`, `failed`, `cancelled`), `error` (the exception's type name when the
+        run crashed), `cancel_requested`, `total`, `done` (entries ended, closed ones included),
+        and `entries` in order, each `{url, title, state}` with `state` one of `waiting`,
+        `running`, `stored`, `duplicate`, `closed`, `failed`, plus the outcome's fields
+        (`add_entry`). An entry whose link (`normalize_url`) an earlier entry already put
+        through intake is not fetched: it carries that entry's outcome fields and `same_as`, the
+        earlier entry's index. After a cancel, the entries not reached are `waiting`."""
         with self._lock:
             state = self._state.get(run_id)
             if state is None:
@@ -134,6 +154,10 @@ class AlertRuns:
         seen: dict[str, int] = {}  # link key → index of the entry that was fetched for it
         try:
             for index, entry in enumerate(entries):
+                with self._lock:
+                    if self._state[run_id]["cancel_requested"]:
+                        status = "cancelled"
+                        break
                 key = normalize_url(entry.url)
                 if key in seen:
                     with self._lock:
