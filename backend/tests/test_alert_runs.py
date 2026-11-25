@@ -300,3 +300,85 @@ def test_the_runs_throttle_is_set_around_each_entry_and_cleared_after(runs, monk
 def test_a_run_throttles_requests_by_three_seconds_unless_told_otherwise(tmp_path):
     runs = AlertRuns(Intake(tmp_path, FakeStructuredModel(), ContentGuard(None, {})))
     assert runs._throttle.interval == 3
+
+
+# --- the end hook and `current` ---------------------------------------------------------------
+
+
+class EndHook:
+    """An `on_end` that records what it saw: the entries it was given and, read from inside the
+    hook, the run's status and whether `current()` still names it."""
+
+    def __init__(self, runs: AlertRuns, error: Exception | None = None):
+        self.runs, self.error, self.calls = runs, error, []
+
+    def __call__(self, entries):
+        current = self.runs.current()
+        self.calls.append({"entries": entries, "current": current,
+                           "status": self.runs.read(current)["status"] if current else None,
+                           "thread": threading.current_thread()})
+        if self.error:
+            raise self.error
+
+
+def test_current_names_the_computing_run_and_nothing_after_it(runs, monkeypatch):
+    release = threading.Event()
+
+    def held(intake, url, *, allow_text_duplicate=False):
+        release.wait(30)
+        return "a", None, None, []
+    monkeypatch.setattr(runs_module, "add_from_url", held)
+    assert runs.current() is None
+    run_id = runs.start([RunEntry(LINKS[0], "A")])
+    assert runs.current() == run_id
+    release.set()
+    finished(runs, run_id)
+    assert runs.current() is None
+
+
+def test_the_end_hook_gets_the_final_entries_before_the_status_leaves_running(runs, monkeypatch):
+    monkeypatch.setattr(runs_module, "add_from_url", fake_add({
+        LINKS[0]: ("a", None), LINKS[1]: PostingNotFoundError([], closed=True)}))
+    hook = EndHook(runs)
+    run_id = runs.start([RunEntry(LINKS[0], "A"), RunEntry(LINKS[1], "B")], hook)
+    state = finished(runs, run_id)
+    call, = hook.calls  # a single call; reading the run from inside it did not deadlock
+    assert [e["state"] for e in call["entries"]] == ["stored", "closed"]
+    assert call["current"] == run_id and call["status"] == "running"
+    assert call["thread"] is not threading.current_thread()
+    assert state["status"] == "done" and runs.current() is None
+
+
+def test_the_end_hook_runs_after_a_crash_with_the_entries_as_they_stood(runs, monkeypatch):
+    def crash_on_second(intake, entry):
+        if entry.url == LINKS[1]:
+            raise KeyError("boom")
+        return {"state": "stored", "posting_id": "a"}
+    monkeypatch.setattr(runs_module, "add_entry", crash_on_second)
+    hook = EndHook(runs)
+    state = finished(runs, runs.start([RunEntry(url, "T") for url in LINKS], hook))
+    assert state["status"] == "failed"
+    call, = hook.calls
+    assert [e["state"] for e in call["entries"]] == ["stored", "running", "waiting"]
+    assert call["status"] == "running"
+
+
+def test_an_exception_in_the_end_hook_is_logged_by_type_and_frees_the_slot(
+        runs, monkeypatch, caplog):
+    monkeypatch.setattr(runs_module, "add_from_url", fake_add({LINKS[0]: ("a", None)}))
+    hook = EndHook(runs, ValueError("secret detail"))
+    with caplog.at_level("WARNING"):
+        state = finished(runs, runs.start([RunEntry(LINKS[0], "A")], hook))
+    assert state["status"] == "done" and runs.current() is None
+    assert "ValueError" in caplog.text and "secret detail" not in caplog.text
+    assert finished(runs, runs.start([RunEntry(LINKS[0], "A")]))["status"] == "done"
+
+
+def test_a_failed_submit_never_calls_the_end_hook(runs, monkeypatch):
+    def broken(*args):
+        raise RuntimeError("executor down")
+    monkeypatch.setattr(runs._executor, "submit", broken)
+    hook = EndHook(runs)
+    with pytest.raises(RuntimeError):
+        runs.start([RunEntry(LINKS[0], "A")], hook)
+    assert hook.calls == [] and runs.current() is None

@@ -1,10 +1,12 @@
 """The background run of the entries chosen from an alert mail
 (`openspec/changes/archive/2026-11-16-alert-mail-intake/design.md` → Run): one entry after the
 other through the normal intake of a link, one run at a time, state in memory only (a restart
-forgets it)."""
+forgets it). The lock guards the state only; the intake and the end hook run outside it."""
 
+import logging
 import threading
 import uuid
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
@@ -15,6 +17,8 @@ from jobadvaisor.intake.duplicates import normalize_url
 from jobadvaisor.intake.fetch import guarded_link, host_throttle
 from jobadvaisor.intake.ladder import gone_disputed
 from jobadvaisor.intake.postings import Intake, PostingNotFoundError, add_from_url
+
+log = logging.getLogger(__name__)
 
 
 class AlertRunBusyError(Exception):
@@ -77,9 +81,14 @@ class AlertRuns:
         self._state: dict[str, dict] = {}
         self._computing: str | None = None
 
-    def start(self, entries: list[RunEntry]) -> str:
+    def start(self, entries: list[RunEntry],
+              on_end: Callable[[list[dict]], None] | None = None) -> str:
         """Add `entries` in the background and return the run's ID at once. Raises
-        `AlertRunBusyError` while another run computes."""
+        `AlertRunBusyError` while another run computes. `on_end(entries)` gets the final
+        entry states (`read`'s `entries`) on the worker thread, outside this object's lock,
+        after the last entry, after a crash, after a cancel, and before the run's status leaves
+        `running` and the slot is freed. A hook that takes a lock must never take one a caller of
+        `start` holds. An exception in it is logged by its type and never keeps the slot."""
         run_id = uuid.uuid4().hex
         with self._lock:
             if self._computing:
@@ -89,13 +98,18 @@ class AlertRuns:
                 "run_id": run_id, "status": "running", "error": None, "total": len(entries),
                 "entries": [{"url": e.url, "title": e.title, "state": "waiting"} for e in entries]}
         try:
-            self._executor.submit(self._run, run_id, entries)
+            self._executor.submit(self._run, run_id, entries, on_end)
         except Exception:
             with self._lock:
                 self._computing = None
                 del self._state[run_id]
             raise
         return run_id
+
+    def current(self) -> str | None:
+        """The ID of the computing run, or `None`."""
+        with self._lock:
+            return self._computing
 
     def read(self, run_id: str) -> dict | None:
         """A copy of the run's state, or `None` for an unknown ID: `run_id`, `status`
@@ -114,7 +128,8 @@ class AlertRuns:
                        for entry in entries)
             return state | {"entries": entries, "done": done}
 
-    def _run(self, run_id: str, entries: list[RunEntry]) -> None:
+    def _run(self, run_id: str, entries: list[RunEntry],
+             on_end: Callable[[list[dict]], None] | None) -> None:
         status, error = "done", None
         seen: dict[str, int] = {}  # link key → index of the entry that was fetched for it
         try:
@@ -139,6 +154,12 @@ class AlertRuns:
         except Exception as crash:  # the thread must not die silently
             status, error = "failed", type(crash).__name__
         finally:
+            if on_end is not None:
+                try:
+                    on_end(self.read(run_id)["entries"])
+                except Exception as hook:  # the slot must be freed whatever the hook did
+                    log.warning("alert run %s: the end hook failed (%s)", run_id,
+                                type(hook).__name__)
             with self._lock:
                 self._state[run_id] |= {"status": status, "error": error}
                 self._computing = None
