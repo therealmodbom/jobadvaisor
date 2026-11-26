@@ -7,7 +7,7 @@ import { OriginalLink } from '@/components/posting'
 import { ErrorWithRetry } from '@/components/states'
 import { Button } from '@/components/ui/button'
 import { PANEL, PASTE_WORDS, ROW, ROW_BUTTON, type RunWords } from '@/lib/alert'
-import type { AlertRun, RunEntry, RunRowRef } from '@/lib/alert-run'
+import { OUTCOMES, outcomeOf, type AlertRun, type Outcome, type RunEntry, type RunRowRef } from '@/lib/alert-run'
 import { cn, isWebUrl } from '@/lib/utils'
 
 /** The run of an alert mail, pasted or read from the mailbox: the state `run` (`useAlertRun`) as
@@ -54,9 +54,9 @@ export function AlertRunView({ run, words = PASTE_WORDS, onText, onPdf, onOver }
   )
 }
 
-/** The run: "x von y erledigt", a bar while it computes, one row per entry, and at the end the
- * summary or, for a run that crashed, the notice, and for a cancelled one how far it got. `entries`
- * are the rows to show; `status` is the run's, `runId` its ID and `cancelRequested` whether a
+/** The run: "x von y erledigt", a bar while it computes, the filter row by outcome with its status
+ * line, one row per entry (the filtered ones under a filter) and, for a run that crashed, the
+ * notice, and for a cancelled one how far it got. `entries` are the rows to show; `status` is the run's, `runId` its ID and `cancelRequested` whether a
  * cancel was asked for. `start` runs a text duplicate again with `force`; `onOver` leaves the
  * run, its button and the crash notice say it in `words`. */
 function RunPanel({ entries, status, words, start, runId, cancelRequested, onText, onPdf, onOver }: {
@@ -73,17 +73,15 @@ function RunPanel({ entries, status, words, start, runId, cancelRequested, onTex
   const crashId = useId()
   const runHeadingId = useId()
   const ended = (entry: AlertRunEntry) => ['stored', 'duplicate', 'closed', 'failed'].includes(entry.state)
+  const [filter, setFilter] = useState<Outcome | null>(null)
   const finished = entries.filter(ended).length
   const own = entries.filter((entry) => entry.same_as === undefined) // a repeat of a link is no second posting
   const count = (state: AlertRunEntry['state']) => own.filter((entry) => entry.state === state).length
-  const unclear = own.filter((entry) => entry.state === 'failed' && entry.unclear).length
-  const summary = [
-    count('stored') > 0 && `${count('stored')} hinzugefügt`,
-    count('duplicate') > 0 && `${count('duplicate')} schon gespeichert`,
-    count('closed') > 0 && `${count('closed')} geschlossen`,
-    count('failed') > unclear && `${count('failed') - unclear} nicht gelesen`,
-    unclear > 0 && `${unclear} nicht beurteilbar`,
-  ].filter(Boolean).join(', ')
+  const counts = OUTCOMES.map((outcome) => ({ ...outcome, count: own.filter((entry) => outcomeOf(entry) === outcome.id).length }))
+  const offered = counts.filter((outcome) => outcome.count > 0 || outcome.id === filter)
+  const listed = entries.map((entry, index) => ({ entry, index }))
+    .filter(({ entry }) => filter === null || (entry.same_as === undefined && outcomeOf(entry) === filter))
+  const pick = (next: Outcome | null) => setFilter(next === filter ? null : next)
   return (
     <>
       <div role="status" className="sr-only">
@@ -117,9 +115,9 @@ function RunPanel({ entries, status, words, start, runId, cancelRequested, onTex
           {status === 'cancelled' && (
             <p className="mt-0.5 font-bold">Abgebrochen nach {finished} von {entries.length} Anzeigen</p>
           )}
-          {(status === 'done' || status === 'cancelled') && summary && (
+          {(status === 'done' || status === 'cancelled') && count('stored') > 0 && (
             <p className="mt-0.5 text-[15px] text-muted-foreground">
-              {summary}.{count('stored') > 0 && ' Prüfe Titel, Firma und Ort der neuen Anzeigen auf ihren Seiten.'}
+              Prüfe Titel, Firma und Ort der neuen Anzeigen auf ihren Seiten.
             </p>
           )}
           {status === 'cancelled' && words.cancelled && (
@@ -133,8 +131,21 @@ function RunPanel({ entries, status, words, start, runId, cancelRequested, onTex
         {status === 'running' && (
           <progress aria-label="Fortschritt" className="h-2 w-full accent-primary" value={finished} max={entries.length} />
         )}
+        <div role="group" aria-label="Filter" className="flex flex-wrap gap-1.5">
+          <FilterButton active={filter === null} onClick={() => setFilter(null)}>{`Alle (${entries.length})`}</FilterButton>
+          {offered.map((outcome) => (
+            <FilterButton key={outcome.id} active={filter === outcome.id} onClick={() => pick(outcome.id)}>
+              {`${outcome.count} ${outcome.word}`}
+            </FilterButton>
+          ))}
+        </div>
+        <p role="status" className="text-sm text-muted-foreground">
+          {filter === null
+            ? `Zeigt alle ${entries.length} Anzeigen`
+            : `Zeigt ${listed.length} von ${entries.length} Anzeigen: ${OUTCOMES.find((outcome) => outcome.id === filter)?.word}`}
+        </p>
         <ul aria-label="Stand je Anzeige" className="flex flex-col gap-2.5">
-          {entries.map((entry, index) => (
+          {listed.map(({ entry, index }) => (
             <RunRow key={index} entry={entry} ended={status !== 'running'}
                     onText={onText} onPdf={onPdf}
                     onForce={() => start([{ url: entry.url, title: entry.title, force: true }], { index, base: entries })} />
@@ -145,6 +156,16 @@ function RunPanel({ entries, status, words, start, runId, cancelRequested, onTex
         )}
       </section>
     </>
+  )
+}
+
+/** One button of the filter row: pressed when it is the active filter. */
+function FilterButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
+  return (
+    <button type="button" aria-pressed={active} onClick={onClick}
+            className={cn('min-h-11 rounded-lg border px-3.5 font-bold', active ? 'border-primary bg-primary text-primary-foreground' : 'bg-card')}>
+      {children}
+    </button>
   )
 }
 

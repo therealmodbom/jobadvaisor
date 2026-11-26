@@ -521,7 +521,9 @@ test('a mailbox run with failed entries says that the next check offers their ma
               entries: [{ url: mailEntry(1).url, title: 'Stelle 1', state: 'stored', posting_id: 'p-1' },
                         ...[2, 3, 4].map((n) => ({ url: mailEntry(n).url, title: `Stelle ${n}`, state: 'failed' }))] } } })
   view()
-  expect(await screen.findByText(/1 hinzugefügt, 3 nicht gelesen/)).toBeVisible()
+  const filters = await screen.findByRole('group', { name: 'Filter' })
+  expect(within(filters).getAllByRole('button').map((button) => button.textContent))
+    .toEqual(['Alle (4)', '1 hinzugefügt', '3 nicht gelesen'])
   expect(screen.getByText('Die nächste Prüfung bietet die Mails dieser Anzeigen wieder an.')).toBeVisible()
 })
 

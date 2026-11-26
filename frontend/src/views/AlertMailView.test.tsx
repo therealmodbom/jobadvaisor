@@ -45,6 +45,11 @@ function paste(target: HTMLElement, plain: string, html?: string) {
 const field = () => screen.getByLabelText('Alert-Mail')
 /** The rows of a run list: its direct children, since a failed row holds a list of attempts itself. */
 const rowsOf = (list: HTMLElement) => Array.from(list.children) as HTMLElement[]
+/** The filter row of a run, its buttons' names in order, and the status line under it. */
+const filters = () => screen.getByRole('group', { name: 'Filter' })
+const filterNames = () => within(filters()).getAllByRole('button').map((button) => button.textContent)
+const filterButton = (name: string) => within(filters()).getByRole('button', { name })
+const statusLine = () => screen.getByText(/^Zeigt /)
 const noop = () => {}
 const view = (props: Partial<Parameters<typeof AlertMailView>[0]> = {}) =>
   render(<AlertMailView onUrl={noop} onText={noop} onPdf={noop} {...props} />)
@@ -404,7 +409,7 @@ test('the run is polled every second until it is done, then the poll stops', asy
   await screen.findByRole('list', { name: 'Stand je Anzeige' })
   await act(() => vi.advanceTimersByTimeAsync(POLL_MS))
   expect(await screen.findByRole('heading', { name: '3 von 3 erledigt' })).toBeVisible()
-  expect(screen.getByText(/3 hinzugefügt/)).toBeVisible()
+  expect(filterNames()).toEqual(['Alle (3)', '3 hinzugefügt'])
   const before = calls.length
   await act(() => vi.advanceTimersByTimeAsync(POLL_MS * 3))
   expect(calls.length).toBe(before)
@@ -439,7 +444,7 @@ test('a failed row lists the attempts and offers text and PDF, and the others ar
   await userEvent.click(within(rows[1]).getByRole('button', { name: 'PDF hochladen' }))
   expect(onText).toHaveBeenCalled()
   expect(onPdf).toHaveBeenCalled()
-  expect(screen.getByText(/2 hinzugefügt, 1 nicht gelesen/)).toBeVisible()
+  expect(filterNames()).toEqual(['Alle (3)', '2 hinzugefügt', '1 nicht gelesen'])
 })
 
 test('a failed row without attempts shows no English reason but the fallback', async () => {
@@ -781,12 +786,12 @@ test('„Details“ counts one attempt in the singular', async () => {
   expect(within(only).getByText('Details: 1 Versuch')).toBeVisible()
 })
 
-test('a closed entry counts as done in the heading and the summary', async () => {
+test('a closed entry counts as done in the heading and has its own filter', async () => {
   sessionStorage.setItem(RUN_KEY, 'r1')
   stubApi({ 'GET /alert-mails/runs/r1': { body: closedRun() } })
   view()
   expect(await screen.findByRole('heading', { name: '3 von 3 erledigt' })).toBeVisible()
-  expect(screen.getByText(/1 hinzugefügt, 1 geschlossen, 1 nicht gelesen/)).toBeVisible()
+  expect(filterNames()).toEqual(['Alle (3)', '1 hinzugefügt', '1 geschlossen', '1 nicht gelesen'])
 })
 
 test('a running run counts a closed entry as finished and does not call the rest "nicht gestartet"', async () => {
@@ -834,14 +839,15 @@ test('a row taken from an earlier entry shows its outcome, says the link was fet
   expect(within(rows[1]).getByRole('link', { name: 'Anzeige ansehen' })).toHaveAttribute('href', '#/anzeigen/p-1')
 })
 
-test('the summary counts a link of two rows once', async () => {
+test('the filters count a link of two rows once', async () => {
   sessionStorage.setItem(RUN_KEY, 'r1')
   stubApi({ 'GET /alert-mails/runs/r1': { body: run([
     row(1, 'stored', { posting_id: 'p-1' }),
     row(2, 'stored', { posting_id: 'p-1', same_as: 0 }),
   ], { status: 'done' }) } })
   view()
-  expect(await screen.findByText(/^1 hinzugefügt\./)).toBeVisible()
+  await screen.findByRole('group', { name: 'Filter' })
+  expect(filterNames()).toEqual(['Alle (2)', '1 hinzugefügt'])
   expect(screen.getByRole('heading', { name: '2 von 2 erledigt' })).toBeVisible()
 })
 
@@ -865,7 +871,7 @@ test('a failed row that could not be judged says so, lists its attempts and offe
   await userEvent.click(within(failed).getByText('Details: 2 Versuche'))
   expect(within(failed).getByRole('list')).toBeVisible()
   expect(within(failed).getByRole('list')).toHaveTextContent('Einfacher Abruf: Stelle geschlossen (HTTP 404)')
-  expect(screen.getByText(/1 nicht beurteilbar/)).toBeVisible()
+  expect(filterNames()).toEqual(['Alle (1)', '1 nicht beurteilbar'])
 })
 
 test('the link of a row that could not be judged opens the original ad in a new tab', async () => {
@@ -986,4 +992,116 @@ test('a pasted run with failed entries does not promise that the next check offe
   view()
   await screen.findByRole('list', { name: 'Stand je Anzeige' })
   expect(screen.queryByText(/Die nächste Prüfung/)).toBeNull()
+})
+
+// ---- #162: filter by outcome ----
+
+const JUDGED = [{ step: 'plain', url: entry(8).url, outcome: 'HTTP 404' }, { step: 'rendered', url: entry(8).url, outcome: 'HTTP 429' }]
+
+/** Nine rows of a finished run: 3 added, 2 stored before, 1 closed, 2 not read (one a repeat of a link), 1 not assessable. */
+const MIXED = () => run([
+  row(1, 'stored', { posting_id: 'p-1' }), row(2, 'stored', { posting_id: 'p-2' }), row(3, 'stored', { posting_id: 'p-3' }),
+  row(4, 'duplicate', { posting_id: 'p-9', duplicate_by: 'url' }), row(5, 'duplicate', { posting_id: 'p-9', duplicate_by: 'url' }),
+  row(6, 'closed', { attempts: [{ step: 'plain', url: entry(6).url, outcome: 'HTTP 404' }] }),
+  row(7, 'failed', { attempts: [{ step: 'plain', url: entry(7).url, outcome: 'HTTP 503' }] }),
+  row(8, 'failed', { unclear: true, attempts: JUDGED }),
+  row(9, 'failed', { same_as: 6 }),
+], { status: 'done' })
+
+const titlesOf = () => rowsOf(screen.getByRole('list', { name: 'Stand je Anzeige' }))
+  .map((item) => /Stelle \d/.exec(item.textContent ?? '')?.[0])
+
+async function openMixed() {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /alert-mails/runs/r1': { body: MIXED() } })
+  view()
+  await screen.findByRole('group', { name: 'Filter' })
+}
+
+test('a finished run offers "Alle" with the number of rows and one filter per outcome that occurs, "Alle" active', async () => {
+  await openMixed()
+  expect(filterNames()).toEqual(['Alle (9)', '3 hinzugefügt', '2 schon gespeichert', '1 geschlossen', '1 nicht gelesen', '1 nicht beurteilbar'])
+  expect(filterButton('Alle (9)')).toHaveAttribute('aria-pressed', 'true')
+  expect(filterButton('3 hinzugefügt')).toHaveAttribute('aria-pressed', 'false')
+  expect(titlesOf()).toHaveLength(9)
+  expect(screen.getByText('Prüfe Titel, Firma und Ort der neuen Anzeigen auf ihren Seiten.')).toBeVisible()
+  expect(screen.queryByText(/^3 hinzugefügt,/)).toBeNull()
+})
+
+test('a filter shows only the rows of its outcome, and choosing it again or "Alle" shows every row again', async () => {
+  await openMixed()
+  await userEvent.click(filterButton('2 schon gespeichert'))
+  expect(filterButton('2 schon gespeichert')).toHaveAttribute('aria-pressed', 'true')
+  expect(filterButton('Alle (9)')).toHaveAttribute('aria-pressed', 'false')
+  expect(titlesOf()).toEqual(['Stelle 4', 'Stelle 5'])
+  await userEvent.click(filterButton('2 schon gespeichert'))
+  expect(filterButton('Alle (9)')).toHaveAttribute('aria-pressed', 'true')
+  expect(titlesOf()).toHaveLength(9)
+  await userEvent.click(filterButton('1 geschlossen'))
+  expect(titlesOf()).toEqual(['Stelle 6'])
+  await userEvent.click(filterButton('Alle (9)'))
+  expect(filterButton('Alle (9)')).toHaveAttribute('aria-pressed', 'true')
+  expect(titlesOf()).toHaveLength(9)
+})
+
+test('the counts stay those of the whole run while a filter is active', async () => {
+  await openMixed()
+  await userEvent.click(filterButton('3 hinzugefügt'))
+  expect(filterNames()).toEqual(['Alle (9)', '3 hinzugefügt', '2 schon gespeichert', '1 geschlossen', '1 nicht gelesen', '1 nicht beurteilbar'])
+})
+
+test('the filter for the entries that could not be judged keeps their text and PDF options', async () => {
+  const onText = vi.fn()
+  const onPdf = vi.fn()
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /alert-mails/runs/r1': { body: MIXED() } })
+  view({ onText, onPdf })
+  await userEvent.click(await within(await screen.findByRole('group', { name: 'Filter' })).findByRole('button', { name: '1 nicht beurteilbar' }))
+  const [only, ...rest] = rowsOf(screen.getByRole('list', { name: 'Stand je Anzeige' }))
+  expect(rest).toHaveLength(0)
+  expect(only).toHaveTextContent('Nicht beurteilbar')
+  await userEvent.click(within(only).getByRole('button', { name: 'Text einfügen' }))
+  await userEvent.click(within(only).getByRole('button', { name: 'PDF hochladen' }))
+  expect(onText).toHaveBeenCalled()
+  expect(onPdf).toHaveBeenCalled()
+})
+
+test('a filter drops the repeat of a link, "Alle" keeps it, and the counts count the link once', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /alert-mails/runs/r1': { body: run([
+    row(1, 'closed', { attempts: [] }), row(2, 'closed', { attempts: [], same_as: 0 }),
+  ], { status: 'done' }) } })
+  view()
+  await screen.findByRole('group', { name: 'Filter' })
+  expect(filterNames()).toEqual(['Alle (2)', '1 geschlossen'])
+  await userEvent.click(filterButton('1 geschlossen'))
+  expect(titlesOf()).toEqual(['Stelle 1'])
+  await userEvent.click(filterButton('Alle (2)'))
+  expect(titlesOf()).toEqual(['Stelle 1', 'Stelle 2'])
+})
+
+test('the status line says how many rows the list shows, of how many, and which outcome, and is announced', async () => {
+  await openMixed()
+  expect(statusLine()).toHaveTextContent('Zeigt alle 9 Anzeigen')
+  expect(statusLine()).toHaveAttribute('role', 'status')
+  await userEvent.click(filterButton('1 nicht beurteilbar'))
+  expect(filterButton('1 nicht beurteilbar')).toHaveAttribute('aria-pressed', 'true')
+  expect(statusLine()).toHaveTextContent('Zeigt 1 von 9 Anzeigen: nicht beurteilbar')
+  await userEvent.click(filterButton('3 hinzugefügt'))
+  expect(statusLine()).toHaveTextContent('Zeigt 3 von 9 Anzeigen: hinzugefügt')
+  await userEvent.click(filterButton('Alle (9)'))
+  expect(statusLine()).toHaveTextContent('Zeigt alle 9 Anzeigen')
+})
+
+test('the filter row sits below the progress bar and above the list, and has no accessibility violations', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /alert-mails/runs/r1': { body: RUNNING } })
+  const { container } = view()
+  const list = await screen.findByRole('list', { name: 'Stand je Anzeige' })
+  const bar = screen.getByRole('progressbar', { name: 'Fortschritt' })
+  expect(bar.compareDocumentPosition(filters()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(filters().compareDocumentPosition(statusLine()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(statusLine().compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(await axe(container)).toHaveNoViolations()
 })

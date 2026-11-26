@@ -45,6 +45,33 @@ export function runStore(runKey: string, baseKey: string): RunStore {
   }
 }
 
+/** What a run says about an entry that ended; a failed entry is `unclear` when its link could not be judged. */
+export type Outcome = 'stored' | 'duplicate' | 'closed' | 'unread' | 'unclear'
+
+/** Every outcome in the order the filters list them, with the word that names it. */
+export const OUTCOMES: { id: Outcome; word: string }[] = [
+  { id: 'stored', word: 'hinzugefügt' },
+  { id: 'duplicate', word: 'schon gespeichert' },
+  { id: 'closed', word: 'geschlossen' },
+  { id: 'unread', word: 'nicht gelesen' },
+  { id: 'unclear', word: 'nicht beurteilbar' },
+]
+
+/** The outcome of `entry`, or null while it waits or is being added. The one place that splits
+ * `failed` by `unclear`, shared by the counts, the filters and the filtered rows. */
+export function outcomeOf(entry: AlertRunEntry): Outcome | null {
+  switch (entry.state) {
+    case 'stored':
+    case 'duplicate':
+    case 'closed':
+      return entry.state
+    case 'failed':
+      return entry.unclear ? 'unclear' : 'unread'
+    default:
+      return null
+  }
+}
+
 /** One entry to add: `force` stores a text duplicate anyway. */
 export type RunEntry = { url: string; title: string; force: boolean }
 /** The row of a text duplicate stored anyway, and the report it belongs to. */
