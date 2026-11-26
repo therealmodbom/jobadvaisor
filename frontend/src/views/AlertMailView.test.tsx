@@ -175,6 +175,37 @@ test('the pick list preselects new entries, marks stored ones and login-walled o
   expect(screen.getByRole('button', { name: '2 Anzeigen hinzufügen' })).toBeEnabled()
 })
 
+test('an entry of the pick list links its address in a new tab, named for the posting, and its checkbox still toggles', async () => {
+  stubApi(found([entry(1, { title: 'Data Engineer', url: 'https://jobs.example.com/data-engineer/1' })]))
+  view()
+  await findStellen()
+  const link = screen.getByRole('link', { name: 'Anzeige „Data Engineer“ öffnen, neuer Tab: https://jobs.example.com/data-engineer/1' })
+  expect(link).toHaveTextContent('https://jobs.example.com/data-engineer/1')
+  expect(link).toHaveAttribute('href', 'https://jobs.example.com/data-engineer/1')
+  expect(link).toHaveAttribute('target', '_blank')
+  expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+  const box = screen.getByRole('checkbox', { name: 'Data Engineer' })
+  expect(box).toBeChecked()
+  await userEvent.click(box)
+  expect(box).not.toBeChecked()
+})
+
+test('an entry without a title gives its link no posting name', async () => {
+  stubApi(found([entry(1, { title: '', url: 'https://jobs.example.com/x/1' })]))
+  view()
+  await findStellen()
+  expect(screen.getByRole('link', { name: 'Anzeige öffnen, neuer Tab: https://jobs.example.com/x/1' })).toBeVisible()
+})
+
+test('an entry whose address is not http(s) shows it as text, not as a link', async () => {
+  stubApi(found([entry(1, { url: 'ftp://files.example.com/job' })]))
+  view()
+  await findStellen()
+  const list = screen.getByRole('list', { name: 'Gefundene Stellen' })
+  expect(within(list).getByText('ftp://files.example.com/job')).toBeVisible()
+  expect(within(list).queryByRole('link')).toBeNull()
+})
+
 test('changing the selection changes the count, and nothing selected disables the action', async () => {
   stubApi(found([entry(1), entry(2)]))
   view()
@@ -398,8 +429,12 @@ test('a failed row lists the attempts and offers text and PDF, and the others ar
   expect(within(rows[0]).getByRole('link', { name: 'Anzeige ansehen' })).toHaveAttribute('href', '#/anzeigen/p-1')
   expect(within(rows[2]).getByRole('link', { name: 'Anzeige ansehen' })).toHaveAttribute('href', '#/anzeigen/p-3')
   expect(rows[1]).toHaveTextContent('Nicht gelesen')
-  expect(rows[1]).toHaveTextContent('Seite mit Login-Pflicht: übersprungen')
-  expect(rows[1]).toHaveTextContent('Websuche nach einer anderen Quelle: keine Anzeige gefunden')
+  expect(within(rows[1]).getByRole('list')).not.toBeVisible()
+  await userEvent.click(within(rows[1]).getByText('Details: 2 Versuche'))
+  const attempts = within(rows[1]).getByRole('list')
+  expect(attempts).toBeVisible()
+  expect(attempts).toHaveTextContent('Seite mit Login-Pflicht: übersprungen')
+  expect(attempts).toHaveTextContent('Websuche nach einer anderen Quelle: keine Anzeige gefunden')
   await userEvent.click(within(rows[1]).getByRole('button', { name: 'Text einfügen' }))
   await userEvent.click(within(rows[1]).getByRole('button', { name: 'PDF hochladen' }))
   expect(onText).toHaveBeenCalled()
@@ -413,7 +448,10 @@ test('a failed row without attempts shows no English reason but the fallback', a
   view()
   const rows = rowsOf(await screen.findByRole('list', { name: 'Stand je Anzeige' }))
   expect(rows[0]).not.toHaveTextContent('ConnectError')
+  expect(rows[0]).toHaveTextContent('Diese Anzeige konnte nicht gelesen werden.')
   expect(within(rows[0]).getByRole('button', { name: 'Text einfügen' })).toBeVisible()
+  expect(within(rows[0]).getByRole('button', { name: 'PDF hochladen' })).toBeVisible()
+  expect(rows[0].querySelector('details')).toBeNull()
 })
 
 test('a duplicate by link shows the stored posting and offers no way to store it again', async () => {
@@ -690,12 +728,57 @@ test('a closed row shows "Stelle geschlossen" with its attempts and offers no te
   const rows = rowsOf(await screen.findByRole('list', { name: 'Stand je Anzeige' }))
   expect(within(rows[1]).getByText('Stelle geschlossen')).toBeVisible()
   expect(rows[1]).toHaveTextContent('Nichts gespeichert.')
-  expect(rows[1]).toHaveTextContent('Einfacher Abruf: Stelle geschlossen (HTTP 404)')
-  expect(rows[1]).toHaveTextContent('Websuche nach einer anderen Quelle: keine Anzeige gefunden')
+  expect(rows[1]).not.toHaveTextContent('Diese Versuche wurden gemacht')
+  await userEvent.click(within(rows[1]).getByText('Details: 2 Versuche'))
+  const attempts = within(rows[1]).getByRole('list')
+  expect(attempts).toBeVisible()
+  expect(attempts).toHaveTextContent('Einfacher Abruf: Stelle geschlossen (HTTP 404)')
+  expect(attempts).toHaveTextContent('Websuche nach einer anderen Quelle: keine Anzeige gefunden')
   expect(within(rows[1]).queryByRole('button')).toBeNull()
-  expect(within(rows[1]).queryByRole('link')).toBeNull()
+  expect(within(rows[1]).getByRole('link', { name: `Anzeige „Stelle 2“ öffnen, neuer Tab: ${entry(2).url}` }))
+    .toHaveAttribute('href', entry(2).url)
   expect(rows[1]).not.toHaveClass('border-danger')
   expect(within(rows[2]).getByRole('button', { name: 'Text einfügen' })).toBeVisible()
+})
+
+// ---- #158: attempts behind „Details“ ----
+
+test('a closed row shows its text and link, and its attempts only behind a collapsed „Details: n Versuche“', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /alert-mails/runs/r1': { body: closedRun() } })
+  view()
+  const rows = rowsOf(await screen.findByRole('list', { name: 'Stand je Anzeige' }))
+  const closed = rows[1]
+  expect(within(closed).getByText('Stelle geschlossen')).toBeVisible()
+  expect(within(closed).getByText('Stelle 2')).toBeVisible()
+  expect(within(closed).getByText(entry(2).url)).toBeVisible()
+  expect(within(closed).getByText('Nichts gespeichert.')).toBeVisible()
+  const summary = within(closed).getByText('Details: 2 Versuche')
+  expect(summary.tagName).toBe('SUMMARY')
+  expect(summary.closest('details')).not.toHaveAttribute('open')
+  expect(within(closed).getByRole('list')).not.toBeVisible()
+  expect(within(closed).getByText(/Einfacher Abruf: Stelle geschlossen/)).not.toBeVisible()
+})
+
+test('a click on „Details“ opens the attempts', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /alert-mails/runs/r1': { body: closedRun() } })
+  view()
+  const rows = rowsOf(await screen.findByRole('list', { name: 'Stand je Anzeige' }))
+  await userEvent.click(within(rows[1]).getByText('Details: 2 Versuche'))
+  expect(rows[1].querySelector('details')).toHaveAttribute('open')
+  expect(within(rows[1]).getByText(/Einfacher Abruf: Stelle geschlossen/)).toBeVisible()
+  expect(within(rows[1]).getByText(/Websuche nach einer anderen Quelle/)).toBeVisible()
+  expect(within(rows[2]).getByRole('list')).not.toBeVisible() // another row stays collapsed
+})
+
+test('„Details“ counts one attempt in the singular', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /alert-mails/runs/r1': { body: run([
+    row(1, 'closed', { attempts: [{ step: 'plain', url: entry(1).url, outcome: 'HTTP 410' }] })], { status: 'done' }) } })
+  view()
+  const [only] = rowsOf(await screen.findByRole('list', { name: 'Stand je Anzeige' }))
+  expect(within(only).getByText('Details: 1 Versuch')).toBeVisible()
 })
 
 test('a closed entry counts as done in the heading and the summary', async () => {
@@ -773,10 +856,40 @@ test('a failed row that could not be judged says so, lists its attempts and offe
   expect(within(failed).getByText('Nicht beurteilbar')).toBeVisible()
   expect(failed).not.toHaveTextContent('Nicht gelesen')
   expect(failed).toHaveTextContent('Der Link hat einmal geantwortet, die Stelle sei geschlossen, andere Abrufe wurden aber abgewiesen. Ob sie wirklich geschlossen ist, ist unklar.')
-  expect(failed).toHaveTextContent('Einfacher Abruf: Stelle geschlossen (HTTP 404)')
+  expect(within(failed).getByText(/Der Link hat einmal geantwortet/).closest('details')).toBeNull()
+  expect(within(failed).getByText(/Der Link hat einmal geantwortet/)).toBeVisible()
+  expect(within(failed).getByRole('button', { name: 'Text einfügen' }).closest('details')).toBeNull()
   expect(within(failed).getByRole('button', { name: 'Text einfügen' })).toBeVisible()
   expect(within(failed).getByRole('button', { name: 'PDF hochladen' })).toBeVisible()
+  expect(within(failed).getByRole('list')).not.toBeVisible()
+  await userEvent.click(within(failed).getByText('Details: 2 Versuche'))
+  expect(within(failed).getByRole('list')).toBeVisible()
+  expect(within(failed).getByRole('list')).toHaveTextContent('Einfacher Abruf: Stelle geschlossen (HTTP 404)')
   expect(screen.getByText(/1 nicht beurteilbar/)).toBeVisible()
+})
+
+test('the link of a row that could not be judged opens the original ad in a new tab', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /alert-mails/runs/r1': { body: run([
+    row(1, 'failed', { unclear: true, title: 'Data Engineer', url: 'https://jobs.example.com/data-engineer/1',
+                       attempts: [{ step: 'plain', url: 'https://jobs.example.com/data-engineer/1', outcome: 'HTTP 404' }] }),
+  ], { status: 'done' }) } })
+  view()
+  const [failed] = rowsOf(await screen.findByRole('list', { name: 'Stand je Anzeige' }))
+  const link = within(failed).getByRole('link', { name: 'Anzeige „Data Engineer“ öffnen, neuer Tab: https://jobs.example.com/data-engineer/1' })
+  expect(link).toHaveAttribute('href', 'https://jobs.example.com/data-engineer/1')
+  expect(link).toHaveAttribute('target', '_blank')
+  expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+})
+
+test('a row whose address is not http(s) shows it as text, not as a link', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /alert-mails/runs/r1': { body: run([
+    row(1, 'failed', { url: 'ftp://files.example.com/job' })], { status: 'done' }) } })
+  view()
+  const [failed] = rowsOf(await screen.findByRole('list', { name: 'Stand je Anzeige' }))
+  expect(within(failed).getByText('ftp://files.example.com/job')).toBeVisible()
+  expect(within(failed).queryByRole('link')).toBeNull()
 })
 
 // ---- #153: cancel a run ----

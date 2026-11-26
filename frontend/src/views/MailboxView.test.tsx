@@ -381,6 +381,21 @@ test('the entries of all mails are grouped by mail, the new ones selected', asyn
   expect(within(mailItemOf('Neue Stellen m3')).getByText('1 von 1 ausgewählt')).toBeVisible()
 })
 
+test('an entry of a mailbox pick list links its address in a new tab, named for the posting, and its checkbox still toggles', async () => {
+  const mail = mailItem('m1', 1)
+  const [first] = mail.preview!.entries
+  await openPicks(mailCheck({ status: 'done', total: 1, read: 1, mails: [{ ...mail, preview: {
+    ...mail.preview!, entries: [{ ...first, title: 'Data Engineer', url: 'https://jobs.example.com/data-engineer/1' }] } }] }))
+  const link = screen.getByRole('link', { name: 'Anzeige „Data Engineer“ öffnen, neuer Tab: https://jobs.example.com/data-engineer/1' })
+  expect(link).toHaveAttribute('href', 'https://jobs.example.com/data-engineer/1')
+  expect(link).toHaveAttribute('target', '_blank')
+  expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+  const box = screen.getByRole('checkbox', { name: 'Data Engineer' })
+  expect(box).toBeChecked()
+  await userEvent.click(box)
+  expect(box).not.toBeChecked()
+})
+
 test('an entry another mail of the list offers names that mail, cannot be picked and is not counted', async () => {
   const first = mailItem('m1', 3)
   const second = mailItem('m2', 2, {}, 4)

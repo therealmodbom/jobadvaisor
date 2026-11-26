@@ -1,13 +1,14 @@
 import { useEffect, useId, useState, type ReactNode } from 'react'
 import { Check, CircleAlert, CircleSlash, Clock, Copy, Info, LoaderCircle } from 'lucide-react'
-import { api, ApiError, type AlertRunEntry, type AlertRunState, type PostingPageData } from '@/api'
+import { api, ApiError, type AlertRunEntry, type AlertRunState, type Attempt, type PostingPageData } from '@/api'
 import { AttemptList } from '@/components/attempts'
 import { Notice, StartFailed } from '@/components/alert-pick'
+import { OriginalLink } from '@/components/posting'
 import { ErrorWithRetry } from '@/components/states'
 import { Button } from '@/components/ui/button'
 import { PANEL, PASTE_WORDS, ROW, ROW_BUTTON, type RunWords } from '@/lib/alert'
 import type { AlertRun, RunEntry, RunRowRef } from '@/lib/alert-run'
-import { cn } from '@/lib/utils'
+import { cn, isWebUrl } from '@/lib/utils'
 
 /** The run of an alert mail, pasted or read from the mailbox: the state `run` (`useAlertRun`) as
  * its report. A run the server forgot shows a notice, a run whose polling failed offers a retry,
@@ -208,6 +209,21 @@ function Label({ icon, text, tone }: { icon: ReactNode; text: string; tone?: str
   return <span className={cn('inline-flex items-center gap-1.5 font-bold', tone)}>{icon}{text}</span>
 }
 
+/** The attempts of a closed or failed row behind a collapsed „Details: n Versuche“ („1 Versuch“
+ * for one), a native `<details>` so the keyboard and the expanded state come from the browser.
+ * No attempts, no control. */
+function AttemptDetails({ attempts }: { attempts: Attempt[] }) {
+  if (attempts.length === 0) return null
+  return (
+    <details className="text-[15px]">
+      <summary className="cursor-pointer text-primary underline">
+        {`Details: ${attempts.length === 1 ? '1 Versuch' : `${attempts.length} Versuche`}`}
+      </summary>
+      <AttemptList attempts={attempts} className="mt-1.5" />
+    </details>
+  )
+}
+
 /** One row of a run: the entry's state and what follows from it. A text duplicate offers to be
  * stored anyway once the run is over (`ended`), after a confirmation that names the matching posting. */
 function RunRow({ entry, ended, onText, onPdf, onForce }: {
@@ -241,7 +257,9 @@ function RunRow({ entry, ended, onText, onPdf, onForce }: {
         {entry.state === 'waiting' && <Label tone="text-muted-foreground" text={ended ? 'nicht gestartet' : 'wartet'}
                                              icon={<Clock className={ICON} aria-hidden="true" />} />}
         {entry.title && <span className="font-bold">{entry.title}</span>}
-        <span className="font-mono text-sm break-all text-muted-foreground">{entry.url}</span>
+        {isWebUrl(entry.url)
+          ? <OriginalLink url={entry.url} label={entry.url} name={entry.title ?? ''} className="self-start font-mono text-sm" />
+          : <span className="font-mono text-sm break-all text-muted-foreground">{entry.url}</span>}
 
         {entry.same_as !== undefined && (
           <p className="text-[15px] text-muted-foreground">Gleicher Link wie oben, nur einmal abgerufen.</p>
@@ -285,8 +303,8 @@ function RunRow({ entry, ended, onText, onPdf, onForce }: {
         )}
         {entry.state === 'closed' && (
           <>
-            <p className="text-[15px]">Nichts gespeichert. Diese Versuche wurden gemacht:</p>
-            <AttemptList attempts={entry.attempts ?? []} className="text-[15px]" />
+            <p className="text-[15px]">Nichts gespeichert.</p>
+            <AttemptDetails attempts={entry.attempts ?? []} />
           </>
         )}
         {entry.state === 'failed' && (
@@ -297,19 +315,13 @@ function RunRow({ entry, ended, onText, onPdf, onForce }: {
                 wirklich geschlossen ist, ist unklar.
               </p>
             )}
-            {entry.attempts && entry.attempts.length > 0 ? (
-              <>
-                <p className="text-[15px]">Diese Versuche wurden gemacht:</p>
-                <AttemptList attempts={entry.attempts} className="text-[15px]" />
-              </>
-            ) : (
-              <p className="text-[15px]">Diese Anzeige konnte nicht gelesen werden.</p>
-            )}
+            {!entry.attempts?.length && <p className="text-[15px]">Diese Anzeige konnte nicht gelesen werden.</p>}
             <p className="text-[15px]">Füge stattdessen den Text ein oder lade ein PDF hoch.</p>
             <div className="flex flex-wrap gap-2">
               <Button type="button" size="sm" onClick={onText} className={ROW_BUTTON}>Text einfügen</Button>
               <Button type="button" size="sm" variant="outline" onClick={onPdf} className={ROW_BUTTON}>PDF hochladen</Button>
             </div>
+            <AttemptDetails attempts={entry.attempts ?? []} />
           </>
         )}
       </div>

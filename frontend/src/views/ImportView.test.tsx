@@ -610,7 +610,7 @@ test('the report names every entry not imported with its link, outcome and reaso
   const link = within(items[0]).getByRole('link')
   expect(link).toHaveAttribute('href', 'https://harbor.example/jobs/1')
   expect(link).toHaveAttribute('target', '_blank')
-  expect(link).toHaveAttribute('rel', 'noreferrer')
+  expect(link).toHaveAttribute('rel', 'noopener noreferrer')
   expect(items[1]).toHaveTextContent('Übersprungen (Status): Stelle weg')
   expect(items[2]).toHaveTextContent('Link nicht mehr erreichbar: HTTP 410')
   expect(within(items[3]).queryByRole('link')).toBeNull() // http(s) only

@@ -8,16 +8,25 @@ import { WhyDisabled } from '@/components/why'
 import { categoryNames, STATUSES, whenLabel } from '@/lib/german'
 import { LEVELS } from '@/lib/rating'
 import type { ScoreCall } from '@/lib/score'
-import { cn } from '@/lib/utils'
+import { cn, isWebUrl } from '@/lib/utils'
 
-/** A link to the original posting, for http(s) URLs only; `label` is its text (default
- * "Originalanzeige öffnen"). */
-export function OriginalLink({ url, label = 'Originalanzeige öffnen' }: { url: string | null | undefined; label?: string }) {
-  if (!url || !/^https?:\/\//i.test(url)) return null
+/** A link to the original posting in a new tab, for http(s) URLs only (else nothing: the caller
+ * shows the address as text, see `isWebUrl`); `label` is its text (default "Originalanzeige
+ * öffnen"). With `name` (the posting's title, '' for none) the link gets a visually hidden prefix
+ * „Anzeige „<name>“ öffnen, neuer Tab:“, so its accessible name says what it opens and still
+ * contains the visible text; without `name` the label alone names it. `className` adds to its style. */
+export function OriginalLink({ url, label = 'Originalanzeige öffnen', name, className }: {
+  url: string | null | undefined
+  label?: string
+  name?: string
+  className?: string
+}) {
+  if (!isWebUrl(url)) return null
   return (
-    <a href={url} target="_blank" rel="noreferrer"
-       className="inline-flex items-center gap-1 text-[15px] text-primary underline underline-offset-2 [overflow-wrap:anywhere]">
-      {label}<ExternalLink className="size-3.5 flex-none" aria-hidden="true" />
+    <a href={url} target="_blank" rel="noopener noreferrer"
+       className={cn('inline-flex items-center gap-1 text-[15px] text-primary underline underline-offset-2 [overflow-wrap:anywhere]', className)}>
+      {name !== undefined && <span className="sr-only">{name ? `Anzeige „${name}“ öffnen, neuer Tab:` : 'Anzeige öffnen, neuer Tab:'}</span>}
+      {name !== undefined && ' '}{label}<ExternalLink className="size-3.5 flex-none" aria-hidden="true" />
     </a>
   )
 }

@@ -1,10 +1,10 @@
 import { useId, type ReactNode } from 'react'
 import { Info, Lock } from 'lucide-react'
 import type { AlertEntry } from '@/api'
-import { Badge } from '@/components/posting'
+import { Badge, OriginalLink } from '@/components/posting'
 import { Button } from '@/components/ui/button'
 import { locked as isLocked, PANEL, ROW, ROW_BUTTON } from '@/lib/alert'
-import { cn } from '@/lib/utils'
+import { cn, isWebUrl } from '@/lib/utils'
 
 /** A hint above the pick list, in the muted box of the intake view. */
 export function Note({ children }: { children: ReactNode }) {
@@ -69,7 +69,9 @@ export function PickRow({ entry, id, checked, onToggle, onText }: {
              className="mt-0.5 size-[22px] flex-none accent-primary disabled:cursor-not-allowed disabled:opacity-50" />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <label htmlFor={id} className="font-bold">{entry.title || entry.url}</label>
-        <span className="font-mono text-sm break-all text-muted-foreground">{entry.url}</span>
+        {isWebUrl(entry.url)
+          ? <OriginalLink url={entry.url} label={entry.url} name={entry.title} className="self-start font-mono text-sm" />
+          : <span className="font-mono text-sm break-all text-muted-foreground">{entry.url}</span>}
         {entry.duplicate && (
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
             <Badge id={why} className="bg-muted text-foreground">Schon gespeichert</Badge>
