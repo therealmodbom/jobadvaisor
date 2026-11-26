@@ -125,6 +125,23 @@ test('a failed batch request keeps the typed links and offers a retry', async ()
   expect(screen.getByRole('button', { name: 'Erneut versuchen' })).toBeVisible()
 })
 
+test('a new posting links its stored page beside the original ad', async () => {
+  stubApi({ ...HOSTS, 'POST /postings': stored() })
+  render(<IntakeView />)
+  await submitUrl()
+  expect(await screen.findByRole('link', { name: 'Anzeige ansehen' })).toHaveAttribute('href', '#/anzeigen/p-1')
+  expect(screen.getByRole('link', { name: 'Anzeige öffnen' })).toHaveAttribute('href', URL)
+})
+
+test('a posting that was already stored links the stored page it matched', async () => {
+  stubApi({ ...HOSTS, 'POST /postings': { status: 200, body: { ...stored().body, posting_id: 'p-7',
+                                                               duplicate: true, duplicate_by: 'url' } } })
+  render(<IntakeView />)
+  await submitUrl()
+  expect(await screen.findByRole('heading', { name: 'Schon gespeichert' })).toBeVisible()
+  expect(screen.getByRole('link', { name: 'Anzeige ansehen' })).toHaveAttribute('href', '#/anzeigen/p-7')
+})
+
 test('a corrected field is saved through PATCH', async () => {
   const calls = stubApi({ ...HOSTS, 'POST /postings': stored(),
     'PATCH /postings/p-1': ({ body }) => ({ body: { posting_id: 'p-1',
@@ -317,8 +334,8 @@ test('a closed page is named in German whatever the way it was found', async () 
   await submitUrl()
   const panel = await screen.findByRole('status', { name: 'Stelle geschlossen' })
   expect(panel).toHaveTextContent('Einfacher Abruf: Stelle geschlossen (HTTP 410)')
-  expect(panel).toHaveTextContent('Abruf im Browser: Stelle geschlossen (closed page (redirect))')
-  expect(panel).toHaveTextContent('Einfacher Abruf: Stelle geschlossen (closed page (page text))')
+  expect(panel).toHaveTextContent('Abruf im Browser: Stelle geschlossen (Weiterleitung auf eine geschlossene Stelle)')
+  expect(panel).toHaveTextContent('Einfacher Abruf: Stelle geschlossen (Seite meldet die Stelle als geschlossen)')
 })
 
 test('a failed link with a plain failure still offers text and PDF, beside the closed one', async () => {

@@ -45,6 +45,33 @@ export function runStore(runKey: string, baseKey: string): RunStore {
   }
 }
 
+/** What a run says about an entry that ended; a failed entry is `unclear` when its link could not be judged. */
+export type Outcome = 'stored' | 'duplicate' | 'closed' | 'unread' | 'unclear'
+
+/** Every outcome in the order the filters list them, with the word that names it. */
+export const OUTCOMES: { id: Outcome; word: string }[] = [
+  { id: 'stored', word: 'hinzugefügt' },
+  { id: 'duplicate', word: 'schon gespeichert' },
+  { id: 'closed', word: 'geschlossen' },
+  { id: 'unread', word: 'nicht gelesen' },
+  { id: 'unclear', word: 'nicht beurteilbar' },
+]
+
+/** The outcome of `entry`, or null while it waits or is being added. The one place that splits
+ * `failed` by `unclear`, shared by the counts, the filters and the filtered rows. */
+export function outcomeOf(entry: AlertRunEntry): Outcome | null {
+  switch (entry.state) {
+    case 'stored':
+    case 'duplicate':
+    case 'closed':
+      return entry.state
+    case 'failed':
+      return entry.unclear ? 'unclear' : 'unread'
+    default:
+      return null
+  }
+}
+
 /** One entry to add: `force` stores a text duplicate anyway. */
 export type RunEntry = { url: string; title: string; force: boolean }
 /** The row of a text duplicate stored anyway, and the report it belongs to. */
@@ -137,9 +164,10 @@ export function useAlertRun(store: RunStore) {
     setStartError(false)
   }
 
-  /** Starts a run of `entries`, as the first run of a view or, with `row`, a run of one text duplicate stored anyway. */
-  async function start(entries: RunEntry[], row?: RunRowRef) {
-    if (starting || running) return
+  /** Starts a run of `entries`, as the first run of a view or, with `row`, a run of one text duplicate
+   * stored anyway. Resolves to whether that run started (false: refused, failed or one already computes). */
+  async function start(entries: RunEntry[], row?: RunRowRef): Promise<boolean> {
+    if (starting || running) return false
     setStarting(true)
     setStartError(false)
     try {
@@ -152,6 +180,7 @@ export function useAlertRun(store: RunStore) {
       setProgress({ run_id: id, status: 'running', error: null, cancel_requested: false, total: entries.length, done: 0,
                     entries: entries.map((entry) => ({ url: entry.url, title: entry.title, state: row ? 'running' : 'waiting' })) })
       setRunId(id)
+      return true
     } catch (error) {
       if (error instanceof ApiError && error.status === 409 && typeof error.body.run_id === 'string') {
         store.set(error.body.run_id)
@@ -162,6 +191,7 @@ export function useAlertRun(store: RunStore) {
       } else {
         setStartError(true)
       }
+      return false
     } finally {
       setStarting(false)
     }

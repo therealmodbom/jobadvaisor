@@ -405,6 +405,7 @@ function IntakeResult({ answer }: { answer: IntakeAnswer }) {
       )}
 
       <PostingFields postingId={answer.posting_id} posting={posting} onSaved={setPosting}>
+        <a href={`#/anzeigen/${encodeURIComponent(answer.posting_id)}`} className="text-primary underline">Anzeige ansehen</a>
         {posting.urls[0] && <a href={posting.urls[0]} target="_blank" rel="noreferrer" className="text-primary underline">Anzeige öffnen</a>}
       </PostingFields>
     </section>

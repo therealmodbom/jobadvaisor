@@ -1,13 +1,14 @@
-import { useEffect, useId, useState, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode, type Ref } from 'react'
 import { Check, CircleAlert, CircleSlash, Clock, Copy, Info, LoaderCircle } from 'lucide-react'
-import { api, ApiError, type AlertRunEntry, type AlertRunState, type PostingPageData } from '@/api'
+import { api, ApiError, type AlertRunEntry, type AlertRunState, type Attempt, type PostingPageData } from '@/api'
 import { AttemptList } from '@/components/attempts'
 import { Notice, StartFailed } from '@/components/alert-pick'
+import { OriginalLink } from '@/components/posting'
 import { ErrorWithRetry } from '@/components/states'
 import { Button } from '@/components/ui/button'
 import { PANEL, PASTE_WORDS, ROW, ROW_BUTTON, type RunWords } from '@/lib/alert'
-import type { AlertRun, RunEntry, RunRowRef } from '@/lib/alert-run'
-import { cn } from '@/lib/utils'
+import { OUTCOMES, outcomeOf, type AlertRun, type Outcome, type RunEntry, type RunRowRef } from '@/lib/alert-run'
+import { cn, isWebUrl } from '@/lib/utils'
 
 /** The run of an alert mail, pasted or read from the mailbox: the state `run` (`useAlertRun`) as
  * its report. A run the server forgot shows a notice, a run whose polling failed offers a retry,
@@ -53,18 +54,19 @@ export function AlertRunView({ run, words = PASTE_WORDS, onText, onPdf, onOver }
   )
 }
 
-/** The run: "x von y erledigt", a bar while it computes, one row per entry, and at the end the
- * summary or, for a run that crashed, the notice, and for a cancelled one how far it got. `entries`
- * are the rows to show; `status` is the run's, `runId` its ID and `cancelRequested` whether a
- * cancel was asked for. `start` runs a text duplicate again with `force`; `onOver` leaves the
- * run, its button and the crash notice say it in `words`. */
+/** The run: "x von y erledigt", a bar while it computes, the filter row by outcome with its status
+ * line, one row per entry (the filtered ones under a filter) and, for a run that crashed, the
+ * notice, and for a cancelled one how far it got. `entries` are the rows to show; `status` is the
+ * run's, `runId` its ID and `cancelRequested` whether a cancel was asked for. `start` runs a text
+ * duplicate again with `force` and resolves to whether it started; `onOver` leaves the run, its
+ * button and the crash notice say it in `words`. */
 function RunPanel({ entries, status, words, start, runId, cancelRequested, onText, onPdf, onOver }: {
   entries: AlertRunEntry[]
   status: AlertRunState['status']
   words: RunWords
   runId: string | null
   cancelRequested: boolean
-  start: (entries: RunEntry[], row: RunRowRef) => void
+  start: (entries: RunEntry[], row: RunRowRef) => Promise<boolean>
   onText: () => void
   onPdf: () => void
   onOver: () => void
@@ -72,17 +74,20 @@ function RunPanel({ entries, status, words, start, runId, cancelRequested, onTex
   const crashId = useId()
   const runHeadingId = useId()
   const ended = (entry: AlertRunEntry) => ['stored', 'duplicate', 'closed', 'failed'].includes(entry.state)
+  const [filter, setFilter] = useState<Outcome | null>(null) // null: „Alle“
+  const [pinned, setPinned] = useState<ReadonlySet<number>>(new Set()) // rows stored anyway, listed under any filter until it changes
   const finished = entries.filter(ended).length
   const own = entries.filter((entry) => entry.same_as === undefined) // a repeat of a link is no second posting
   const count = (state: AlertRunEntry['state']) => own.filter((entry) => entry.state === state).length
-  const unclear = own.filter((entry) => entry.state === 'failed' && entry.unclear).length
-  const summary = [
-    count('stored') > 0 && `${count('stored')} hinzugefügt`,
-    count('duplicate') > 0 && `${count('duplicate')} schon gespeichert`,
-    count('closed') > 0 && `${count('closed')} geschlossen`,
-    count('failed') > unclear && `${count('failed') - unclear} nicht gelesen`,
-    unclear > 0 && `${unclear} nicht beurteilbar`,
-  ].filter(Boolean).join(', ')
+  const counts = OUTCOMES.map((outcome) => ({ ...outcome, count: own.filter((entry) => outcomeOf(entry) === outcome.id).length }))
+  const offered = counts.filter((outcome) => outcome.count > 0 || outcome.id === filter)
+  const listed = entries.map((entry, index) => ({ entry, index }))
+    .filter(({ entry, index }) => filter === null || pinned.has(index) || (entry.same_as === undefined && outcomeOf(entry) === filter))
+  const choose = (next: Outcome | null) => {
+    setFilter(next)
+    setPinned(new Set())
+  }
+  const pick = (next: Outcome) => choose(next === filter ? null : next)
   return (
     <>
       <div role="status" className="sr-only">
@@ -116,9 +121,9 @@ function RunPanel({ entries, status, words, start, runId, cancelRequested, onTex
           {status === 'cancelled' && (
             <p className="mt-0.5 font-bold">Abgebrochen nach {finished} von {entries.length} Anzeigen</p>
           )}
-          {(status === 'done' || status === 'cancelled') && summary && (
+          {(status === 'done' || status === 'cancelled') && count('stored') > 0 && (
             <p className="mt-0.5 text-[15px] text-muted-foreground">
-              {summary}.{count('stored') > 0 && ' Prüfe Titel, Firma und Ort der neuen Anzeigen auf ihren Seiten.'}
+              Prüfe Titel, Firma und Ort der neuen Anzeigen auf ihren Seiten.
             </p>
           )}
           {status === 'cancelled' && words.cancelled && (
@@ -132,11 +137,27 @@ function RunPanel({ entries, status, words, start, runId, cancelRequested, onTex
         {status === 'running' && (
           <progress aria-label="Fortschritt" className="h-2 w-full accent-primary" value={finished} max={entries.length} />
         )}
+        <div role="group" aria-label="Filter" className="flex flex-wrap gap-1.5">
+          <FilterButton active={filter === null} onClick={() => choose(null)}>{`Alle (${entries.length})`}</FilterButton>
+          {offered.map((outcome) => (
+            <FilterButton key={outcome.id} active={filter === outcome.id} onClick={() => pick(outcome.id)}>
+              {`${outcome.count} ${outcome.word}`}
+            </FilterButton>
+          ))}
+        </div>
+        <p role="status" className="text-sm text-muted-foreground">
+          {filter === null
+            ? (entries.length === 1 ? 'Zeigt 1 Anzeige' : `Zeigt alle ${entries.length} Anzeigen`)
+            : `Zeigt ${listed.length} von ${entries.length} ${entries.length === 1 ? 'Anzeige' : 'Anzeigen'}: ${OUTCOMES.find((outcome) => outcome.id === filter)?.word}`}
+        </p>
         <ul aria-label="Stand je Anzeige" className="flex flex-col gap-2.5">
-          {entries.map((entry, index) => (
+          {listed.map(({ entry, index }) => (
             <RunRow key={index} entry={entry} ended={status !== 'running'}
                     onText={onText} onPdf={onPdf}
-                    onForce={() => start([{ url: entry.url, title: entry.title, force: true }], { index, base: entries })} />
+                    onForce={() => {
+                      setPinned((rows) => new Set(rows).add(index))
+                      return start([{ url: entry.url, title: entry.title, force: true }], { index, base: entries })
+                    }} />
           ))}
         </ul>
         {status !== 'running' && (
@@ -144,6 +165,16 @@ function RunPanel({ entries, status, words, start, runId, cancelRequested, onTex
         )}
       </section>
     </>
+  )
+}
+
+/** One button of the filter row: pressed when it is the active filter. */
+function FilterButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
+  return (
+    <button type="button" aria-pressed={active} onClick={onClick}
+            className={cn('min-h-11 rounded-lg border px-3.5 font-bold', active ? 'border-primary bg-primary text-primary-foreground' : 'bg-card')}>
+      {children}
+    </button>
   )
 }
 
@@ -203,9 +234,46 @@ const DUPLICATE_BY = {
   similar_text: 'Ähnlicher Text wie eine gespeicherte Anzeige',
 }
 
-/** The state word of a run row, with its icon. */
-function Label({ icon, text, tone }: { icon: ReactNode; text: string; tone?: string }) {
-  return <span className={cn('inline-flex items-center gap-1.5 font-bold', tone)}>{icon}{text}</span>
+const ICON = 'size-4'
+
+/** The outcome line of a row: its word, icon and tone follow the entry's state, and `ended` tells a
+ * waiting entry of a finished run („nicht gestartet“) from one still to come. */
+function labelOf(entry: AlertRunEntry, ended: boolean): { icon: ReactNode; text: string; tone?: string } {
+  switch (entry.state) {
+    case 'stored':
+      return { tone: 'text-success', text: 'Hinzugefügt', icon: <Check className={ICON} strokeWidth={3} aria-hidden="true" /> }
+    case 'duplicate':
+      return { text: DUPLICATE_BY[entry.duplicate_by ?? 'url'], icon: <Copy className={ICON} aria-hidden="true" /> }
+    case 'closed':
+      return { tone: 'text-muted-foreground', text: 'Stelle geschlossen', icon: <CircleSlash className={ICON} aria-hidden="true" /> }
+    case 'failed':
+      return { tone: 'text-danger', text: entry.unclear ? 'Nicht beurteilbar' : 'Nicht gelesen', icon: <CircleAlert className={ICON} aria-hidden="true" /> }
+    case 'running':
+      return { text: 'wird abgerufen…', icon: <LoaderCircle className={cn(ICON, 'motion-safe:animate-spin')} aria-hidden="true" /> }
+    case 'waiting':
+      return { tone: 'text-muted-foreground', text: ended ? 'nicht gestartet' : 'wartet', icon: <Clock className={ICON} aria-hidden="true" /> }
+  }
+}
+
+/** The outcome line of a run row: the state word with its icon. Focusable by script (`ref`) only,
+ * so a confirm that removes the focused button can hand the focus to it. */
+function Label({ icon, text, tone, ref }: { icon: ReactNode; text: string; tone?: string; ref?: Ref<HTMLSpanElement> }) {
+  return <span ref={ref} tabIndex={-1} className={cn('inline-flex items-center gap-1.5 font-bold', tone)}>{icon}{text}</span>
+}
+
+/** The attempts of a closed or failed row behind a collapsed „Details: n Versuche“ („1 Versuch“
+ * for one), a native `<details>` so the keyboard and the expanded state come from the browser.
+ * No attempts, no control. */
+function AttemptDetails({ attempts }: { attempts: Attempt[] }) {
+  if (attempts.length === 0) return null
+  return (
+    <details className="text-[15px]">
+      <summary className="cursor-pointer text-primary underline">
+        {`Details: ${attempts.length === 1 ? '1 Versuch' : `${attempts.length} Versuche`}`}
+      </summary>
+      <AttemptList attempts={attempts} className="mt-1.5" />
+    </details>
+  )
 }
 
 /** One row of a run: the entry's state and what follows from it. A text duplicate offers to be
@@ -215,7 +283,7 @@ function RunRow({ entry, ended, onText, onPdf, onForce }: {
   ended: boolean
   onText: () => void
   onPdf: () => void
-  onForce: () => void
+  onForce: () => Promise<boolean>
 }) {
   const [confirming, setConfirming] = useState(false)
   const confirmId = useId()
@@ -223,25 +291,16 @@ function RunRow({ entry, ended, onText, onPdf, onForce }: {
   const match = useStoredPosting(byText ? entry.posting_id : undefined)
   const postingHref = `#/anzeigen/${encodeURIComponent(entry.posting_id ?? '')}`
   const matchName = match ? `„${match.title}“ bei ${match.company}` : 'einer gespeicherten Anzeige'
-  const ICON = 'size-4'
+  const line = useRef<HTMLSpanElement>(null)
   return (
     <li className={cn(ROW, entry.state === 'failed' && 'border-danger bg-danger-soft',
                       entry.state === 'waiting' && 'bg-background')}>
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        {entry.state === 'stored' && <Label tone="text-success" text="Hinzugefügt"
-                                            icon={<Check className={ICON} strokeWidth={3} aria-hidden="true" />} />}
-        {entry.state === 'duplicate' && <Label text={DUPLICATE_BY[entry.duplicate_by ?? 'url']}
-                                               icon={<Copy className={ICON} aria-hidden="true" />} />}
-        {entry.state === 'closed' && <Label tone="text-muted-foreground" text="Stelle geschlossen"
-                                            icon={<CircleSlash className={ICON} aria-hidden="true" />} />}
-        {entry.state === 'failed' && <Label tone="text-danger" text={entry.unclear ? 'Nicht beurteilbar' : 'Nicht gelesen'}
-                                            icon={<CircleAlert className={ICON} aria-hidden="true" />} />}
-        {entry.state === 'running' && <Label text="wird abgerufen…"
-                                             icon={<LoaderCircle className={cn(ICON, 'motion-safe:animate-spin')} aria-hidden="true" />} />}
-        {entry.state === 'waiting' && <Label tone="text-muted-foreground" text={ended ? 'nicht gestartet' : 'wartet'}
-                                             icon={<Clock className={ICON} aria-hidden="true" />} />}
+        <Label ref={line} {...labelOf(entry, ended)} />
         {entry.title && <span className="font-bold">{entry.title}</span>}
-        <span className="font-mono text-sm break-all text-muted-foreground">{entry.url}</span>
+        {isWebUrl(entry.url)
+          ? <OriginalLink url={entry.url} label={entry.url} name={entry.title} className="self-start font-mono text-sm" />
+          : <span className="font-mono text-sm break-all text-muted-foreground">{entry.url}</span>}
 
         {entry.same_as !== undefined && (
           <p className="text-[15px] text-muted-foreground">Gleicher Link wie oben, nur einmal abgerufen.</p>
@@ -275,7 +334,11 @@ function RunRow({ entry, ended, onText, onPdf, onForce }: {
                   Die gespeicherte Anzeige bleibt, wie sie ist, und die Seite wird noch einmal abgerufen.
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  <Button type="button" size="sm" onClick={onForce} className={ROW_BUTTON}>Ja, als neue Anzeige speichern</Button>
+                  <Button type="button" size="sm" className={ROW_BUTTON}
+                          onClick={() => {
+                            // once it started, the confirm and this button go away; the outcome line stays
+                            void onForce().then((started) => { if (started) line.current?.focus() })
+                          }}>Ja, als neue Anzeige speichern</Button>
                   <Button type="button" size="sm" variant="outline" onClick={() => setConfirming(false)}
                           className={ROW_BUTTON}>Abbrechen</Button>
                 </div>
@@ -285,8 +348,8 @@ function RunRow({ entry, ended, onText, onPdf, onForce }: {
         )}
         {entry.state === 'closed' && (
           <>
-            <p className="text-[15px]">Nichts gespeichert. Diese Versuche wurden gemacht:</p>
-            <AttemptList attempts={entry.attempts ?? []} className="text-[15px]" />
+            <p className="text-[15px]">Nichts gespeichert.</p>
+            <AttemptDetails attempts={entry.attempts ?? []} />
           </>
         )}
         {entry.state === 'failed' && (
@@ -297,19 +360,13 @@ function RunRow({ entry, ended, onText, onPdf, onForce }: {
                 wirklich geschlossen ist, ist unklar.
               </p>
             )}
-            {entry.attempts && entry.attempts.length > 0 ? (
-              <>
-                <p className="text-[15px]">Diese Versuche wurden gemacht:</p>
-                <AttemptList attempts={entry.attempts} className="text-[15px]" />
-              </>
-            ) : (
-              <p className="text-[15px]">Diese Anzeige konnte nicht gelesen werden.</p>
-            )}
+            {!entry.attempts?.length && <p className="text-[15px]">Diese Anzeige konnte nicht gelesen werden.</p>}
             <p className="text-[15px]">Füge stattdessen den Text ein oder lade ein PDF hoch.</p>
             <div className="flex flex-wrap gap-2">
               <Button type="button" size="sm" onClick={onText} className={ROW_BUTTON}>Text einfügen</Button>
               <Button type="button" size="sm" variant="outline" onClick={onPdf} className={ROW_BUTTON}>PDF hochladen</Button>
             </div>
+            <AttemptDetails attempts={entry.attempts ?? []} />
           </>
         )}
       </div>

@@ -45,6 +45,11 @@ function paste(target: HTMLElement, plain: string, html?: string) {
 const field = () => screen.getByLabelText('Alert-Mail')
 /** The rows of a run list: its direct children, since a failed row holds a list of attempts itself. */
 const rowsOf = (list: HTMLElement) => Array.from(list.children) as HTMLElement[]
+/** The filter row of a run, its buttons' names in order, and the status line under it. */
+const filters = () => screen.getByRole('group', { name: 'Filter' })
+const filterNames = () => within(filters()).getAllByRole('button').map((button) => button.textContent)
+const filterButton = (name: string) => within(filters()).getByRole('button', { name })
+const statusLine = () => screen.getByText(/^Zeigt /)
 const noop = () => {}
 const view = (props: Partial<Parameters<typeof AlertMailView>[0]> = {}) =>
   render(<AlertMailView onUrl={noop} onText={noop} onPdf={noop} {...props} />)
@@ -173,6 +178,37 @@ test('the pick list preselects new entries, marks stored ones and login-walled o
   expect(walled).not.toBeChecked()
   expect(within(list).getByText('Seite mit Login-Pflicht')).toBeVisible()
   expect(screen.getByRole('button', { name: '2 Anzeigen hinzufügen' })).toBeEnabled()
+})
+
+test('an entry of the pick list links its address in a new tab, named for the posting, and its checkbox still toggles', async () => {
+  stubApi(found([entry(1, { title: 'Data Engineer', url: 'https://jobs.example.com/data-engineer/1' })]))
+  view()
+  await findStellen()
+  const link = screen.getByRole('link', { name: 'Anzeige „Data Engineer“ öffnen, neuer Tab: https://jobs.example.com/data-engineer/1' })
+  expect(link).toHaveTextContent('https://jobs.example.com/data-engineer/1')
+  expect(link).toHaveAttribute('href', 'https://jobs.example.com/data-engineer/1')
+  expect(link).toHaveAttribute('target', '_blank')
+  expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+  const box = screen.getByRole('checkbox', { name: 'Data Engineer' })
+  expect(box).toBeChecked()
+  await userEvent.click(box)
+  expect(box).not.toBeChecked()
+})
+
+test('an entry without a title gives its link no posting name', async () => {
+  stubApi(found([entry(1, { title: '', url: 'https://jobs.example.com/x/1' })]))
+  view()
+  await findStellen()
+  expect(screen.getByRole('link', { name: 'Anzeige öffnen, neuer Tab: https://jobs.example.com/x/1' })).toBeVisible()
+})
+
+test('an entry whose address is not http(s) shows it as text, not as a link', async () => {
+  stubApi(found([entry(1, { url: 'ftp://files.example.com/job' })]))
+  view()
+  await findStellen()
+  const list = screen.getByRole('list', { name: 'Gefundene Stellen' })
+  expect(within(list).getByText('ftp://files.example.com/job')).toBeVisible()
+  expect(within(list).queryByRole('link')).toBeNull()
 })
 
 test('changing the selection changes the count, and nothing selected disables the action', async () => {
@@ -373,7 +409,7 @@ test('the run is polled every second until it is done, then the poll stops', asy
   await screen.findByRole('list', { name: 'Stand je Anzeige' })
   await act(() => vi.advanceTimersByTimeAsync(POLL_MS))
   expect(await screen.findByRole('heading', { name: '3 von 3 erledigt' })).toBeVisible()
-  expect(screen.getByText(/3 hinzugefügt/)).toBeVisible()
+  expect(filterNames()).toEqual(['Alle (3)', '3 hinzugefügt'])
   const before = calls.length
   await act(() => vi.advanceTimersByTimeAsync(POLL_MS * 3))
   expect(calls.length).toBe(before)
@@ -398,13 +434,17 @@ test('a failed row lists the attempts and offers text and PDF, and the others ar
   expect(within(rows[0]).getByRole('link', { name: 'Anzeige ansehen' })).toHaveAttribute('href', '#/anzeigen/p-1')
   expect(within(rows[2]).getByRole('link', { name: 'Anzeige ansehen' })).toHaveAttribute('href', '#/anzeigen/p-3')
   expect(rows[1]).toHaveTextContent('Nicht gelesen')
-  expect(rows[1]).toHaveTextContent('Seite mit Login-Pflicht: übersprungen')
-  expect(rows[1]).toHaveTextContent('Websuche nach einer anderen Quelle: keine Anzeige gefunden')
+  expect(within(rows[1]).getByRole('list')).not.toBeVisible()
+  await userEvent.click(within(rows[1]).getByText('Details: 2 Versuche'))
+  const attempts = within(rows[1]).getByRole('list')
+  expect(attempts).toBeVisible()
+  expect(attempts).toHaveTextContent('Seite mit Login-Pflicht: übersprungen')
+  expect(attempts).toHaveTextContent('Websuche nach einer anderen Quelle: keine Anzeige gefunden')
   await userEvent.click(within(rows[1]).getByRole('button', { name: 'Text einfügen' }))
   await userEvent.click(within(rows[1]).getByRole('button', { name: 'PDF hochladen' }))
   expect(onText).toHaveBeenCalled()
   expect(onPdf).toHaveBeenCalled()
-  expect(screen.getByText(/2 hinzugefügt, 1 nicht gelesen/)).toBeVisible()
+  expect(filterNames()).toEqual(['Alle (3)', '2 hinzugefügt', '1 nicht gelesen'])
 })
 
 test('a failed row without attempts shows no English reason but the fallback', async () => {
@@ -413,7 +453,10 @@ test('a failed row without attempts shows no English reason but the fallback', a
   view()
   const rows = rowsOf(await screen.findByRole('list', { name: 'Stand je Anzeige' }))
   expect(rows[0]).not.toHaveTextContent('ConnectError')
+  expect(rows[0]).toHaveTextContent('Diese Anzeige konnte nicht gelesen werden.')
   expect(within(rows[0]).getByRole('button', { name: 'Text einfügen' })).toBeVisible()
+  expect(within(rows[0]).getByRole('button', { name: 'PDF hochladen' })).toBeVisible()
+  expect(rows[0].querySelector('details')).toBeNull()
 })
 
 test('a duplicate by link shows the stored posting and offers no way to store it again', async () => {
@@ -690,20 +733,65 @@ test('a closed row shows "Stelle geschlossen" with its attempts and offers no te
   const rows = rowsOf(await screen.findByRole('list', { name: 'Stand je Anzeige' }))
   expect(within(rows[1]).getByText('Stelle geschlossen')).toBeVisible()
   expect(rows[1]).toHaveTextContent('Nichts gespeichert.')
-  expect(rows[1]).toHaveTextContent('Einfacher Abruf: Stelle geschlossen (HTTP 404)')
-  expect(rows[1]).toHaveTextContent('Websuche nach einer anderen Quelle: keine Anzeige gefunden')
+  expect(rows[1]).not.toHaveTextContent('Diese Versuche wurden gemacht')
+  await userEvent.click(within(rows[1]).getByText('Details: 2 Versuche'))
+  const attempts = within(rows[1]).getByRole('list')
+  expect(attempts).toBeVisible()
+  expect(attempts).toHaveTextContent('Einfacher Abruf: Stelle geschlossen (HTTP 404)')
+  expect(attempts).toHaveTextContent('Websuche nach einer anderen Quelle: keine Anzeige gefunden')
   expect(within(rows[1]).queryByRole('button')).toBeNull()
-  expect(within(rows[1]).queryByRole('link')).toBeNull()
+  expect(within(rows[1]).getByRole('link', { name: `Anzeige „Stelle 2“ öffnen, neuer Tab: ${entry(2).url}` }))
+    .toHaveAttribute('href', entry(2).url)
   expect(rows[1]).not.toHaveClass('border-danger')
   expect(within(rows[2]).getByRole('button', { name: 'Text einfügen' })).toBeVisible()
 })
 
-test('a closed entry counts as done in the heading and the summary', async () => {
+// ---- #158: attempts behind „Details“ ----
+
+test('a closed row shows its text and link, and its attempts only behind a collapsed „Details: n Versuche“', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /alert-mails/runs/r1': { body: closedRun() } })
+  view()
+  const rows = rowsOf(await screen.findByRole('list', { name: 'Stand je Anzeige' }))
+  const closed = rows[1]
+  expect(within(closed).getByText('Stelle geschlossen')).toBeVisible()
+  expect(within(closed).getByText('Stelle 2')).toBeVisible()
+  expect(within(closed).getByText(entry(2).url)).toBeVisible()
+  expect(within(closed).getByText('Nichts gespeichert.')).toBeVisible()
+  const summary = within(closed).getByText('Details: 2 Versuche')
+  expect(summary.tagName).toBe('SUMMARY')
+  expect(summary.closest('details')).not.toHaveAttribute('open')
+  expect(within(closed).getByRole('list')).not.toBeVisible()
+  expect(within(closed).getByText(/Einfacher Abruf: Stelle geschlossen/)).not.toBeVisible()
+})
+
+test('a click on „Details“ opens the attempts', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /alert-mails/runs/r1': { body: closedRun() } })
+  view()
+  const rows = rowsOf(await screen.findByRole('list', { name: 'Stand je Anzeige' }))
+  await userEvent.click(within(rows[1]).getByText('Details: 2 Versuche'))
+  expect(rows[1].querySelector('details')).toHaveAttribute('open')
+  expect(within(rows[1]).getByText(/Einfacher Abruf: Stelle geschlossen/)).toBeVisible()
+  expect(within(rows[1]).getByText(/Websuche nach einer anderen Quelle/)).toBeVisible()
+  expect(within(rows[2]).getByRole('list')).not.toBeVisible() // another row stays collapsed
+})
+
+test('„Details“ counts one attempt in the singular', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /alert-mails/runs/r1': { body: run([
+    row(1, 'closed', { attempts: [{ step: 'plain', url: entry(1).url, outcome: 'HTTP 410' }] })], { status: 'done' }) } })
+  view()
+  const [only] = rowsOf(await screen.findByRole('list', { name: 'Stand je Anzeige' }))
+  expect(within(only).getByText('Details: 1 Versuch')).toBeVisible()
+})
+
+test('a closed entry counts as done in the heading and has its own filter', async () => {
   sessionStorage.setItem(RUN_KEY, 'r1')
   stubApi({ 'GET /alert-mails/runs/r1': { body: closedRun() } })
   view()
   expect(await screen.findByRole('heading', { name: '3 von 3 erledigt' })).toBeVisible()
-  expect(screen.getByText(/1 hinzugefügt, 1 geschlossen, 1 nicht gelesen/)).toBeVisible()
+  expect(filterNames()).toEqual(['Alle (3)', '1 hinzugefügt', '1 geschlossen', '1 nicht gelesen'])
 })
 
 test('a running run counts a closed entry as finished and does not call the rest "nicht gestartet"', async () => {
@@ -751,14 +839,15 @@ test('a row taken from an earlier entry shows its outcome, says the link was fet
   expect(within(rows[1]).getByRole('link', { name: 'Anzeige ansehen' })).toHaveAttribute('href', '#/anzeigen/p-1')
 })
 
-test('the summary counts a link of two rows once', async () => {
+test('the filters count a link of two rows once', async () => {
   sessionStorage.setItem(RUN_KEY, 'r1')
   stubApi({ 'GET /alert-mails/runs/r1': { body: run([
     row(1, 'stored', { posting_id: 'p-1' }),
     row(2, 'stored', { posting_id: 'p-1', same_as: 0 }),
   ], { status: 'done' }) } })
   view()
-  expect(await screen.findByText(/^1 hinzugefügt\./)).toBeVisible()
+  await screen.findByRole('group', { name: 'Filter' })
+  expect(filterNames()).toEqual(['Alle (2)', '1 hinzugefügt'])
   expect(screen.getByRole('heading', { name: '2 von 2 erledigt' })).toBeVisible()
 })
 
@@ -773,10 +862,40 @@ test('a failed row that could not be judged says so, lists its attempts and offe
   expect(within(failed).getByText('Nicht beurteilbar')).toBeVisible()
   expect(failed).not.toHaveTextContent('Nicht gelesen')
   expect(failed).toHaveTextContent('Der Link hat einmal geantwortet, die Stelle sei geschlossen, andere Abrufe wurden aber abgewiesen. Ob sie wirklich geschlossen ist, ist unklar.')
-  expect(failed).toHaveTextContent('Einfacher Abruf: Stelle geschlossen (HTTP 404)')
+  expect(within(failed).getByText(/Der Link hat einmal geantwortet/).closest('details')).toBeNull()
+  expect(within(failed).getByText(/Der Link hat einmal geantwortet/)).toBeVisible()
+  expect(within(failed).getByRole('button', { name: 'Text einfügen' }).closest('details')).toBeNull()
   expect(within(failed).getByRole('button', { name: 'Text einfügen' })).toBeVisible()
   expect(within(failed).getByRole('button', { name: 'PDF hochladen' })).toBeVisible()
-  expect(screen.getByText(/1 nicht beurteilbar/)).toBeVisible()
+  expect(within(failed).getByRole('list')).not.toBeVisible()
+  await userEvent.click(within(failed).getByText('Details: 2 Versuche'))
+  expect(within(failed).getByRole('list')).toBeVisible()
+  expect(within(failed).getByRole('list')).toHaveTextContent('Einfacher Abruf: Stelle geschlossen (HTTP 404)')
+  expect(filterNames()).toEqual(['Alle (1)', '1 nicht beurteilbar'])
+})
+
+test('the link of a row that could not be judged opens the original ad in a new tab', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /alert-mails/runs/r1': { body: run([
+    row(1, 'failed', { unclear: true, title: 'Data Engineer', url: 'https://jobs.example.com/data-engineer/1',
+                       attempts: [{ step: 'plain', url: 'https://jobs.example.com/data-engineer/1', outcome: 'HTTP 404' }] }),
+  ], { status: 'done' }) } })
+  view()
+  const [failed] = rowsOf(await screen.findByRole('list', { name: 'Stand je Anzeige' }))
+  const link = within(failed).getByRole('link', { name: 'Anzeige „Data Engineer“ öffnen, neuer Tab: https://jobs.example.com/data-engineer/1' })
+  expect(link).toHaveAttribute('href', 'https://jobs.example.com/data-engineer/1')
+  expect(link).toHaveAttribute('target', '_blank')
+  expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+})
+
+test('a row whose address is not http(s) shows it as text, not as a link', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /alert-mails/runs/r1': { body: run([
+    row(1, 'failed', { url: 'ftp://files.example.com/job' })], { status: 'done' }) } })
+  view()
+  const [failed] = rowsOf(await screen.findByRole('list', { name: 'Stand je Anzeige' }))
+  expect(within(failed).getByText('ftp://files.example.com/job')).toBeVisible()
+  expect(within(failed).queryByRole('link')).toBeNull()
 })
 
 // ---- #153: cancel a run ----
@@ -873,4 +992,365 @@ test('a pasted run with failed entries does not promise that the next check offe
   view()
   await screen.findByRole('list', { name: 'Stand je Anzeige' })
   expect(screen.queryByText(/Die nächste Prüfung/)).toBeNull()
+})
+
+// ---- #162: filter by outcome ----
+
+const JUDGED = [{ step: 'plain', url: entry(8).url, outcome: 'HTTP 404' }, { step: 'rendered', url: entry(8).url, outcome: 'HTTP 429' }]
+
+/** Nine rows of a finished run: 3 added, 2 stored before, 1 closed, 2 not read (one a repeat of a link), 1 not assessable. */
+const MIXED = () => run([
+  row(1, 'stored', { posting_id: 'p-1' }), row(2, 'stored', { posting_id: 'p-2' }), row(3, 'stored', { posting_id: 'p-3' }),
+  row(4, 'duplicate', { posting_id: 'p-9', duplicate_by: 'url' }), row(5, 'duplicate', { posting_id: 'p-9', duplicate_by: 'url' }),
+  row(6, 'closed', { attempts: [{ step: 'plain', url: entry(6).url, outcome: 'HTTP 404' }] }),
+  row(7, 'failed', { attempts: [{ step: 'plain', url: entry(7).url, outcome: 'HTTP 503' }] }),
+  row(8, 'failed', { unclear: true, attempts: JUDGED }),
+  row(9, 'failed', { same_as: 6 }),
+], { status: 'done' })
+
+const titlesOf = () => rowsOf(screen.getByRole('list', { name: 'Stand je Anzeige' }))
+  .map((item) => /Stelle \d/.exec(item.textContent ?? '')?.[0])
+
+async function openMixed() {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /alert-mails/runs/r1': { body: MIXED() } })
+  view()
+  await screen.findByRole('group', { name: 'Filter' })
+}
+
+test('a finished run offers "Alle" with the number of rows and one filter per outcome that occurs, "Alle" active', async () => {
+  await openMixed()
+  expect(filterNames()).toEqual(['Alle (9)', '3 hinzugefügt', '2 schon gespeichert', '1 geschlossen', '1 nicht gelesen', '1 nicht beurteilbar'])
+  expect(filterButton('Alle (9)')).toHaveAttribute('aria-pressed', 'true')
+  expect(filterButton('3 hinzugefügt')).toHaveAttribute('aria-pressed', 'false')
+  expect(titlesOf()).toHaveLength(9)
+  expect(screen.getByText('Prüfe Titel, Firma und Ort der neuen Anzeigen auf ihren Seiten.')).toBeVisible()
+  expect(screen.queryByText(/^3 hinzugefügt,/)).toBeNull()
+})
+
+test('a filter shows only the rows of its outcome, and choosing it again or "Alle" shows every row again', async () => {
+  await openMixed()
+  await userEvent.click(filterButton('2 schon gespeichert'))
+  expect(filterButton('2 schon gespeichert')).toHaveAttribute('aria-pressed', 'true')
+  expect(filterButton('Alle (9)')).toHaveAttribute('aria-pressed', 'false')
+  expect(titlesOf()).toEqual(['Stelle 4', 'Stelle 5'])
+  await userEvent.click(filterButton('2 schon gespeichert'))
+  expect(filterButton('Alle (9)')).toHaveAttribute('aria-pressed', 'true')
+  expect(titlesOf()).toHaveLength(9)
+  await userEvent.click(filterButton('1 geschlossen'))
+  expect(titlesOf()).toEqual(['Stelle 6'])
+  await userEvent.click(filterButton('Alle (9)'))
+  expect(filterButton('Alle (9)')).toHaveAttribute('aria-pressed', 'true')
+  expect(titlesOf()).toHaveLength(9)
+})
+
+test('the counts stay those of the whole run while a filter is active', async () => {
+  await openMixed()
+  await userEvent.click(filterButton('3 hinzugefügt'))
+  expect(filterNames()).toEqual(['Alle (9)', '3 hinzugefügt', '2 schon gespeichert', '1 geschlossen', '1 nicht gelesen', '1 nicht beurteilbar'])
+})
+
+test('the filter for the entries that could not be judged keeps their text and PDF options', async () => {
+  const onText = vi.fn()
+  const onPdf = vi.fn()
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /alert-mails/runs/r1': { body: MIXED() } })
+  view({ onText, onPdf })
+  await userEvent.click(await within(await screen.findByRole('group', { name: 'Filter' })).findByRole('button', { name: '1 nicht beurteilbar' }))
+  const [only, ...rest] = rowsOf(screen.getByRole('list', { name: 'Stand je Anzeige' }))
+  expect(rest).toHaveLength(0)
+  expect(only).toHaveTextContent('Nicht beurteilbar')
+  await userEvent.click(within(only).getByRole('button', { name: 'Text einfügen' }))
+  await userEvent.click(within(only).getByRole('button', { name: 'PDF hochladen' }))
+  expect(onText).toHaveBeenCalled()
+  expect(onPdf).toHaveBeenCalled()
+})
+
+test('a filter drops the repeat of a link, "Alle" keeps it, and the counts count the link once', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /alert-mails/runs/r1': { body: run([
+    row(1, 'closed', { attempts: [] }), row(2, 'closed', { attempts: [], same_as: 0 }),
+  ], { status: 'done' }) } })
+  view()
+  await screen.findByRole('group', { name: 'Filter' })
+  expect(filterNames()).toEqual(['Alle (2)', '1 geschlossen'])
+  await userEvent.click(filterButton('1 geschlossen'))
+  expect(titlesOf()).toEqual(['Stelle 1'])
+  await userEvent.click(filterButton('Alle (2)'))
+  expect(titlesOf()).toEqual(['Stelle 1', 'Stelle 2'])
+})
+
+test('the status line says how many rows the list shows, of how many, and which outcome, and is announced', async () => {
+  await openMixed()
+  expect(statusLine()).toHaveTextContent('Zeigt alle 9 Anzeigen')
+  expect(statusLine()).toHaveAttribute('role', 'status')
+  await userEvent.click(filterButton('1 nicht beurteilbar'))
+  expect(filterButton('1 nicht beurteilbar')).toHaveAttribute('aria-pressed', 'true')
+  expect(statusLine()).toHaveTextContent('Zeigt 1 von 9 Anzeigen: nicht beurteilbar')
+  await userEvent.click(filterButton('3 hinzugefügt'))
+  expect(statusLine()).toHaveTextContent('Zeigt 3 von 9 Anzeigen: hinzugefügt')
+  await userEvent.click(filterButton('Alle (9)'))
+  expect(statusLine()).toHaveTextContent('Zeigt alle 9 Anzeigen')
+})
+
+test('the filter row sits below the progress bar and above the list, and has no accessibility violations', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /alert-mails/runs/r1': { body: RUNNING } })
+  const { container } = view()
+  const list = await screen.findByRole('list', { name: 'Stand je Anzeige' })
+  const bar = screen.getByRole('progressbar', { name: 'Fortschritt' })
+  expect(bar.compareDocumentPosition(filters()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(filters().compareDocumentPosition(statusLine()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(statusLine().compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(await axe(container)).toHaveNoViolations()
+})
+
+// ---- #162: the filter while the run computes ----
+
+const UNREAD = (n: number) => row(n, 'failed', { attempts: [{ step: 'plain', url: entry(n).url, outcome: 'HTTP 503' }] })
+
+test('a filter shows while the run computes, its count grows with each entry, and the entry that ends with it joins the list', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  let polls = 0
+  const states = [
+    run([UNREAD(1), UNREAD(2), row(3, 'running'), row(4, 'waiting')]),
+    run([UNREAD(1), UNREAD(2), UNREAD(3), row(4, 'running')]),
+    run([UNREAD(1), UNREAD(2), UNREAD(3), row(4, 'closed', { attempts: [] })], { status: 'done' }),
+  ]
+  stubApi({ 'GET /alert-mails/runs/r1': () => ({ body: states[Math.min(polls++, states.length - 1)] }) })
+  view()
+  await screen.findByRole('group', { name: 'Filter' })
+  expect(filterNames()).toEqual(['Alle (4)', '2 nicht gelesen'])
+  await userEvent.click(filterButton('2 nicht gelesen'))
+  expect(titlesOf()).toEqual(['Stelle 1', 'Stelle 2'])
+  expect(statusLine()).toHaveTextContent('Zeigt 2 von 4 Anzeigen: nicht gelesen')
+
+  await act(() => vi.advanceTimersByTimeAsync(POLL_MS))
+  expect(filterButton('3 nicht gelesen')).toHaveAttribute('aria-pressed', 'true')
+  expect(titlesOf()).toEqual(['Stelle 1', 'Stelle 2', 'Stelle 3'])
+  expect(statusLine()).toHaveTextContent('Zeigt 3 von 4 Anzeigen: nicht gelesen')
+
+  await act(() => vi.advanceTimersByTimeAsync(POLL_MS))
+  expect(filterNames()).toEqual(['Alle (4)', '1 geschlossen', '3 nicht gelesen']) // a filter appears once its outcome occurs
+  expect(titlesOf()).toEqual(['Stelle 1', 'Stelle 2', 'Stelle 3'])
+})
+
+test('entries that wait or are being added show only under "Alle", and a filter does not list them', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /alert-mails/runs/r1': { body: run([
+    row(1, 'stored', { posting_id: 'p-1' }), row(2, 'running'), row(3, 'waiting'), UNREAD(4)]) } })
+  view()
+  await screen.findByRole('group', { name: 'Filter' })
+  expect(titlesOf()).toEqual(['Stelle 1', 'Stelle 2', 'Stelle 3', 'Stelle 4'])
+  expect(filterNames()).toEqual(['Alle (4)', '1 hinzugefügt', '1 nicht gelesen'])
+  for (const name of ['1 hinzugefügt', '1 nicht gelesen']) {
+    await userEvent.click(filterButton(name))
+    expect(titlesOf()).toHaveLength(1)
+    await userEvent.click(filterButton(name))
+  }
+  expect(titlesOf()).toHaveLength(4)
+})
+
+test('under a filter the status line text does not change while other entries end', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  let polls = 0
+  const states = [
+    run([UNREAD(1), row(2, 'running'), row(3, 'waiting')]),
+    run([UNREAD(1), row(2, 'stored', { posting_id: 'p-2' }), row(3, 'running')]),
+  ]
+  stubApi({ 'GET /alert-mails/runs/r1': () => ({ body: states[Math.min(polls++, states.length - 1)] }) })
+  view()
+  await screen.findByRole('group', { name: 'Filter' })
+  await userEvent.click(filterButton('1 nicht gelesen'))
+  const line = statusLine()
+  const text = line.textContent
+  await act(() => vi.advanceTimersByTimeAsync(POLL_MS))
+  expect(filterNames()).toEqual(['Alle (3)', '1 hinzugefügt', '1 nicht gelesen'])
+  expect(statusLine()).toBe(line)
+  expect(line.textContent).toBe(text)
+})
+
+// ---- #162: a row stored anyway keeps its place ----
+
+type Routes = Parameters<typeof stubApi>[0]
+const TEXT_DUP = (n: number) => row(n, 'duplicate', { posting_id: 'p-9', duplicate_by: 'text' })
+
+/** A finished run r1 of `rows` whose text duplicates can be stored anyway. `forced` maps the ID of each
+ * stored-anyway run (r2, r3, in the order they start) to the number of the row it stores; such a run
+ * reports `running` until `finish(id)`, then stored. */
+function forceable(rows: AlertRunState['entries'], forced: Record<string, number>) {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  const finished = new Set<string>()
+  const ids = Object.keys(forced)
+  const routes: Routes = {
+    'GET /postings/p-9': { body: { posting: { title: 'Lead Engineer Video', company: 'Musterdienst GmbH' } } },
+    'GET /alert-mails/runs/r1': { body: run(rows, { status: 'done' }) },
+    'POST /alert-mails/runs': () => ({ status: 202, body: { run_id: ids.shift() } }),
+  }
+  for (const [id, n] of Object.entries(forced)) {
+    routes[`GET /alert-mails/runs/${id}`] = () => ({ body: finished.has(id)
+      ? run([row(n, 'stored', { posting_id: `p-1${n}` })], { run_id: id, status: 'done' })
+      : run([row(n, 'running')], { run_id: id }) })
+  }
+  const calls = stubApi(routes)
+  return { calls, finish: (id: string) => act(async () => { finished.add(id); await vi.advanceTimersByTimeAsync(POLL_MS) }) }
+}
+
+const rowOf = (n: number) => rowsOf(screen.getByRole('list', { name: 'Stand je Anzeige' }))
+  .find((item) => item.textContent?.includes(`Stelle ${n}`))!
+
+/** Stores the text duplicate of row `n` anyway, confirming with the keyboard. */
+async function storeAnyway(n: number) {
+  await userEvent.click(within(rowOf(n)).getByRole('button', { name: 'Trotzdem als neue Anzeige speichern' }))
+  const yes = await screen.findByRole('button', { name: 'Ja, als neue Anzeige speichern' })
+  yes.focus()
+  await userEvent.keyboard('{Enter}')
+}
+
+test('a text duplicate stored anyway under "schon gespeichert" stays in the list, fetched and then added, and the counts move by one', async () => {
+  const forced = forceable([TEXT_DUP(1), row(2, 'stored', { posting_id: 'p-2' }), row(3, 'duplicate', { posting_id: 'p-9', duplicate_by: 'url' })], { r2: 1 })
+  view()
+  await screen.findByRole('group', { name: 'Filter' })
+  await userEvent.click(filterButton('2 schon gespeichert'))
+  expect(titlesOf()).toEqual(['Stelle 1', 'Stelle 3'])
+  await storeAnyway(1)
+  await screen.findByText('wird abgerufen…')
+  expect(titlesOf()).toEqual(['Stelle 1', 'Stelle 3'])
+  expect(rowOf(1)).toHaveTextContent('wird abgerufen…')
+  expect(filterNames()).toEqual(['Alle (3)', '1 hinzugefügt', '1 schon gespeichert'])
+  expect(statusLine()).toHaveTextContent('Zeigt 2 von 3 Anzeigen: schon gespeichert')
+  await forced.finish('r2')
+  expect(rowOf(1)).toHaveTextContent('Hinzugefügt')
+  expect(titlesOf()).toEqual(['Stelle 1', 'Stelle 3'])
+  expect(filterNames()).toEqual(['Alle (3)', '2 hinzugefügt', '1 schon gespeichert'])
+  expect(filterButton('1 schon gespeichert')).toHaveAttribute('aria-pressed', 'true')
+  expect(statusLine()).toHaveTextContent('Zeigt 2 von 3 Anzeigen: schon gespeichert')
+})
+
+test('the last entry of the active filter stored anyway leaves "0 schon gespeichert" pressed with its row, until another filter is chosen', async () => {
+  const forced = forceable([TEXT_DUP(1), row(2, 'stored', { posting_id: 'p-2' }), UNREAD(3)], { r2: 1 })
+  view()
+  await screen.findByRole('group', { name: 'Filter' })
+  await userEvent.click(filterButton('1 schon gespeichert'))
+  await storeAnyway(1)
+  await screen.findByText('wird abgerufen…')
+  expect(filterButton('0 schon gespeichert')).toHaveAttribute('aria-pressed', 'true')
+  await forced.finish('r2')
+  expect(filterNames()).toEqual(['Alle (3)', '2 hinzugefügt', '0 schon gespeichert', '1 nicht gelesen'])
+  expect(filterButton('0 schon gespeichert')).toHaveAttribute('aria-pressed', 'true')
+  expect(titlesOf()).toEqual(['Stelle 1'])
+  expect(rowOf(1)).toHaveTextContent('Hinzugefügt')
+  expect(statusLine()).toHaveTextContent('Zeigt 1 von 3 Anzeigen: schon gespeichert')
+  await userEvent.click(filterButton('Alle (3)'))
+  expect(filterNames()).toEqual(['Alle (3)', '2 hinzugefügt', '1 nicht gelesen'])
+})
+
+test.each([
+  ['without a filter', null],
+  ['under a filter', '2 schon gespeichert'],
+])('focus moves to the row\'s outcome line when the store-anyway confirm is taken, and stays on it, %s', async (_name, filter) => {
+  const forced = forceable([TEXT_DUP(1), row(2, 'stored', { posting_id: 'p-2' }), row(3, 'duplicate', { posting_id: 'p-9', duplicate_by: 'url' })], { r2: 1 })
+  view()
+  await screen.findByRole('group', { name: 'Filter' })
+  if (filter) await userEvent.click(filterButton(filter))
+  await storeAnyway(1)
+  const line = await screen.findByText('wird abgerufen…')
+  expect(screen.queryByRole('group', { name: /Als neue Anzeige speichern\?/ })).toBeNull()
+  expect(document.activeElement).toBe(line)
+  expect(line).toHaveAttribute('tabindex', '-1')
+  await forced.finish('r2')
+  expect(line).toBeInTheDocument()
+  expect(line).toHaveTextContent('Hinzugefügt')
+  expect(document.activeElement).toBe(line)
+})
+
+test('two text duplicates stored anyway in a row both stay in the list under "schon gespeichert"', async () => {
+  const forced = forceable([TEXT_DUP(1), TEXT_DUP(2), row(3, 'stored', { posting_id: 'p-3' })], { r2: 1, r3: 2 })
+  view()
+  await screen.findByRole('group', { name: 'Filter' })
+  await userEvent.click(filterButton('2 schon gespeichert'))
+  await storeAnyway(1)
+  await screen.findByText('wird abgerufen…')
+  await forced.finish('r2')
+  expect(titlesOf()).toEqual(['Stelle 1', 'Stelle 2'])
+  await storeAnyway(2)
+  await forced.finish('r3')
+  expect(titlesOf()).toEqual(['Stelle 1', 'Stelle 2'])
+  expect(rowOf(1)).toHaveTextContent('Hinzugefügt')
+  expect(rowOf(2)).toHaveTextContent('Hinzugefügt')
+  expect(filterNames()).toEqual(['Alle (3)', '3 hinzugefügt', '0 schon gespeichert'])
+  expect(statusLine()).toHaveTextContent('Zeigt 2 von 3 Anzeigen: schon gespeichert')
+})
+
+test('choosing another filter drops the rows stored anyway from the list', async () => {
+  const forced = forceable([TEXT_DUP(1), row(2, 'stored', { posting_id: 'p-2' }), row(3, 'duplicate', { posting_id: 'p-9', duplicate_by: 'url' })], { r2: 1 })
+  view()
+  await screen.findByRole('group', { name: 'Filter' })
+  await userEvent.click(filterButton('2 schon gespeichert'))
+  await storeAnyway(1)
+  await screen.findByText('wird abgerufen…')
+  await forced.finish('r2')
+  await userEvent.click(filterButton('2 hinzugefügt'))
+  expect(titlesOf()).toEqual(['Stelle 1', 'Stelle 2'])
+  await userEvent.click(filterButton('1 schon gespeichert'))
+  expect(titlesOf()).toEqual(['Stelle 3'])
+})
+
+test('a row stored anyway under a filter keeps its original index: the right row turns added, the others stay', async () => {
+  const forced = forceable([row(1, 'stored', { posting_id: 'p-1' }), TEXT_DUP(2), row(3, 'duplicate', { posting_id: 'p-9', duplicate_by: 'url' })], { r2: 2 })
+  view()
+  await screen.findByRole('group', { name: 'Filter' })
+  await userEvent.click(filterButton('2 schon gespeichert'))
+  expect(titlesOf()).toEqual(['Stelle 2', 'Stelle 3']) // row 2 is listed first but is the second entry
+  await storeAnyway(2)
+  await screen.findByText('wird abgerufen…')
+  await forced.finish('r2')
+  expect(forced.calls.find((call) => call.method === 'POST')!.body)
+    .toEqual({ entries: [{ url: entry(2).url, title: 'Stelle 2', force: true }] })
+  expect(rowOf(2)).toHaveTextContent('Hinzugefügt')
+  expect(titlesOf()).toEqual(['Stelle 2', 'Stelle 3'])
+  await userEvent.click(filterButton('Alle (3)'))
+  expect(titlesOf()).toEqual(['Stelle 1', 'Stelle 2', 'Stelle 3'])
+  expect(rowOf(1)).toHaveTextContent('Hinzugefügt')
+  expect(within(rowOf(1)).getByRole('link', { name: 'Anzeige ansehen' })).toHaveAttribute('href', '#/anzeigen/p-1')
+  expect(within(rowOf(2)).getByRole('link', { name: 'Anzeige ansehen' })).toHaveAttribute('href', '#/anzeigen/p-12')
+  expect(rowOf(3)).toHaveTextContent('Schon gespeichert')
+})
+
+test('the status line says "Zeigt 1 Anzeige" for a run of one', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /alert-mails/runs/r1': { body: run([row(1, 'stored', { posting_id: 'p-1' })], { status: 'done' }) } })
+  view()
+  await screen.findByRole('group', { name: 'Filter' })
+  expect(statusLine().textContent).toBe('Zeigt 1 Anzeige')
+})
+
+test('the status line says "Zeigt 1 von 1 Anzeige: …" under a filter of a run of one', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /alert-mails/runs/r1': { body: run([row(1, 'stored', { posting_id: 'p-1' })], { status: 'done' }) } })
+  view()
+  await screen.findByRole('group', { name: 'Filter' })
+  await userEvent.click(filterButton('1 hinzugefügt'))
+  expect(statusLine().textContent).toBe('Zeigt 1 von 1 Anzeige: hinzugefügt')
+})
+
+test('a store-anyway start that fails keeps the focus on the confirm button', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({
+    ...TEXT_DUPLICATE,
+    'POST /alert-mails/runs': { status: 422, body: { error: 'invalid request', detail: 'x' } },
+  })
+  view()
+  await userEvent.click(await screen.findByRole('button', { name: 'Trotzdem als neue Anzeige speichern' }))
+  const yes = await screen.findByRole('button', { name: 'Ja, als neue Anzeige speichern' })
+  yes.focus()
+  await userEvent.keyboard('{Enter}')
+  expect(await screen.findByRole('alert')).toHaveTextContent('Der Lauf konnte nicht gestartet werden')
+  expect(screen.getByRole('button', { name: 'Ja, als neue Anzeige speichern' })).toBe(yes)
+  expect(document.activeElement).toBe(yes)
 })
