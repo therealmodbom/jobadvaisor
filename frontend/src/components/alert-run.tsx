@@ -1,4 +1,4 @@
-import { useEffect, useId, useState, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode, type Ref } from 'react'
 import { Check, CircleAlert, CircleSlash, Clock, Copy, Info, LoaderCircle } from 'lucide-react'
 import { api, ApiError, type AlertRunEntry, type AlertRunState, type Attempt, type PostingPageData } from '@/api'
 import { AttemptList } from '@/components/attempts'
@@ -73,15 +73,20 @@ function RunPanel({ entries, status, words, start, runId, cancelRequested, onTex
   const crashId = useId()
   const runHeadingId = useId()
   const ended = (entry: AlertRunEntry) => ['stored', 'duplicate', 'closed', 'failed'].includes(entry.state)
-  const [filter, setFilter] = useState<Outcome | null>(null)
+  const [filter, setFilter] = useState<Outcome | null>(null) // null: „Alle“
+  const [pinned, setPinned] = useState<ReadonlySet<number>>(new Set()) // rows stored anyway, listed under any filter until it changes
   const finished = entries.filter(ended).length
   const own = entries.filter((entry) => entry.same_as === undefined) // a repeat of a link is no second posting
   const count = (state: AlertRunEntry['state']) => own.filter((entry) => entry.state === state).length
   const counts = OUTCOMES.map((outcome) => ({ ...outcome, count: own.filter((entry) => outcomeOf(entry) === outcome.id).length }))
   const offered = counts.filter((outcome) => outcome.count > 0 || outcome.id === filter)
   const listed = entries.map((entry, index) => ({ entry, index }))
-    .filter(({ entry }) => filter === null || (entry.same_as === undefined && outcomeOf(entry) === filter))
-  const pick = (next: Outcome | null) => setFilter(next === filter ? null : next)
+    .filter(({ entry, index }) => filter === null || pinned.has(index) || (entry.same_as === undefined && outcomeOf(entry) === filter))
+  const choose = (next: Outcome | null) => {
+    setFilter(next)
+    setPinned(new Set())
+  }
+  const pick = (next: Outcome) => choose(next === filter ? null : next)
   return (
     <>
       <div role="status" className="sr-only">
@@ -132,7 +137,7 @@ function RunPanel({ entries, status, words, start, runId, cancelRequested, onTex
           <progress aria-label="Fortschritt" className="h-2 w-full accent-primary" value={finished} max={entries.length} />
         )}
         <div role="group" aria-label="Filter" className="flex flex-wrap gap-1.5">
-          <FilterButton active={filter === null} onClick={() => setFilter(null)}>{`Alle (${entries.length})`}</FilterButton>
+          <FilterButton active={filter === null} onClick={() => choose(null)}>{`Alle (${entries.length})`}</FilterButton>
           {offered.map((outcome) => (
             <FilterButton key={outcome.id} active={filter === outcome.id} onClick={() => pick(outcome.id)}>
               {`${outcome.count} ${outcome.word}`}
@@ -148,7 +153,10 @@ function RunPanel({ entries, status, words, start, runId, cancelRequested, onTex
           {listed.map(({ entry, index }) => (
             <RunRow key={index} entry={entry} ended={status !== 'running'}
                     onText={onText} onPdf={onPdf}
-                    onForce={() => start([{ url: entry.url, title: entry.title, force: true }], { index, base: entries })} />
+                    onForce={() => {
+                      setPinned((rows) => new Set(rows).add(index))
+                      start([{ url: entry.url, title: entry.title, force: true }], { index, base: entries })
+                    }} />
           ))}
         </ul>
         {status !== 'running' && (
@@ -225,9 +233,31 @@ const DUPLICATE_BY = {
   similar_text: 'Ähnlicher Text wie eine gespeicherte Anzeige',
 }
 
-/** The state word of a run row, with its icon. */
-function Label({ icon, text, tone }: { icon: ReactNode; text: string; tone?: string }) {
-  return <span className={cn('inline-flex items-center gap-1.5 font-bold', tone)}>{icon}{text}</span>
+const ICON = 'size-4'
+
+/** The outcome line of a row: its word, icon and tone follow the entry's state, and `ended` tells a
+ * waiting entry of a finished run („nicht gestartet“) from one still to come. */
+function labelOf(entry: AlertRunEntry, ended: boolean): { icon: ReactNode; text: string; tone?: string } {
+  switch (entry.state) {
+    case 'stored':
+      return { tone: 'text-success', text: 'Hinzugefügt', icon: <Check className={ICON} strokeWidth={3} aria-hidden="true" /> }
+    case 'duplicate':
+      return { text: DUPLICATE_BY[entry.duplicate_by ?? 'url'], icon: <Copy className={ICON} aria-hidden="true" /> }
+    case 'closed':
+      return { tone: 'text-muted-foreground', text: 'Stelle geschlossen', icon: <CircleSlash className={ICON} aria-hidden="true" /> }
+    case 'failed':
+      return { tone: 'text-danger', text: entry.unclear ? 'Nicht beurteilbar' : 'Nicht gelesen', icon: <CircleAlert className={ICON} aria-hidden="true" /> }
+    case 'running':
+      return { text: 'wird abgerufen…', icon: <LoaderCircle className={cn(ICON, 'motion-safe:animate-spin')} aria-hidden="true" /> }
+    case 'waiting':
+      return { tone: 'text-muted-foreground', text: ended ? 'nicht gestartet' : 'wartet', icon: <Clock className={ICON} aria-hidden="true" /> }
+  }
+}
+
+/** The outcome line of a run row: the state word with its icon. Focusable by script (`ref`) only,
+ * so a confirm that removes the focused button can hand the focus to it. */
+function Label({ icon, text, tone, ref }: { icon: ReactNode; text: string; tone?: string; ref?: Ref<HTMLSpanElement> }) {
+  return <span ref={ref} tabIndex={-1} className={cn('inline-flex items-center gap-1.5 font-bold', tone)}>{icon}{text}</span>
 }
 
 /** The attempts of a closed or failed row behind a collapsed „Details: n Versuche“ („1 Versuch“
@@ -260,23 +290,12 @@ function RunRow({ entry, ended, onText, onPdf, onForce }: {
   const match = useStoredPosting(byText ? entry.posting_id : undefined)
   const postingHref = `#/anzeigen/${encodeURIComponent(entry.posting_id ?? '')}`
   const matchName = match ? `„${match.title}“ bei ${match.company}` : 'einer gespeicherten Anzeige'
-  const ICON = 'size-4'
+  const line = useRef<HTMLSpanElement>(null)
   return (
     <li className={cn(ROW, entry.state === 'failed' && 'border-danger bg-danger-soft',
                       entry.state === 'waiting' && 'bg-background')}>
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        {entry.state === 'stored' && <Label tone="text-success" text="Hinzugefügt"
-                                            icon={<Check className={ICON} strokeWidth={3} aria-hidden="true" />} />}
-        {entry.state === 'duplicate' && <Label text={DUPLICATE_BY[entry.duplicate_by ?? 'url']}
-                                               icon={<Copy className={ICON} aria-hidden="true" />} />}
-        {entry.state === 'closed' && <Label tone="text-muted-foreground" text="Stelle geschlossen"
-                                            icon={<CircleSlash className={ICON} aria-hidden="true" />} />}
-        {entry.state === 'failed' && <Label tone="text-danger" text={entry.unclear ? 'Nicht beurteilbar' : 'Nicht gelesen'}
-                                            icon={<CircleAlert className={ICON} aria-hidden="true" />} />}
-        {entry.state === 'running' && <Label text="wird abgerufen…"
-                                             icon={<LoaderCircle className={cn(ICON, 'motion-safe:animate-spin')} aria-hidden="true" />} />}
-        {entry.state === 'waiting' && <Label tone="text-muted-foreground" text={ended ? 'nicht gestartet' : 'wartet'}
-                                             icon={<Clock className={ICON} aria-hidden="true" />} />}
+        <Label ref={line} {...labelOf(entry, ended)} />
         {entry.title && <span className="font-bold">{entry.title}</span>}
         {isWebUrl(entry.url)
           ? <OriginalLink url={entry.url} label={entry.url} name={entry.title ?? ''} className="self-start font-mono text-sm" />
@@ -314,7 +333,11 @@ function RunRow({ entry, ended, onText, onPdf, onForce }: {
                   Die gespeicherte Anzeige bleibt, wie sie ist, und die Seite wird noch einmal abgerufen.
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  <Button type="button" size="sm" onClick={onForce} className={ROW_BUTTON}>Ja, als neue Anzeige speichern</Button>
+                  <Button type="button" size="sm" className={ROW_BUTTON}
+                          onClick={() => {
+                            onForce()
+                            line.current?.focus() // the confirm and this button go away; the outcome line stays
+                          }}>Ja, als neue Anzeige speichern</Button>
                   <Button type="button" size="sm" variant="outline" onClick={() => setConfirming(false)}
                           className={ROW_BUTTON}>Abbrechen</Button>
                 </div>

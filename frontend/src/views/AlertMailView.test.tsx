@@ -1173,3 +1173,130 @@ test('under a filter the status line text does not change while other entries en
   expect(statusLine()).toBe(line)
   expect(line.textContent).toBe(text)
 })
+
+// ---- #162: a row stored anyway keeps its place ----
+
+type Routes = Parameters<typeof stubApi>[0]
+const TEXT_DUP = (n: number) => row(n, 'duplicate', { posting_id: 'p-9', duplicate_by: 'text' })
+
+/** A finished run r1 of `rows` whose text duplicates can be stored anyway. `forced` maps the ID of each
+ * stored-anyway run (r2, r3, in the order they start) to the number of the row it stores; such a run
+ * reports `running` until `finish(id)`, then stored. */
+function forceable(rows: AlertRunState['entries'], forced: Record<string, number>) {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  const finished = new Set<string>()
+  const ids = Object.keys(forced)
+  const routes: Routes = {
+    'GET /postings/p-9': { body: { posting: { title: 'Lead Engineer Video', company: 'Musterdienst GmbH' } } },
+    'GET /alert-mails/runs/r1': { body: run(rows, { status: 'done' }) },
+    'POST /alert-mails/runs': () => ({ status: 202, body: { run_id: ids.shift() } }),
+  }
+  for (const [id, n] of Object.entries(forced)) {
+    routes[`GET /alert-mails/runs/${id}`] = () => ({ body: finished.has(id)
+      ? run([row(n, 'stored', { posting_id: `p-1${n}` })], { run_id: id, status: 'done' })
+      : run([row(n, 'running')], { run_id: id }) })
+  }
+  stubApi(routes)
+  return { finish: (id: string) => act(async () => { finished.add(id); await vi.advanceTimersByTimeAsync(POLL_MS) }) }
+}
+
+const rowOf = (n: number) => rowsOf(screen.getByRole('list', { name: 'Stand je Anzeige' }))
+  .find((item) => item.textContent?.includes(`Stelle ${n}`))!
+
+/** Stores the text duplicate of row `n` anyway, confirming with the keyboard. */
+async function storeAnyway(n: number) {
+  await userEvent.click(within(rowOf(n)).getByRole('button', { name: 'Trotzdem als neue Anzeige speichern' }))
+  const yes = await screen.findByRole('button', { name: 'Ja, als neue Anzeige speichern' })
+  yes.focus()
+  await userEvent.keyboard('{Enter}')
+}
+
+test('a text duplicate stored anyway under "schon gespeichert" stays in the list, fetched and then added, and the counts move by one', async () => {
+  const forced = forceable([TEXT_DUP(1), row(2, 'stored', { posting_id: 'p-2' }), row(3, 'duplicate', { posting_id: 'p-9', duplicate_by: 'url' })], { r2: 1 })
+  view()
+  await screen.findByRole('group', { name: 'Filter' })
+  await userEvent.click(filterButton('2 schon gespeichert'))
+  expect(titlesOf()).toEqual(['Stelle 1', 'Stelle 3'])
+  await storeAnyway(1)
+  await screen.findByText('wird abgerufen…')
+  expect(titlesOf()).toEqual(['Stelle 1', 'Stelle 3'])
+  expect(rowOf(1)).toHaveTextContent('wird abgerufen…')
+  expect(filterNames()).toEqual(['Alle (3)', '1 hinzugefügt', '1 schon gespeichert'])
+  expect(statusLine()).toHaveTextContent('Zeigt 2 von 3 Anzeigen: schon gespeichert')
+  await forced.finish('r2')
+  expect(rowOf(1)).toHaveTextContent('Hinzugefügt')
+  expect(titlesOf()).toEqual(['Stelle 1', 'Stelle 3'])
+  expect(filterNames()).toEqual(['Alle (3)', '2 hinzugefügt', '1 schon gespeichert'])
+  expect(filterButton('1 schon gespeichert')).toHaveAttribute('aria-pressed', 'true')
+  expect(statusLine()).toHaveTextContent('Zeigt 2 von 3 Anzeigen: schon gespeichert')
+})
+
+test('the last entry of the active filter stored anyway leaves "0 schon gespeichert" pressed with its row, until another filter is chosen', async () => {
+  const forced = forceable([TEXT_DUP(1), row(2, 'stored', { posting_id: 'p-2' }), UNREAD(3)], { r2: 1 })
+  view()
+  await screen.findByRole('group', { name: 'Filter' })
+  await userEvent.click(filterButton('1 schon gespeichert'))
+  await storeAnyway(1)
+  await screen.findByText('wird abgerufen…')
+  expect(filterButton('0 schon gespeichert')).toHaveAttribute('aria-pressed', 'true')
+  await forced.finish('r2')
+  expect(filterNames()).toEqual(['Alle (3)', '2 hinzugefügt', '0 schon gespeichert', '1 nicht gelesen'])
+  expect(filterButton('0 schon gespeichert')).toHaveAttribute('aria-pressed', 'true')
+  expect(titlesOf()).toEqual(['Stelle 1'])
+  expect(rowOf(1)).toHaveTextContent('Hinzugefügt')
+  expect(statusLine()).toHaveTextContent('Zeigt 1 von 3 Anzeigen: schon gespeichert')
+  await userEvent.click(filterButton('Alle (3)'))
+  expect(filterNames()).toEqual(['Alle (3)', '2 hinzugefügt', '1 nicht gelesen'])
+})
+
+test.each([
+  ['without a filter', null],
+  ['under a filter', '2 schon gespeichert'],
+])('focus moves to the row\'s outcome line when the store-anyway confirm is taken, and stays on it, %s', async (_name, filter) => {
+  const forced = forceable([TEXT_DUP(1), row(2, 'stored', { posting_id: 'p-2' }), row(3, 'duplicate', { posting_id: 'p-9', duplicate_by: 'url' })], { r2: 1 })
+  view()
+  await screen.findByRole('group', { name: 'Filter' })
+  if (filter) await userEvent.click(filterButton(filter))
+  await storeAnyway(1)
+  const line = await screen.findByText('wird abgerufen…')
+  expect(screen.queryByRole('group', { name: /Als neue Anzeige speichern\?/ })).toBeNull()
+  expect(document.activeElement).toBe(line)
+  expect(line).toHaveAttribute('tabindex', '-1')
+  await forced.finish('r2')
+  expect(line).toBeInTheDocument()
+  expect(line).toHaveTextContent('Hinzugefügt')
+  expect(document.activeElement).toBe(line)
+})
+
+test('two text duplicates stored anyway in a row both stay in the list under "schon gespeichert"', async () => {
+  const forced = forceable([TEXT_DUP(1), TEXT_DUP(2), row(3, 'stored', { posting_id: 'p-3' })], { r2: 1, r3: 2 })
+  view()
+  await screen.findByRole('group', { name: 'Filter' })
+  await userEvent.click(filterButton('2 schon gespeichert'))
+  await storeAnyway(1)
+  await screen.findByText('wird abgerufen…')
+  await forced.finish('r2')
+  expect(titlesOf()).toEqual(['Stelle 1', 'Stelle 2'])
+  await storeAnyway(2)
+  await forced.finish('r3')
+  expect(titlesOf()).toEqual(['Stelle 1', 'Stelle 2'])
+  expect(rowOf(1)).toHaveTextContent('Hinzugefügt')
+  expect(rowOf(2)).toHaveTextContent('Hinzugefügt')
+  expect(filterNames()).toEqual(['Alle (3)', '3 hinzugefügt', '0 schon gespeichert'])
+  expect(statusLine()).toHaveTextContent('Zeigt 2 von 3 Anzeigen: schon gespeichert')
+})
+
+test('choosing another filter drops the rows stored anyway from the list', async () => {
+  const forced = forceable([TEXT_DUP(1), row(2, 'stored', { posting_id: 'p-2' }), row(3, 'duplicate', { posting_id: 'p-9', duplicate_by: 'url' })], { r2: 1 })
+  view()
+  await screen.findByRole('group', { name: 'Filter' })
+  await userEvent.click(filterButton('2 schon gespeichert'))
+  await storeAnyway(1)
+  await screen.findByText('wird abgerufen…')
+  await forced.finish('r2')
+  await userEvent.click(filterButton('2 hinzugefügt'))
+  expect(titlesOf()).toEqual(['Stelle 1', 'Stelle 2'])
+  await userEvent.click(filterButton('1 schon gespeichert'))
+  expect(titlesOf()).toEqual(['Stelle 3'])
+})
