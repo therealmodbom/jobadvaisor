@@ -164,9 +164,10 @@ export function useAlertRun(store: RunStore) {
     setStartError(false)
   }
 
-  /** Starts a run of `entries`, as the first run of a view or, with `row`, a run of one text duplicate stored anyway. */
-  async function start(entries: RunEntry[], row?: RunRowRef) {
-    if (starting || running) return
+  /** Starts a run of `entries`, as the first run of a view or, with `row`, a run of one text duplicate
+   * stored anyway. Resolves to whether that run started (false: refused, failed or one already computes). */
+  async function start(entries: RunEntry[], row?: RunRowRef): Promise<boolean> {
+    if (starting || running) return false
     setStarting(true)
     setStartError(false)
     try {
@@ -179,6 +180,7 @@ export function useAlertRun(store: RunStore) {
       setProgress({ run_id: id, status: 'running', error: null, cancel_requested: false, total: entries.length, done: 0,
                     entries: entries.map((entry) => ({ url: entry.url, title: entry.title, state: row ? 'running' : 'waiting' })) })
       setRunId(id)
+      return true
     } catch (error) {
       if (error instanceof ApiError && error.status === 409 && typeof error.body.run_id === 'string') {
         store.set(error.body.run_id)
@@ -189,6 +191,7 @@ export function useAlertRun(store: RunStore) {
       } else {
         setStartError(true)
       }
+      return false
     } finally {
       setStarting(false)
     }

@@ -56,16 +56,17 @@ export function AlertRunView({ run, words = PASTE_WORDS, onText, onPdf, onOver }
 
 /** The run: "x von y erledigt", a bar while it computes, the filter row by outcome with its status
  * line, one row per entry (the filtered ones under a filter) and, for a run that crashed, the
- * notice, and for a cancelled one how far it got. `entries` are the rows to show; `status` is the run's, `runId` its ID and `cancelRequested` whether a
- * cancel was asked for. `start` runs a text duplicate again with `force`; `onOver` leaves the
- * run, its button and the crash notice say it in `words`. */
+ * notice, and for a cancelled one how far it got. `entries` are the rows to show; `status` is the
+ * run's, `runId` its ID and `cancelRequested` whether a cancel was asked for. `start` runs a text
+ * duplicate again with `force` and resolves to whether it started; `onOver` leaves the run, its
+ * button and the crash notice say it in `words`. */
 function RunPanel({ entries, status, words, start, runId, cancelRequested, onText, onPdf, onOver }: {
   entries: AlertRunEntry[]
   status: AlertRunState['status']
   words: RunWords
   runId: string | null
   cancelRequested: boolean
-  start: (entries: RunEntry[], row: RunRowRef) => void
+  start: (entries: RunEntry[], row: RunRowRef) => Promise<boolean>
   onText: () => void
   onPdf: () => void
   onOver: () => void
@@ -146,8 +147,8 @@ function RunPanel({ entries, status, words, start, runId, cancelRequested, onTex
         </div>
         <p role="status" className="text-sm text-muted-foreground">
           {filter === null
-            ? `Zeigt alle ${entries.length} Anzeigen`
-            : `Zeigt ${listed.length} von ${entries.length} Anzeigen: ${OUTCOMES.find((outcome) => outcome.id === filter)?.word}`}
+            ? (entries.length === 1 ? 'Zeigt 1 Anzeige' : `Zeigt alle ${entries.length} Anzeigen`)
+            : `Zeigt ${listed.length} von ${entries.length} ${entries.length === 1 ? 'Anzeige' : 'Anzeigen'}: ${OUTCOMES.find((outcome) => outcome.id === filter)?.word}`}
         </p>
         <ul aria-label="Stand je Anzeige" className="flex flex-col gap-2.5">
           {listed.map(({ entry, index }) => (
@@ -155,7 +156,7 @@ function RunPanel({ entries, status, words, start, runId, cancelRequested, onTex
                     onText={onText} onPdf={onPdf}
                     onForce={() => {
                       setPinned((rows) => new Set(rows).add(index))
-                      start([{ url: entry.url, title: entry.title, force: true }], { index, base: entries })
+                      return start([{ url: entry.url, title: entry.title, force: true }], { index, base: entries })
                     }} />
           ))}
         </ul>
@@ -282,7 +283,7 @@ function RunRow({ entry, ended, onText, onPdf, onForce }: {
   ended: boolean
   onText: () => void
   onPdf: () => void
-  onForce: () => void
+  onForce: () => Promise<boolean>
 }) {
   const [confirming, setConfirming] = useState(false)
   const confirmId = useId()
@@ -298,7 +299,7 @@ function RunRow({ entry, ended, onText, onPdf, onForce }: {
         <Label ref={line} {...labelOf(entry, ended)} />
         {entry.title && <span className="font-bold">{entry.title}</span>}
         {isWebUrl(entry.url)
-          ? <OriginalLink url={entry.url} label={entry.url} name={entry.title ?? ''} className="self-start font-mono text-sm" />
+          ? <OriginalLink url={entry.url} label={entry.url} name={entry.title} className="self-start font-mono text-sm" />
           : <span className="font-mono text-sm break-all text-muted-foreground">{entry.url}</span>}
 
         {entry.same_as !== undefined && (
@@ -335,8 +336,8 @@ function RunRow({ entry, ended, onText, onPdf, onForce }: {
                 <div className="flex flex-wrap gap-2">
                   <Button type="button" size="sm" className={ROW_BUTTON}
                           onClick={() => {
-                            onForce()
-                            line.current?.focus() // the confirm and this button go away; the outcome line stays
+                            // once it started, the confirm and this button go away; the outcome line stays
+                            void onForce().then((started) => { if (started) line.current?.focus() })
                           }}>Ja, als neue Anzeige speichern</Button>
                   <Button type="button" size="sm" variant="outline" onClick={() => setConfirming(false)}
                           className={ROW_BUTTON}>Abbrechen</Button>

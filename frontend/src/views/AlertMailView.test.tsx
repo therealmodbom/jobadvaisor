@@ -1197,8 +1197,8 @@ function forceable(rows: AlertRunState['entries'], forced: Record<string, number
       ? run([row(n, 'stored', { posting_id: `p-1${n}` })], { run_id: id, status: 'done' })
       : run([row(n, 'running')], { run_id: id }) })
   }
-  stubApi(routes)
-  return { finish: (id: string) => act(async () => { finished.add(id); await vi.advanceTimersByTimeAsync(POLL_MS) }) }
+  const calls = stubApi(routes)
+  return { calls, finish: (id: string) => act(async () => { finished.add(id); await vi.advanceTimersByTimeAsync(POLL_MS) }) }
 }
 
 const rowOf = (n: number) => rowsOf(screen.getByRole('list', { name: 'Stand je Anzeige' }))
@@ -1299,4 +1299,58 @@ test('choosing another filter drops the rows stored anyway from the list', async
   expect(titlesOf()).toEqual(['Stelle 1', 'Stelle 2'])
   await userEvent.click(filterButton('1 schon gespeichert'))
   expect(titlesOf()).toEqual(['Stelle 3'])
+})
+
+test('a row stored anyway under a filter keeps its original index: the right row turns added, the others stay', async () => {
+  const forced = forceable([row(1, 'stored', { posting_id: 'p-1' }), TEXT_DUP(2), row(3, 'duplicate', { posting_id: 'p-9', duplicate_by: 'url' })], { r2: 2 })
+  view()
+  await screen.findByRole('group', { name: 'Filter' })
+  await userEvent.click(filterButton('2 schon gespeichert'))
+  expect(titlesOf()).toEqual(['Stelle 2', 'Stelle 3']) // row 2 is listed first but is the second entry
+  await storeAnyway(2)
+  await screen.findByText('wird abgerufen…')
+  await forced.finish('r2')
+  expect(forced.calls.find((call) => call.method === 'POST')!.body)
+    .toEqual({ entries: [{ url: entry(2).url, title: 'Stelle 2', force: true }] })
+  expect(rowOf(2)).toHaveTextContent('Hinzugefügt')
+  expect(titlesOf()).toEqual(['Stelle 2', 'Stelle 3'])
+  await userEvent.click(filterButton('Alle (3)'))
+  expect(titlesOf()).toEqual(['Stelle 1', 'Stelle 2', 'Stelle 3'])
+  expect(rowOf(1)).toHaveTextContent('Hinzugefügt')
+  expect(within(rowOf(1)).getByRole('link', { name: 'Anzeige ansehen' })).toHaveAttribute('href', '#/anzeigen/p-1')
+  expect(within(rowOf(2)).getByRole('link', { name: 'Anzeige ansehen' })).toHaveAttribute('href', '#/anzeigen/p-12')
+  expect(rowOf(3)).toHaveTextContent('Schon gespeichert')
+})
+
+test('the status line says "Zeigt 1 Anzeige" for a run of one', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /alert-mails/runs/r1': { body: run([row(1, 'stored', { posting_id: 'p-1' })], { status: 'done' }) } })
+  view()
+  await screen.findByRole('group', { name: 'Filter' })
+  expect(statusLine().textContent).toBe('Zeigt 1 Anzeige')
+})
+
+test('the status line says "Zeigt 1 von 1 Anzeige: …" under a filter of a run of one', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /alert-mails/runs/r1': { body: run([row(1, 'stored', { posting_id: 'p-1' })], { status: 'done' }) } })
+  view()
+  await screen.findByRole('group', { name: 'Filter' })
+  await userEvent.click(filterButton('1 hinzugefügt'))
+  expect(statusLine().textContent).toBe('Zeigt 1 von 1 Anzeige: hinzugefügt')
+})
+
+test('a store-anyway start that fails keeps the focus on the confirm button', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({
+    ...TEXT_DUPLICATE,
+    'POST /alert-mails/runs': { status: 422, body: { error: 'invalid request', detail: 'x' } },
+  })
+  view()
+  await userEvent.click(await screen.findByRole('button', { name: 'Trotzdem als neue Anzeige speichern' }))
+  const yes = await screen.findByRole('button', { name: 'Ja, als neue Anzeige speichern' })
+  yes.focus()
+  await userEvent.keyboard('{Enter}')
+  expect(await screen.findByRole('alert')).toHaveTextContent('Der Lauf konnte nicht gestartet werden')
+  expect(screen.getByRole('button', { name: 'Ja, als neue Anzeige speichern' })).toBe(yes)
+  expect(document.activeElement).toBe(yes)
 })

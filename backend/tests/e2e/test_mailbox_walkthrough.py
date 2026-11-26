@@ -367,6 +367,20 @@ def test_a_posting_in_two_mails_is_fetched_once_and_a_disputed_link_brings_its_m
         "link", name=f"Anzeige „{TITLES[DISPUTED]}“ öffnen, neuer Tab: {DISPUTED}", exact=True)
     expect(link).to_have_attribute("href", DISPUTED)  # the posting's address, as the mail gave it
     expect(link).to_have_attribute("target", "_blank")  # in a new tab
+    page.context.route(  # the address is answered here, so no real host is ever asked
+        "https://www.linkedin.com/jobs/view/**",
+        lambda route: route.fulfill(status=200, content_type="text/html",
+                                    body="<title>Fictional posting</title>"))
+    link.focus()
+    with page.context.expect_page() as opened:
+        link.press("Enter")  # the keyboard opens the original ad in a new tab
+    posting = opened.value
+    posting.wait_for_load_state()
+    assert posting.url == DISPUTED
+    posting.close()
+    expect(unclear).to_have_attribute("aria-pressed", "true")  # the run view is as it was
+    expect(page.get_by_text("Zeigt 1 von 3 Anzeigen: nicht beurteilbar")).to_be_visible()
+    expect(rows).to_have_count(1)
     unclear.click()  # the second press ends the filter
     expect(rows).to_have_count(3)
 
