@@ -7,6 +7,7 @@ share one server and run in order, each building on the one before; run them as 
 `pytest -m e2e` after `npm --prefix frontend run build`."""
 
 import json
+import re
 import threading
 import time
 import zlib
@@ -154,6 +155,15 @@ def stored_urls(root) -> set[str]:
     return {p.urls[0] for p in load(root).postings.values() if p.urls}
 
 
+def open_details(row) -> None:
+    """Open the row's "Details: n Versuche" with the keyboard: focus its summary, press Enter,
+    and see the native `<details>` report itself open."""
+    summary = row.locator("summary").filter(has_text=re.compile(r"^Details: \d+ Versuch"))
+    summary.focus()
+    summary.press("Enter")
+    expect(row.locator("details")).to_have_attribute("open", "")
+
+
 def test_the_pasted_mail_lists_its_postings_and_marks_the_stored_one(page, app_url):
     paste_mail(page, app_url)
     expect(page.get_by_role("heading", name="6 Stellen in der Mail gefunden")).to_be_visible()
@@ -179,18 +189,24 @@ def test_the_run_stores_three_and_reports_the_closed_and_the_unreadable_link(pag
     expect(rows).to_have_count(5)
     expect(page.get_by_text("Hinzugefügt", exact=True)).to_have_count(3)
     expect(page.get_by_role("link", name="Anzeige ansehen")).to_have_count(3)
+    filters = page.get_by_role("group", name="Filter")  # the counts by outcome, not a sentence
+    for name in ("Alle (5)", "3 hinzugefügt", "1 geschlossen", "1 nicht gelesen"):
+        expect(filters.get_by_role("button", name=name, exact=True)).to_be_visible()
+    expect(filters.get_by_role("button", name="Alle (5)")).to_have_attribute("aria-pressed", "true")
     closed = rows.filter(has_text=JOBS[3]["title"])  # the 404: the posting is gone, a result
     expect(closed).to_contain_text("Stelle geschlossen")
+    expect(closed.get_by_text("Einfacher Abruf")).to_be_hidden()  # the attempts are collapsed
+    open_details(closed)
     expect(closed).to_contain_text("Einfacher Abruf: Stelle geschlossen")
     expect(closed).to_contain_text("HTTP 404")
     expect(closed.get_by_role("button")).to_have_count(0)  # no text or PDF option
     failed = rows.filter(has_text=JOBS[5]["title"])  # the 503: unreadable, a failure
     expect(failed).to_contain_text("Nicht gelesen")
+    open_details(failed)
     expect(failed).to_contain_text("Einfacher Abruf: fehlgeschlagen")
     expect(failed).to_contain_text("HTTP 503")
     expect(failed.get_by_role("button", name="Text einfügen")).to_be_visible()
     expect(failed.get_by_role("button", name="PDF hochladen")).to_be_visible()
-    expect(page.get_by_text("3 hinzugefügt, 1 geschlossen, 1 nicht gelesen")).to_be_visible()
 
     expected = {job["url"] for job in JOBS if job["url"] not in (DEAD_URL, FAILING_URL)}
     assert stored_urls(data_root) == expected  # the three new ones, canonical, and the old one

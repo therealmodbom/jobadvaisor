@@ -357,6 +357,19 @@ def test_a_posting_in_two_mails_is_fetched_once_and_a_disputed_link_brings_its_m
     handled = read_mailbox(data_root).handled
     assert handled.uids["Posteingang"].uids == [1, 2, 3, 4, 5]  # the second mail is not handled
 
+    filters = page.get_by_role("group", name="Filter")
+    unclear = filters.get_by_role("button", name="1 nicht beurteilbar", exact=True)
+    unclear.click()  # only the disputed entry is left, and the filter says it is pressed
+    expect(unclear).to_have_attribute("aria-pressed", "true")
+    expect(page.get_by_text("Zeigt 1 von 3 Anzeigen: nicht beurteilbar")).to_be_visible()
+    expect(rows).to_have_count(1)
+    link = rows.get_by_role(
+        "link", name=f"Anzeige „{TITLES[DISPUTED]}“ öffnen, neuer Tab: {DISPUTED}", exact=True)
+    expect(link).to_have_attribute("href", DISPUTED)  # the posting's address, as the mail gave it
+    expect(link).to_have_attribute("target", "_blank")  # in a new tab
+    unclear.click()  # the second press ends the filter
+    expect(rows).to_have_count(3)
+
     reads = full_reads(fake)
     page.get_by_role("button", name="Zurück zum Postfach").click()
     page.get_by_role("button", name="Postfach prüfen").click()
