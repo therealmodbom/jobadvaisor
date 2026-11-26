@@ -1105,3 +1105,71 @@ test('the filter row sits below the progress bar and above the list, and has no 
   expect(statusLine().compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   expect(await axe(container)).toHaveNoViolations()
 })
+
+// ---- #162: the filter while the run computes ----
+
+const UNREAD = (n: number) => row(n, 'failed', { attempts: [{ step: 'plain', url: entry(n).url, outcome: 'HTTP 503' }] })
+
+test('a filter shows while the run computes, its count grows with each entry, and the entry that ends with it joins the list', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  let polls = 0
+  const states = [
+    run([UNREAD(1), UNREAD(2), row(3, 'running'), row(4, 'waiting')]),
+    run([UNREAD(1), UNREAD(2), UNREAD(3), row(4, 'running')]),
+    run([UNREAD(1), UNREAD(2), UNREAD(3), row(4, 'closed', { attempts: [] })], { status: 'done' }),
+  ]
+  stubApi({ 'GET /alert-mails/runs/r1': () => ({ body: states[Math.min(polls++, states.length - 1)] }) })
+  view()
+  await screen.findByRole('group', { name: 'Filter' })
+  expect(filterNames()).toEqual(['Alle (4)', '2 nicht gelesen'])
+  await userEvent.click(filterButton('2 nicht gelesen'))
+  expect(titlesOf()).toEqual(['Stelle 1', 'Stelle 2'])
+  expect(statusLine()).toHaveTextContent('Zeigt 2 von 4 Anzeigen: nicht gelesen')
+
+  await act(() => vi.advanceTimersByTimeAsync(POLL_MS))
+  expect(filterButton('3 nicht gelesen')).toHaveAttribute('aria-pressed', 'true')
+  expect(titlesOf()).toEqual(['Stelle 1', 'Stelle 2', 'Stelle 3'])
+  expect(statusLine()).toHaveTextContent('Zeigt 3 von 4 Anzeigen: nicht gelesen')
+
+  await act(() => vi.advanceTimersByTimeAsync(POLL_MS))
+  expect(filterNames()).toEqual(['Alle (4)', '1 geschlossen', '3 nicht gelesen']) // a filter appears once its outcome occurs
+  expect(titlesOf()).toEqual(['Stelle 1', 'Stelle 2', 'Stelle 3'])
+})
+
+test('entries that wait or are being added show only under "Alle", and a filter does not list them', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /alert-mails/runs/r1': { body: run([
+    row(1, 'stored', { posting_id: 'p-1' }), row(2, 'running'), row(3, 'waiting'), UNREAD(4)]) } })
+  view()
+  await screen.findByRole('group', { name: 'Filter' })
+  expect(titlesOf()).toEqual(['Stelle 1', 'Stelle 2', 'Stelle 3', 'Stelle 4'])
+  expect(filterNames()).toEqual(['Alle (4)', '1 hinzugefügt', '1 nicht gelesen'])
+  for (const name of ['1 hinzugefügt', '1 nicht gelesen']) {
+    await userEvent.click(filterButton(name))
+    expect(titlesOf()).toHaveLength(1)
+    await userEvent.click(filterButton(name))
+  }
+  expect(titlesOf()).toHaveLength(4)
+})
+
+test('under a filter the status line text does not change while other entries end', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  let polls = 0
+  const states = [
+    run([UNREAD(1), row(2, 'running'), row(3, 'waiting')]),
+    run([UNREAD(1), row(2, 'stored', { posting_id: 'p-2' }), row(3, 'running')]),
+  ]
+  stubApi({ 'GET /alert-mails/runs/r1': () => ({ body: states[Math.min(polls++, states.length - 1)] }) })
+  view()
+  await screen.findByRole('group', { name: 'Filter' })
+  await userEvent.click(filterButton('1 nicht gelesen'))
+  const line = statusLine()
+  const text = line.textContent
+  await act(() => vi.advanceTimersByTimeAsync(POLL_MS))
+  expect(filterNames()).toEqual(['Alle (3)', '1 hinzugefügt', '1 nicht gelesen'])
+  expect(statusLine()).toBe(line)
+  expect(line.textContent).toBe(text)
+})
