@@ -11,6 +11,38 @@ const STEPS: Record<string, string> = {
   'loop:search_alternative_source': 'Websuche nach einer anderen Quelle',
 }
 
+/** The reasons the backend raises (`fetch.py`, `bundesagentur.py`, `loop.py`), in German. */
+const REASONS: Record<string, string> = {
+  'no posting text': 'kein Anzeigentext gefunden',
+  'no job-board detail URL': 'kein Link zur Anzeige in der Jobbörse',
+  'unparseable answer': 'Antwort nicht lesbar',
+  'too many redirects': 'zu viele Weiterleitungen',
+  'invalid URL': 'ungültiger Link',
+  'redirect with personal parameters': 'Weiterleitung mit persönlichen Daten, nicht gefolgt',
+  'redirect to a non-public address': 'Weiterleitung an eine nicht öffentliche Adresse, nicht gefolgt',
+  'closed page (redirect)': 'Weiterleitung auf eine geschlossene Stelle',
+  'closed page (page text)': 'Seite meldet die Stelle als geschlossen',
+  'login-walled host, not fetched': 'Seite mit Login-Pflicht, nicht abgerufen',
+  'screening failed': 'Inhaltsprüfung gescheitert',
+  'withheld by the content guard': 'vom Inhaltsfilter zurückgehalten',
+  'search failed': 'Websuche gescheitert',
+}
+
+/** Reasons with a variable tail after the prefix (an exception name, a browser message); the tail is dropped. */
+const REASON_PREFIXES: [string, string][] = [
+  ['connection failed', 'keine Verbindung'],
+  ['browser failed', 'Abruf im Browser gescheitert'],
+  ['fetch failed', 'Abruf gescheitert'],
+]
+
+/** The reason of a failed attempt in parentheses: German from the tables, `HTTP <n>` as it is,
+ * and a reason the tables do not know as it came, marked `lang="en"`. */
+function Reason({ outcome }: { outcome: string }) {
+  const known = REASONS[outcome] ?? REASON_PREFIXES.find(([prefix]) => outcome.startsWith(prefix))?.[1]
+  const english = !known && !/^HTTP \d+$/.test(outcome)
+  return <span lang={english ? 'en' : undefined} className="text-sm text-muted-foreground">({known ?? outcome})</span>
+}
+
 /** The outcomes of an attempt that found the posting gone (the fetch ladder's own wording). */
 const GONE = /^(HTTP 404|HTTP 410|closed page \((redirect|page text)\))$/
 
@@ -32,7 +64,7 @@ export function AttemptList({ attempts, className }: { attempts: Attempt[]; clas
           {STEPS[attempt.step] ?? attempt.step}:{' '}
           {attempt.outcome === 'skipped' ? 'übersprungen'
             : attempt.outcome === 'ok' ? 'keine Anzeige gefunden'
-              : <>{isGone(attempt) ? 'Stelle geschlossen' : 'fehlgeschlagen'} <span lang="en" className="text-sm text-muted-foreground">({attempt.outcome})</span></>}
+              : <>{isGone(attempt) ? 'Stelle geschlossen' : 'fehlgeschlagen'} <Reason outcome={attempt.outcome} /></>}
         </li>
       ))}
     </ol>

@@ -317,8 +317,8 @@ test('a closed page is named in German whatever the way it was found', async () 
   await submitUrl()
   const panel = await screen.findByRole('status', { name: 'Stelle geschlossen' })
   expect(panel).toHaveTextContent('Einfacher Abruf: Stelle geschlossen (HTTP 410)')
-  expect(panel).toHaveTextContent('Abruf im Browser: Stelle geschlossen (closed page (redirect))')
-  expect(panel).toHaveTextContent('Einfacher Abruf: Stelle geschlossen (closed page (page text))')
+  expect(panel).toHaveTextContent('Abruf im Browser: Stelle geschlossen (Weiterleitung auf eine geschlossene Stelle)')
+  expect(panel).toHaveTextContent('Einfacher Abruf: Stelle geschlossen (Seite meldet die Stelle als geschlossen)')
 })
 
 test('a failed link with a plain failure still offers text and PDF, beside the closed one', async () => {
