@@ -201,7 +201,7 @@ class MailboxCheckBody(BaseModel):
 
 class MailboxFinishBody(BaseModel):
     """`POST /mailbox/checks/{id}/finish` body: the chosen entries, none up to all the check
-    offered (there is no upper limit of 100 as for a pasted mail)."""
+    offered, with no upper limit (the check's own offer bounds them)."""
 
     model_config = ConfigDict(extra="forbid")
 
