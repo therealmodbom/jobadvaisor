@@ -794,3 +794,101 @@ def test_the_row_is_written_before_the_entry_shows_as_ended(runs, tmp_path, monk
     monkeypatch.setattr(runs_module, "update_unsettled_links", update)
     finished(runs, runs.start([RunEntry(LINKS[0], "A")], source="paste"))
     assert seen[:2] == [0, 0]
+
+
+# --- the list of unsettled links: the end of the run --------------------------------------------
+
+
+def test_the_links_a_cancelled_run_did_not_reach_are_not_reached(runs, tmp_path, monkeypatch):
+    """posting-intake → Scenario: Cancelled run."""
+    links = [f"https://jobs.example.org/stelle/{n}" for n in range(4)]
+    entered, release = holding_first(monkeypatch)
+    run_id = runs.start([RunEntry(url, "T") for url in links], source="paste")
+    assert entered.wait(10)
+    runs.cancel(run_id)
+    release.set()
+    assert finished(runs, run_id)["status"] == "cancelled"
+    assert {url: r.state for url, r in rows(tmp_path).items()} == dict.fromkeys(
+        links[1:], "not_reached")
+
+
+def test_a_link_not_reached_again_keeps_its_last_try(runs, tmp_path, monkeypatch):
+    """posting-intake → Scenario: Not reached again."""
+    earlier = row(LINKS[1], reason="no posting text")
+    listed(tmp_path, earlier)
+    entered, release = holding_first(monkeypatch)
+    run_id = runs.start([RunEntry(LINKS[0], "A"), RunEntry(LINKS[1], "New")], source="paste")
+    assert entered.wait(10)
+    runs.cancel(run_id)
+    release.set()
+    finished(runs, run_id)
+    assert rows(tmp_path)[LINKS[1]] == earlier.model_copy(update={"state": "not_reached",
+                                                                  "title": "New"})
+
+
+def test_a_crash_leaves_the_links_not_ended_not_reached(runs, tmp_path, monkeypatch):
+    def crash_on_second(intake, entry):
+        if entry.url == LINKS[1]:
+            raise KeyError("boom")
+        return {"state": "failed", "attempts": []}
+    monkeypatch.setattr(runs_module, "add_entry", crash_on_second)
+    state = finished(runs, runs.start([RunEntry(url, "T") for url in LINKS], source="paste"))
+    assert state["status"] == "failed"
+    assert {url: r.state for url, r in rows(tmp_path).items()} == {
+        LINKS[0]: "unread", LINKS[1]: "not_reached", LINKS[2]: "not_reached"}
+
+
+def test_an_outcome_whose_write_failed_lands_at_the_end(runs, tmp_path, monkeypatch):
+    ending(monkeypatch, {LINKS[0]: {"state": "failed", "attempts": RATE_LIMITED},
+                         LINKS[1]: {"state": "stored", "posting_id": "b"}})
+    failing_write(monkeypatch, {2, 3})  # both per-entry writes
+    finished(runs, runs.start([RunEntry(LINKS[0], "A"), RunEntry(LINKS[1], "B")],
+                              source="mailbox"))
+    landed, = read_unsettled_links(tmp_path).links
+    assert (landed.url, landed.state, landed.tries) == (LINKS[0], "unread", 1)
+    assert [a.outcome for a in landed.attempts] == ["HTTP 429", "HTTP 429"]
+
+
+def test_a_link_whose_write_failed_twice_stays_waiting_and_frees_the_slot(
+        runs, tmp_path, monkeypatch, caplog):
+    ending(monkeypatch, {LINKS[0]: {"state": "failed", "attempts": []}})
+    failing_write(monkeypatch, {2, 3})  # the entry's write and the end's
+    with caplog.at_level("WARNING"):
+        state = finished(runs, runs.start([RunEntry(LINKS[0], "A")], source="paste"))
+    assert state["status"] == "done" and runs.current() is None
+    assert rows(tmp_path)[LINKS[0]].state == "waiting" and caplog.text.count("OSError") == 2
+
+
+def test_the_end_touches_no_row_of_another_link(runs, tmp_path, monkeypatch):
+    """A row another run left waiting (here written by a pull while this run computes) is no
+    link of this run, so its end leaves it alone."""
+    stray = row(LINKS[2], state="waiting")
+
+    def add(intake, entry):
+        update_unsettled_links(tmp_path, lambda current: current.model_copy(
+            update={"links": [*current.links, stray]}))
+        return {"state": "stored", "posting_id": "a"}
+    monkeypatch.setattr(runs_module, "add_entry", add)
+    finished(runs, runs.start([RunEntry(LINKS[0], "A")], source="paste"))
+    assert rows(tmp_path) == {LINKS[2]: stray}
+
+
+def test_the_end_is_written_before_the_slot_is_freed_so_the_next_run_keeps_its_rows(
+        runs, tmp_path, monkeypatch):
+    real, computing = runs_module.update_unsettled_links, []
+
+    def update(root, change):
+        computing.append(runs.current())
+        return real(root, change)
+    monkeypatch.setattr(runs_module, "update_unsettled_links", update)
+    ending(monkeypatch, {LINKS[0]: {"state": "failed", "attempts": []}})
+    first = runs.start([RunEntry(LINKS[0], "A")], source="paste")
+    finished(runs, first)
+    assert computing == [first, first, first]  # start, entry, end: all while it computes
+    monkeypatch.undo()
+    entered, release = holding_first(monkeypatch)
+    second = runs.start([RunEntry(LINKS[0], "A")], source="paste")
+    assert entered.wait(10)
+    assert rows(tmp_path)[LINKS[0]].state == "waiting"
+    release.set()
+    finished(runs, second)

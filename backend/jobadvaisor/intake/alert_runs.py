@@ -1,7 +1,11 @@
 """The background run of the entries chosen from an alert mail
 (`openspec/changes/archive/2026-11-16-alert-mail-intake/design.md` → Run): one entry after the
-other through the normal intake of a link, one run at a time, state in memory only (a restart
-forgets it). The lock guards the state only; the intake and the end hook run outside it."""
+other through the normal intake of a link, one run at a time, run state in memory only (a
+restart forgets it). Every run keeps the list of unsettled links in the data repository
+(`openspec/changes/182-unsettled-links-list/design.md` D3): its links wait from the start, each
+ended entry settles or keeps its row, and the end turns the links it did not reach
+`not_reached`. The lock guards the run state only and is never held while `write_gate` is
+taken; the intake, every list write and the end hook run outside it."""
 
 import logging
 import threading
@@ -146,8 +150,25 @@ def _settled(current: UnsettledLinks, *, entry: RunEntry, outcome: dict, source:
     return current.model_copy(update={"links": list(rows.values())})
 
 
+def _ended(current: UnsettledLinks, *, keys: set[str],
+           unwritten: dict[str, tuple[RunEntry, dict, datetime]],
+           source: Source) -> UnsettledLinks:
+    """`current` once a run over the links `keys` has ended: the outcomes whose own write
+    failed (`unwritten`: link key → entry, outcome, end time) are applied now (`_settled`), and
+    every row of `keys` still `waiting` turns `not_reached`. Rows of other links stay as they
+    are."""
+    for entry, outcome, at in unwritten.values():
+        current = _settled(current, entry=entry, outcome=outcome, source=source, now=at)
+    rows = _rows(current)
+    for key in keys & rows.keys():
+        if rows[key].state == "waiting":
+            rows[key] = rows[key].model_copy(update={"state": "not_reached"})
+    return current.model_copy(update={"links": list(rows.values())})
+
+
 class AlertRuns:
-    """Starts and reads alert runs into `intake`, one at a time, state in memory only. Every
+    """Starts and reads alert runs into `intake`, one at a time, run state in memory only, and
+    keeps the list of unsettled links of `intake.root` (`start`). Every
     request of a run's intake waits on `throttle` (default: one request per host per
     `HOST_SPACING_SECONDS`) through `fetch.host_throttle`; tests pass one on a fake clock."""
 
@@ -168,11 +189,15 @@ class AlertRuns:
         listed with `source`. When that write raises (`DataRepositoryError` for an unreadable or
         invalid file), the slot is freed, nothing starts and the error propagates. The lock is
         released first because a backup can hold `write_gate` for seconds and `read` must not
-        wait for it. `on_end(entries)` gets the final entry states (`read`'s `entries`) on the
-        worker thread, outside this object's lock, after the last entry, after a crash, after a
-        cancel, and before the run's status leaves `running` and the slot is freed. A hook that
-        takes a lock must never take one a caller of `start` holds. An exception in it is
-        logged by its type and never keeps the slot."""
+        wait for it. Each fetched entry then settles or keeps its row (`_settled`; a failed
+        write is logged and retried at the end), and the end of the run (after the last entry,
+        a cancel or a crash, before the slot is freed) applies those retries and turns this
+        run's rows still `waiting` `not_reached` (`_ended`). `on_end(entries)` gets the final
+        entry states (`read`'s `entries`) on the worker thread, outside this object's lock,
+        after the last entry, after a crash, after a cancel, after the end's write, and before
+        the run's status leaves `running` and the slot is freed. A hook that takes a lock must
+        never take one a caller of `start` holds. An exception in it is logged by its type and
+        never keeps the slot."""
         run_id = uuid.uuid4().hex
         with self._lock:
             if self._computing:
@@ -271,6 +296,14 @@ class AlertRuns:
         except Exception as crash:  # the thread must not die silently
             status, error = "failed", type(crash).__name__
         finally:
+            # Before the slot is freed, so no later run's rows are waiting yet.
+            try:
+                update_unsettled_links(self._root, partial(
+                    _ended, keys={normalize_url(entry.url) for entry in entries},
+                    unwritten=unwritten, source=source))
+            except Exception as failure:  # the slot must be freed whatever the write did
+                log.warning("alert run %s: the end of the run was not written to the list of "
+                            "unsettled links (%s)", run_id, type(failure).__name__)
             if on_end is not None:
                 try:
                     on_end(self.read(run_id)["entries"])
