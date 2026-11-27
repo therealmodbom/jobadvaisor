@@ -8,7 +8,7 @@
 ## 1. The file and its writer (D1, D2)
 
 - [x] 1.1 `UnsettledLink` and `UnsettledLinks` in `data/models.py` (fields and states per design D1, attempts as `{step, outcome}`), `unsettled-links` in `ENTITIES` of `data/schemas.py`, and `schemas/unsettled-links.schema.json` regenerated (`uv run --directory backend python -m jobadvaisor.data.schemas`). Test first: a valid file round-trips, an unknown state and a naive datetime are refused, and `tests/test_schemas.py` passes with the new file
-- [ ] 1.2 `read_unsettled_links(root)` and `update_unsettled_links(root, change)` in `data/writer.py`, after `read_mailbox`/`update_mailbox`. Test first: a missing file reads as an empty list (the data-repository scenario „No unsettled links file“), an invalid file raises `DataRepositoryError`, an invalid result raises `ValueError` and leaves the file as it was, and the update runs under `write_gate` (a held gate blocks it)
+- [x] 1.2 `read_unsettled_links(root)` and `update_unsettled_links(root, change)` in `data/writer.py`, after `read_mailbox`/`update_mailbox`. Test first: a missing file reads as an empty list (the data-repository scenario „No unsettled links file“), an invalid file raises `DataRepositoryError`, an invalid result raises `ValueError` and leaves the file as it was, and the update runs under `write_gate` (a held gate blocks it)
 
 ## 2. `AlertRuns` keeps the list (D1, D3, D4, D6)
 

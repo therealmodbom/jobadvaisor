@@ -40,6 +40,7 @@ from jobadvaisor.data.models import (
     PoolSettings,
     Posting,
     Score,
+    UnsettledLinks,
 )
 
 
@@ -271,6 +272,29 @@ def mark_mails(root: Path, handled: Iterable[MailRef] = (), waiting: Iterable[Ma
         if account is not None and (stored is None or account != (stored.host, stored.user)):
             return stored
         return update_mailbox(root, change)
+
+
+UNSETTLED_LINKS_FILE = Path("unsettled-links.json")
+
+
+def read_unsettled_links(root: Path) -> UnsettledLinks:
+    """`unsettled-links.json` under `root`, or an empty list when the file is missing. Raises
+    `DataRepositoryError` for an unreadable, invalid or unsupported-version file."""
+    return _read_entity(root, UNSETTLED_LINKS_FILE, UnsettledLinks) \
+        or UnsettledLinks(schema_version="1")
+
+
+@_gated
+def update_unsettled_links(root: Path,
+                           change: Callable[[UnsettledLinks], UnsettledLinks]) -> UnsettledLinks:
+    """Replace `unsettled-links.json` under `root` by `change(current)` and return it, like
+    `update_mailbox`: `current` is the file as it stands under the write gate (an empty list when
+    missing), the result is validated again and swapped in by rename. Raises like
+    `read_unsettled_links`, whatever `change` raises, and `ValueError` for an invalid result;
+    the file then stays as it was."""
+    links = UnsettledLinks.model_validate(change(read_unsettled_links(root)).model_dump())
+    _replace(root / UNSETTLED_LINKS_FILE, links)
+    return links
 
 
 def read_scores(root: Path) -> tuple[dict[str, Score], dict[str, str]]:
