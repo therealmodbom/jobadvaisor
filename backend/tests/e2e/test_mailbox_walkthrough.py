@@ -5,8 +5,9 @@ temporary data repository, the built frontend in Chromium, the fake IMAP client 
 `tests/fake_imap.py` injected through `create_app(connect=...)`, the mails of the `.eml` fixtures
 (three rule senders, so no model reads them), and fake page fetches (no request leaves the
 machine). The tests share one server and run in order, each building on the one before; run them
-as a set: `pytest -m e2e` after `npm --prefix frontend run build`. The last test adds two mails that
-offer one posting and a link whose fetch is disputed, to see the run and the next check."""
+as a set: `pytest -m e2e` after `npm --prefix frontend run build`. The last tests add two mails that
+offer one posting and a link whose fetch is disputed: the run, the next check (which does not
+offer the mails again), the link under „Offene Links“ at a phone's width, a retry and a removal."""
 
 import json
 import threading
@@ -24,7 +25,7 @@ from test_triage_graph import POLICY_PACK, Harness
 
 from jobadvaisor.api.app import create_app
 from jobadvaisor.data.loader import load
-from jobadvaisor.data.writer import read_mailbox
+from jobadvaisor.data.writer import read_mailbox, read_unsettled_links
 from jobadvaisor.intake.alert_runs import AlertRuns
 from jobadvaisor.intake.fetch import FetchError
 from jobadvaisor.intake.fetch import Page as FetchedPage
@@ -313,7 +314,7 @@ def alert_mail(uid: int, subject: str, links: list[str], received: datetime) -> 
                     received)
 
 
-def test_a_posting_in_two_mails_is_fetched_once_and_a_disputed_link_brings_its_mail_back(
+def test_a_posting_in_two_mails_is_fetched_once_and_a_disputed_link_does_not_bring_its_mail_back(
         page, fake, data_root):
     now = datetime.now(UTC)
     fake.folders["Posteingang"].mails += [
@@ -332,7 +333,7 @@ def test_a_posting_in_two_mails_is_fetched_once_and_a_disputed_link_brings_its_m
     expect(copy).to_be_disabled()
     expect(copy).not_to_be_checked()
     expect(first).not_to_contain_text("Auch in der Mail")
-    expect(page.get_by_text("Eine Mail gilt danach als gelesen")).to_be_visible()
+    expect(page.get_by_text("Jede Mail dieser Liste gilt als gelesen")).to_be_visible()
     expect(page.get_by_role("button", name="3 Anzeigen hinzufügen")).to_be_enabled()
     assert full_reads(fake) == reads + 2
 
@@ -348,14 +349,24 @@ def test_a_posting_in_two_mails_is_fetched_once_and_a_disputed_link_brings_its_m
     expect(disputed).to_contain_text("andere Abrufe wurden aber abgewiesen")
     expect(rows.get_by_text("Stelle geschlossen", exact=True)).to_have_count(0)  # not closed
     expect(page.get_by_role("button", name="Lauf abbrechen")).to_have_count(0)  # the run is over
-    expect(page.get_by_text("bietet die Mails dieser Anzeigen wieder an")).to_be_visible()
+    expect(page.get_by_text(
+        "Die Links, die nicht gelesen, nicht beurteilbar oder nicht gestartet sind, stehen unter "
+        "„Offene Links“. Ihre Mails gelten als gelesen.")).to_be_visible()
+    expect(page.get_by_text("wieder an")).to_have_count(0)  # no mail is offered again
+    expect(page.get_by_role("link", name="Offene Links ansehen")).to_have_attribute(
+        "href", "#/offene-links")
     assert fetched.count(SHARED) == 1  # one fetch for the link both mails list
     assert fetched.count(OWN) == 1
     assert fetched.count(DISPUTED) == 2  # the plain 404, then the rendered 429
     assert {SHARED, OWN} <= stored_urls(data_root)
     assert DISPUTED not in stored_urls(data_root)
     handled = read_mailbox(data_root).handled
-    assert handled.uids["Posteingang"].uids == [1, 2, 3, 4, 5]  # the second mail is not handled
+    assert handled.uids["Posteingang"].uids == [1, 2, 3, 4, 5, 6]  # both mails are handled
+    (row,) = read_unsettled_links(data_root).links  # the disputed link is kept, and nothing else
+    assert (row.url, row.title, row.source, row.state, row.tries) == (
+        DISPUTED, TITLES[DISPUTED], "mailbox", "unclear", 1)
+    assert not {FIRST, SECOND, "jobs@example.org"} & {
+        str(value) for value in row.model_dump().values()}  # no sender, no subject
 
     filters = page.get_by_role("group", name="Filter")
     unclear = filters.get_by_role("button", name="1 nicht beurteilbar", exact=True)
@@ -384,11 +395,106 @@ def test_a_posting_in_two_mails_is_fetched_once_and_a_disputed_link_brings_its_m
     unclear.click()  # the second press ends the filter
     expect(rows).to_have_count(3)
 
+
+
+def test_the_next_check_does_not_offer_the_mail_of_the_disputed_link_and_the_list_keeps_it(
+        page, fake):
     reads = full_reads(fake)
     page.get_by_role("button", name="Zurück zum Postfach").click()
     page.get_by_role("button", name="Postfach prüfen").click()
-    expect(mails).to_have_count(1, timeout=WAIT)
-    expect(second).to_contain_text("Schon gespeichert")  # the shared link, stored by the run
-    expect(first).to_have_count(0)
-    assert full_reads(fake) == reads + 1  # only the mail with the disputed link was read again
+    expect(page.get_by_text("Keine neuen Mails seit dem")).to_be_visible(timeout=WAIT)
+    expect(page.get_by_role("list", name="Mails der Prüfung")).to_have_count(0)
+    assert full_reads(fake) == reads  # neither mail was read again
+    # the badge's hidden text is part of each name, with no space before its comma
+    expect(page.get_by_role("link", name="Anzeige hinzufügen, 1 offener Link", exact=True)
+           ).to_be_visible()
+    expect(source(page, "Offene Links, 1 offener Link")).to_be_visible()
+
+    source(page, "Offene Links").click()
+    expect(page.get_by_role("heading", name="1 offener Link")).to_be_visible()
+    rows = page.get_by_role("list", name="Offene Links").locator("> li")
+    expect(rows).to_have_count(1)
+    row = rows.first
+    expect(row.get_by_text("Nicht beurteilbar", exact=True)).to_be_visible()
+    expect(row).to_contain_text(TITLES[DISPUTED])
+    expect(row).to_contain_text("Postfach · in 1 Lauf abgerufen")
+    expect(row.get_by_role(
+        "link", name=f"Anzeige „{TITLES[DISPUTED]}“ öffnen, neuer Tab: {DISPUTED}", exact=True)
+           ).to_have_attribute("href", DISPUTED)
+    expect(row.get_by_role("button", name="Erneut versuchen")).to_be_enabled()
+    expect(row.get_by_role("button", name="Entfernen")).to_be_enabled()
     assert fake.violations == []
+
+
+def box(locator) -> dict:
+    """The bounding box `{x, y, width, height}` of the one element `locator` finds."""
+    found = locator.bounding_box()
+    assert found is not None, locator
+    return found
+
+
+def test_on_a_phone_the_retry_buttons_sit_below_their_text_at_full_width(page):
+    page.set_viewport_size({"width": 390, "height": 844})
+    try:
+        # the buttons animate their layout (`transition-all`) when the media query switches on,
+        # so measure only once every transition has ended
+        page.wait_for_function("document.getAnimations().length === 0")
+        heading = page.get_by_role("heading", name="1 offener Link")
+        head_text = box(heading.locator(".."))
+        all_button = box(page.get_by_role("button", name="Alle erneut versuchen (1)"))
+        listing = box(page.get_by_role("list", name="Offene Links"))
+        assert all_button["y"] >= head_text["y"] + head_text["height"] - 1  # below the head text
+        assert abs(all_button["width"] - listing["width"]) <= 2  # at the list's width
+        assert abs(all_button["x"] - listing["x"]) <= 2
+
+        row = page.get_by_role("list", name="Offene Links").locator("> li").first
+        outer = box(row)
+        text = box(row.locator("> div").first)
+        retry, remove = (box(row.get_by_role("button", name=name))
+                         for name in ("Erneut versuchen", "Entfernen"))
+        for button in (retry, remove):
+            assert button["y"] >= text["y"] + text["height"] - 1  # below the row's text
+            assert abs(button["width"] - retry["width"]) <= 1
+        assert remove["y"] >= retry["y"] + retry["height"] - 1  # stacked, not side by side
+        # at the row's width: its inner width, less the border and the padding of 16 px a side
+        assert abs(retry["width"] - (outer["width"] - 34)) <= 2
+        assert page.evaluate(  # the page does not scroll sideways
+            "document.documentElement.scrollWidth <= document.documentElement.clientWidth")
+    finally:
+        page.set_viewport_size({"width": 1280, "height": 720})
+
+
+def test_a_retry_runs_the_disputed_link_again_and_the_list_counts_one_more_run(
+        page, fake, data_root):
+    fetched.clear()
+    page.get_by_role("list", name="Offene Links").locator("> li").first.get_by_role(
+        "button", name="Erneut versuchen").click()
+    expect(page.get_by_role("heading", name="1 von 1 erledigt")).to_be_visible(timeout=WAIT)
+    row = page.get_by_role("list", name="Stand je Anzeige").locator("> li")
+    expect(row).to_have_count(1)
+    expect(row.get_by_text("Nicht beurteilbar", exact=True)).to_be_visible()  # still disputed
+    assert fetched.count(DISPUTED) == 2  # the plain 404, then the rendered 429, as in the run
+    assert fetched.count(SHARED) == 0 and fetched.count(OWN) == 0  # only the listed link
+    (kept,) = read_unsettled_links(data_root).links
+    assert (kept.state, kept.tries, kept.source) == ("unclear", 2, "mailbox")  # the first source
+    assert read_mailbox(data_root).handled.uids["Posteingang"].uids == [1, 2, 3, 4, 5, 6]
+
+    page.get_by_role("button", name="Zurück zu den offenen Links").click()
+    list_row = page.get_by_role("list", name="Offene Links").locator("> li")
+    expect(list_row).to_have_count(1)
+    expect(list_row).to_contain_text("Postfach · in 2 Läufen abgerufen")
+    assert fake.violations == []
+
+
+def test_removing_the_link_empties_the_list_and_leaves_the_mails_alone(page, data_root):
+    handled = read_mailbox(data_root).handled.uids["Posteingang"].uids
+    stored = stored_urls(data_root)
+    page.get_by_role("list", name="Offene Links").get_by_role("button", name="Entfernen").click()
+    expect(page.get_by_role("heading", name="Keine offenen Links")).to_be_visible()
+    expect(page.get_by_text(f"„{TITLES[DISPUTED]}“ entfernt.", exact=True)).to_be_attached()
+    expect(page.get_by_role("list", name="Offene Links")).to_have_count(0)
+    expect(page.get_by_role("link", name="Anzeige hinzufügen", exact=True)
+           ).to_be_visible()  # the badge is gone: the name is the label alone
+    assert read_unsettled_links(data_root).links == []
+    assert read_mailbox(data_root).handled.uids["Posteingang"].uids == handled
+    assert stored_urls(data_root) == stored

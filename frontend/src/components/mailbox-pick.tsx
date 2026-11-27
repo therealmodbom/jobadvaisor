@@ -1,10 +1,11 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { ChevronDown, ChevronUp, LoaderCircle } from 'lucide-react'
 import { api, type AlertEntry, type AlertRunState, type MailboxCheckState, type MailboxMail, type MailboxMailHead } from '@/api'
-import { Note, PickRow } from '@/components/alert-pick'
+import { Note, PickRow, UNREADABLE_LIST } from '@/components/alert-pick'
 import { Button } from '@/components/ui/button'
 import { WhyDisabled } from '@/components/why'
 import { locked, PANEL, plural, preselected, ROW } from '@/lib/alert'
+import type { StartError } from '@/lib/alert-run'
 import { whenLabel } from '@/lib/german'
 import { mailboxReason, oversizedFailure } from '@/lib/mailbox'
 import { POLL_FAILURES, POLL_MS } from '@/lib/run'
@@ -218,13 +219,15 @@ function MailItem({ mail, reading, failure, on, toggle, setMany, collapsed, onCo
  * (keys read here) and `failures` (key to reason) describe, beside the check's own `reading`
  * flags (read in another tab). While a mail is read, or `busyRun` (an alert run that refused the
  * finish) computes, adding waits and a visible info icon says why; `finishing` waits for the
- * answer and `finishFailed` says it did not come. `onBusyEnded` runs when that run is over. */
+ * answer and `finishFailed` says it did not come (`unreadable`: the list of open links is
+ * invalid and nothing was added; `failed`: anything else; null: no failure). `onBusyEnded` runs
+ * when that run is over. */
 export function MailboxPickList({ check, reading, failures, finishing, finishFailed, busyRun, onBusyEnded, onRead, onAdd, onNothing, onText }: {
   check: MailboxCheckState
   reading: Set<string>
   failures: Record<string, string>
   finishing: boolean
-  finishFailed: boolean
+  finishFailed: StartError | null
   busyRun: string | null
   onBusyEnded: () => void
   onRead: (mail: MailboxMail) => void
@@ -261,7 +264,9 @@ export function MailboxPickList({ check, reading, failures, finishing, finishFai
     <section aria-label="Auswahlliste" className={cn(PANEL, 'min-w-0')}>
       {finishFailed && (
         <p role="alert" className={cn(ROW, 'border-danger bg-danger-soft')}>
-          Die Anzeigen konnten nicht hinzugefügt werden. Ist der Server erreichbar? Die Auswahl bleibt, du kannst es noch einmal versuchen.
+          {finishFailed === 'unreadable'
+            ? UNREADABLE_LIST
+            : 'Die Anzeigen konnten nicht hinzugefügt werden. Ist der Server erreichbar? Die Auswahl bleibt, du kannst es noch einmal versuchen.'}
         </p>
       )}
       {busyRun && <BusyRun id={busyRun} onEnded={onBusyEnded} />}
@@ -294,9 +299,9 @@ export function MailboxPickList({ check, reading, failures, finishing, finishFai
         </div>
       </div>
       <p className="text-sm text-muted-foreground">
-        Die Anzeigen werden nacheinander abgerufen. Eine Mail gilt danach als gelesen, wenn ihre hinzugefügten Anzeigen
-        gespeichert sind; eine Mail, aus der du nichts hinzufügst, sofort. Eine Mail mit einer Anzeige, die nicht gelesen
-        werden konnte, bietet die nächste Prüfung wieder an.
+        Die Anzeigen werden nacheinander abgerufen. Jede Mail dieser Liste gilt als gelesen, sobald ihre Anzeigen
+        hinzugefügt werden; eine Mail, aus der du nichts hinzufügst, sofort. Links, die nicht gelesen werden können,
+        landen unter „Offene Links“ und bringen ihre Mail nicht zurück.
       </p>
     </section>
   )

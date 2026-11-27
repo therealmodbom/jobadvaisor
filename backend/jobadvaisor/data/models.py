@@ -486,3 +486,41 @@ class Mailbox(Entity):
     last_check_at: AwareDatetime | None = None
     handled: MailRecord = MailRecord()
     waiting: MailRecord = MailRecord()
+
+
+MAX_UNSETTLED_TITLE = 300  # characters of a stored title; the writer cuts a longer one
+MAX_UNSETTLED_REASON = 200  # characters of a stored reason
+
+
+class UnsettledAttempt(Entity):
+    """One ladder attempt of a link's last try: its `step` and `outcome` only, never the
+    address it fetched (a redirect hop may carry a tracking token)."""
+
+    step: str
+    outcome: str
+
+
+class UnsettledLink(Entity):
+    """One row of `unsettled-links.json`: the cleaned `url` a run was given (its key is
+    `normalize_url(url)`, computed, never stored), the entry's `title`, the `source` that first
+    listed it, its `state` (`waiting` while a run holds it, `unread` and `unclear` for a failed
+    entry, `not_reached` for a link a run never ended), the `tries` (entries that ended with
+    it), `added_at` and `last_tried_at`, and the `attempts` or the `reason` of the last try."""
+
+    url: str = Field(min_length=1)
+    title: str = Field(default="", max_length=MAX_UNSETTLED_TITLE)
+    source: Literal["mailbox", "paste"]
+    state: Literal["waiting", "unread", "unclear", "not_reached"]
+    tries: int = Field(ge=0)
+    added_at: AwareDatetime
+    last_tried_at: AwareDatetime | None = None
+    attempts: list[UnsettledAttempt] = []
+    reason: str | None = Field(default=None, max_length=MAX_UNSETTLED_REASON)
+
+
+class UnsettledLinks(Entity):
+    """`unsettled-links.json`: the links alert runs could not settle, one row per link. A
+    missing file means an empty list. Holds no sender, subject or mail text."""
+
+    schema_version: SchemaVersion
+    links: list[UnsettledLink] = []

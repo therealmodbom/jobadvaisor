@@ -2,27 +2,30 @@
 settings, the folder list and the background check, over the fake IMAP client and the real
 finder (rule mails, so no model is called unless a test gives one)."""
 
+import json
 import threading
 import time
 from datetime import date
 
 import pytest
-from conftest import FakeStructuredModel, write_json
+from conftest import FakeStructuredModel, SpacingClock, write_json
 from cryptography.fernet import Fernet
 from fake_imap import FakeFolder, FakeImap, FakeMail, build_mail
 from fastapi.testclient import TestClient
 from test_alert_mail import fixture
 from test_alert_mail_model import Broken
+from test_api_unsettled_links import refuse_list_writes
 from test_guard import THRESHOLDS
 from test_mailbox_checks import DAY, KEY, PASSWORD, SERVER_TEXT, StubRuns, imap
 from test_triage_graph import POLICY_PACK, Harness, add_posting
 
 from jobadvaisor import mailbox_secret
 from jobadvaisor.api.app import create_app
+from jobadvaisor.data.loader import DataRepositoryError
 from jobadvaisor.data.models import MailRef
 from jobadvaisor.data.writer import mark_mails, read_mailbox, update_mailbox
 from jobadvaisor.intake import mailbox, mailbox_checks
-from jobadvaisor.intake.alert_runs import AlertRunBusyError
+from jobadvaisor.intake.alert_runs import AlertRunBusyError, AlertRuns
 from jobadvaisor.intake.mailbox import imap_errors
 from jobadvaisor.intake.postings import Intake
 from jobadvaisor.tools.guard import ContentGuard
@@ -47,14 +50,17 @@ def root(tmp_path, monkeypatch):
 
 
 class Api:
-    """The app over `root` with the fake mailbox `fake`, its alert runs stubbed; `get`, `put`
-    and `post` answer the response and `check()` runs a check to its end."""
+    """The app over `root` with the fake mailbox `fake`, its alert runs stubbed (real ones
+    with `real_runs`); `get`, `put` and `post` answer the response and `check()` runs a check
+    to its end."""
 
-    def __init__(self, tmp_path, root, fake=None, *, classifier=None, connect=None):
+    def __init__(self, tmp_path, root, fake=None, *, classifier=None, connect=None,
+                 real_runs=False):
         harness = Harness(tmp_path, root)
         guard = ContentGuard(classifier, THRESHOLDS if classifier else {})
-        self.root, self.fake, self.runs = root, fake, StubRuns()
         intake = Intake(root, FakeStructuredModel(), guard)
+        self.root, self.fake = root, fake
+        self.runs = AlertRuns(intake, SpacingClock().throttle()) if real_runs else StubRuns()
 
         def connector(account, password):
             with imap_errors():
@@ -557,11 +563,91 @@ def test_finishing_with_entries_starts_one_alert_run_and_marks_the_mails(tmp_pat
     answer = app.post(f"/mailbox/checks/{state['check_id']}/finish", {"entries": chosen})
     assert answer.status_code == 202 and answer.json() == {"run_id": "run-1"}
     assert [entry.url for entry in app.runs.started[0]] == urls[:2]
-    assert read_mailbox(root).handled.uids["Posteingang"].uids == [2]  # mail 1 awaits the run
-    app.runs.end({url: "stored" for url in urls[:2]})
-    assert read_mailbox(root).handled.uids["Posteingang"].uids == [1, 2]
+    assert read_mailbox(root).handled.uids["Posteingang"].uids == [1, 2]  # once it started
     assert app.get("/mailbox").json()["check_id"] is None
     assert app.get(f"/mailbox/checks/{state['check_id']}").json()["status"] == "finished"
+
+
+def test_a_mailbox_runs_unread_link_is_listed_without_any_mail_text(tmp_path, root,
+                                                                    monkeypatch):
+    """data-repository → Scenarios: File after a run, No mail text."""
+    attempts = [{"step": "plain", "url": "https://hop.example.net/?token=T-1",
+                 "outcome": "HTTP 429"}]
+    monkeypatch.setattr("jobadvaisor.intake.alert_runs.add_entry",
+                        lambda intake, entry: {"state": "failed", "attempts": attempts})
+    app = api(tmp_path, root, ba_mail(1), real_runs=True)
+    app.configure()
+    state = app.check()
+    url = state["mails"][0]["preview"]["entries"][0]["url"]
+    answer = app.post(f"/mailbox/checks/{state['check_id']}/finish",
+                      {"entries": [{"url": url, "title": "Sachbearbeiter (m/w/d)"}]})
+    run_id = answer.json()["run_id"]
+    deadline = time.monotonic() + 10
+    while app.get(f"/alert-mails/runs/{run_id}").json()["status"] == "running":
+        assert time.monotonic() < deadline, "the run never ended"
+        time.sleep(0.01)
+    text = (root / "unsettled-links.json").read_text()
+    row, = json.loads(text)["links"]
+    assert (row["url"], row["title"], row["source"], row["state"], row["tries"]) == (
+        url, "Sachbearbeiter (m/w/d)", "mailbox", "unread", 1)
+    assert row["attempts"] == [{"step": "plain", "outcome": "HTTP 429"}]
+    listing = app.get("/unsettled-links").text
+    first_line = next(line for line in BA_TEXT.splitlines() if line.strip())
+    for written in (text, listing):
+        for mail_text in ("jobs@example.org", "Neue Jobs", first_line.strip(), "hop.example"):
+            assert mail_text not in written
+
+
+@pytest.mark.parametrize("broken", ["invalid file", "write fails"])
+def test_a_finish_over_an_unreadable_list_is_503_and_marks_nothing(tmp_path, root, monkeypatch,
+                                                                   broken):
+    """posting-intake → Scenario: List cannot be written."""
+    app = api(tmp_path, root, ba_mail(1), empty_mail(2), real_runs=True)
+    app.configure()
+    state = app.check()
+    url = state["mails"][0]["preview"]["entries"][0]["url"]
+    if broken == "invalid file":
+        (root / "unsettled-links.json").write_text("{not json")
+    else:
+        refuse_list_writes(monkeypatch)
+    answer = app.post(f"/mailbox/checks/{state['check_id']}/finish",
+                      {"entries": [{"url": url, "title": "t"}]})
+    assert answer.status_code == 503 and answer.json()["error"] == "unsettled links unreadable"
+    assert answer.json()["detail"].startswith("unsettled-links.json")
+    assert read_mailbox(root).handled.uids["Posteingang"].uids == [2]  # the empty mail only
+    assert app.get(f"/mailbox/checks/{state['check_id']}").json()["status"] == "done"
+    assert app.runs.current() is None
+
+
+def test_a_mailbox_file_broken_after_the_run_started_is_no_unreadable_list(tmp_path, root):
+    """Only a problem of `unsettled-links.json` answers 503 `unsettled links unreadable`; a
+    `mailbox.json` that breaks between the run's start and the marks is an internal error."""
+    app = api(tmp_path, root, ba_mail(1))
+    app.configure()
+    state = app.check()
+    url = state["mails"][0]["preview"]["entries"][0]["url"]
+    start = app.runs.start
+
+    def start_and_break(entries, *, source):
+        (root / "mailbox.json").write_text("{not json")
+        return start(entries, source=source)
+    app.runs.start = start_and_break
+    answer = app.post(f"/mailbox/checks/{state['check_id']}/finish",
+                      {"entries": [{"url": url, "title": "t"}]})
+    assert answer.status_code == 500 and answer.json()["error"] == "internal error"
+
+
+def test_a_finish_whose_run_cannot_list_its_links_reports_the_problem(tmp_path, root):
+    app = api(tmp_path, root, ba_mail(1))
+    app.configure()
+    state = app.check()
+    url = state["mails"][0]["preview"]["entries"][0]["url"]
+    app.runs.error = DataRepositoryError(["unsettled-links.json: links[0].state: invalid"])
+    answer = app.post(f"/mailbox/checks/{state['check_id']}/finish",
+                      {"entries": [{"url": url, "title": "t"}]})
+    assert answer.status_code == 503
+    assert answer.json()["detail"] == "unsettled-links.json: links[0].state: invalid"
+    assert read_mailbox(root).handled.uids == {}
 
 
 def test_finishing_with_no_entry_answers_a_null_run(tmp_path, root):

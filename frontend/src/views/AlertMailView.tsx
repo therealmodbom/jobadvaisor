@@ -137,7 +137,7 @@ export function AlertMailView({ onUrl, onText, onPdf }: { onUrl: () => void; onT
     const entries = answer.entries
     return (
       <div className="flex flex-col gap-6">
-        {run.startError && <StartFailed />}
+        {run.startError && <StartFailed error={run.startError} />}
         <section aria-labelledby="alert-found" className={PANEL}>
           <div>
             <h2 id="alert-found" className="text-lg font-bold">

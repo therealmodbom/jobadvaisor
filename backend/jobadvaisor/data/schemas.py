@@ -19,6 +19,7 @@ from jobadvaisor.data.models import (
     Posting,
     Profile,
     Score,
+    UnsettledLinks,
 )
 from jobadvaisor.settings import REPOSITORY_ROOT
 
@@ -33,6 +34,7 @@ ENTITIES: dict[str, type[BaseModel]] = {
     "pool": Pool,
     "mailbox": Mailbox,
     "extraction-labels": ExtractionLabels,
+    "unsettled-links": UnsettledLinks,
 }
 
 

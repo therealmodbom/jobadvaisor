@@ -40,6 +40,7 @@ from jobadvaisor.data.models import (
     PoolSettings,
     Posting,
     Score,
+    UnsettledLinks,
 )
 
 
@@ -250,14 +251,12 @@ def update_mailbox_account(root: Path, host: str, port: int, user: str,
     return update_mailbox(root, change)
 
 
-def mark_mails(root: Path, handled: Iterable[MailRef] = (), waiting: Iterable[MailRef] = (),
-               account: tuple[str, str] | None = None) -> Mailbox | None:
+def mark_mails(root: Path, handled: Iterable[MailRef] = (),
+               waiting: Iterable[MailRef] = ()) -> Mailbox:
     """Record `handled` mails as never to be read again and `waiting` mails as waiting for
     screening, and return the mailbox. A handled mail leaves `waiting`. Read-modify-write under
-    the write gate, so a change made meanwhile survives. Given `account` (`(host, user)`), the
-    marks are made only while that account is the stored one, decided inside the same hold of
-    the gate: otherwise nothing is marked and the stored mailbox (`None` without one) is
-    answered. Without `account`, raises `ValueError` without a configured mailbox."""
+    the write gate (`update_mailbox`), so a change made meanwhile survives. Raises `ValueError`
+    without a configured mailbox and like `read_mailbox`."""
     handled, waiting = list(handled), list(waiting)
 
     def change(current: Mailbox | None) -> Mailbox:
@@ -266,11 +265,34 @@ def mark_mails(root: Path, handled: Iterable[MailRef] = (), waiting: Iterable[Ma
         return current.model_copy(update={
             "handled": current.handled.marked(handled),
             "waiting": current.waiting.unmarked(handled).marked(waiting)})
-    with write_gate:
-        stored = read_mailbox(root)
-        if account is not None and (stored is None or account != (stored.host, stored.user)):
-            return stored
-        return update_mailbox(root, change)
+    return update_mailbox(root, change)
+
+
+UNSETTLED_LINKS_FILE = Path("unsettled-links.json")
+
+
+def read_unsettled_links(root: Path) -> UnsettledLinks:
+    """`unsettled-links.json` under `root`, or an empty list when the file is missing. Raises
+    `DataRepositoryError` for an unreadable, invalid or unsupported-version file."""
+    return _read_entity(root, UNSETTLED_LINKS_FILE, UnsettledLinks) \
+        or UnsettledLinks(schema_version="1")
+
+
+@_gated
+def update_unsettled_links(root: Path,
+                           change: Callable[[UnsettledLinks], UnsettledLinks]) -> UnsettledLinks:
+    """Replace `unsettled-links.json` under `root` by `change(current)` and return it, like
+    `update_mailbox`: `current` is the file as it stands under the write gate (an empty list when
+    missing), the result is validated again and swapped in by rename. Raises like
+    `read_unsettled_links`, also for a file that cannot be written (an `OSError`, as one
+    problem naming the file), whatever `change` raises, and `ValueError` for an invalid result;
+    the file then stays as it was."""
+    links = UnsettledLinks.model_validate(change(read_unsettled_links(root)).model_dump())
+    try:
+        _replace(root / UNSETTLED_LINKS_FILE, links)
+    except OSError as error:
+        raise DataRepositoryError([f"{UNSETTLED_LINKS_FILE}: not writable: {error}"]) from error
+    return links
 
 
 def read_scores(root: Path) -> tuple[dict[str, Score], dict[str, str]]:

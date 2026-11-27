@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode, type Ref } from 'react'
 import { Check, CircleAlert, CircleSlash, Clock, Copy, Info, LoaderCircle } from 'lucide-react'
-import { api, ApiError, type AlertRunEntry, type AlertRunState, type Attempt, type PostingPageData } from '@/api'
-import { AttemptList } from '@/components/attempts'
+import { api, ApiError, type AlertRunEntry, type AlertRunState, type PostingPageData } from '@/api'
+import { AttemptList, type ShownAttempt } from '@/components/attempts'
 import { Notice, StartFailed } from '@/components/alert-pick'
 import { OriginalLink } from '@/components/posting'
 import { ErrorWithRetry } from '@/components/states'
@@ -25,6 +25,7 @@ export function AlertRunView({ run, words = PASTE_WORDS, onText, onPdf, onOver }
   if (run.gone) {
     return (
       <Notice title="Lauf nicht mehr bekannt" Icon={Info} text={words.lost}>
+        {words.listLink && <ListLink className="self-start" />}
         <Button type="button" onClick={onOver} className="self-start">{words.lostAction}</Button>
       </Notice>
     )
@@ -35,7 +36,7 @@ export function AlertRunView({ run, words = PASTE_WORDS, onText, onPdf, onOver }
     : progress?.entries
   return (
     <div className="flex flex-col gap-6">
-      {run.startError && <StartFailed />}
+      {run.startError && <StartFailed error={run.startError} />}
       {run.pollFailed ? (
         <ErrorWithRetry title="Der Stand des Laufs ist gerade nicht abrufbar"
                         detail="Der Server antwortet nicht. Der Lauf rechnet vielleicht weiter."
@@ -52,6 +53,11 @@ export function AlertRunView({ run, words = PASTE_WORDS, onText, onPdf, onOver }
       )}
     </div>
   )
+}
+
+/** The link „Offene Links ansehen“ to the source tab that keeps the links a run did not settle. */
+function ListLink({ className }: { className?: string }) {
+  return <a href="#/offene-links" className={cn('text-primary underline', className)}>Offene Links ansehen</a>
 }
 
 /** The run: "x von y erledigt", a bar while it computes, the filter row by outcome with its status
@@ -83,6 +89,9 @@ function RunPanel({ entries, status, words, start, runId, cancelRequested, onTex
   const offered = counts.filter((outcome) => outcome.count > 0 || outcome.id === filter)
   const listed = entries.map((entry, index) => ({ entry, index }))
     .filter(({ entry, index }) => filter === null || pinned.has(index) || (entry.same_as === undefined && outcomeOf(entry) === filter))
+  /** The closing sentence: of a cancelled run `words.cancelled` when set, else `words.again` for a finished or cancelled run with entries failed or not reached. */
+  const closing = status === 'cancelled' && words.cancelled ? words.cancelled
+    : (status === 'done' || status === 'cancelled') && count('failed') + count('waiting') > 0 ? words.again : null
   const choose = (next: Outcome | null) => {
     setFilter(next)
     setPinned(new Set())
@@ -103,7 +112,7 @@ function RunPanel({ entries, status, words, start, runId, cancelRequested, onTex
               <h2 id={crashId} className="text-lg font-bold">Der Lauf ist abgebrochen</h2>
               <p className="mt-1">
                 Ein Fehler hat ihn nach {finished} von {entries.length} Anzeigen beendet. Was bis dahin gespeichert ist,
-                bleibt gespeichert. {words.crash}
+                bleibt gespeichert. {words.crash}{words.listLink && <>{' '}<ListLink /></>}
               </p>
             </div>
           </div>
@@ -126,11 +135,10 @@ function RunPanel({ entries, status, words, start, runId, cancelRequested, onTex
               Prüfe Titel, Firma und Ort der neuen Anzeigen auf ihren Seiten.
             </p>
           )}
-          {status === 'cancelled' && words.cancelled && (
-            <p className="mt-0.5 text-[15px] text-muted-foreground">{words.cancelled}</p>
-          )}
-          {(status === 'done' || status === 'cancelled') && words.again && count('failed') + count('waiting') > 0 && (
-            <p className="mt-0.5 text-[15px] text-muted-foreground">{words.again}</p>
+          {closing && (
+            <p className="mt-0.5 text-[15px] text-muted-foreground">
+              {closing}{words.listLink && <>{' '}<ListLink /></>}
+            </p>
           )}
         </div>
         {status === 'running' && runId && <CancelRun key={runId} runId={runId} requested={cancelRequested} />}
@@ -264,7 +272,7 @@ function Label({ icon, text, tone, ref }: { icon: ReactNode; text: string; tone?
 /** The attempts of a closed or failed row behind a collapsed „Details: n Versuche“ („1 Versuch“
  * for one), a native `<details>` so the keyboard and the expanded state come from the browser.
  * No attempts, no control. */
-function AttemptDetails({ attempts }: { attempts: Attempt[] }) {
+export function AttemptDetails({ attempts }: { attempts: ShownAttempt[] }) {
   if (attempts.length === 0) return null
   return (
     <details className="text-[15px]">

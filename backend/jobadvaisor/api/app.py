@@ -52,6 +52,7 @@ from jobadvaisor.data.models import (
     Score,
 )
 from jobadvaisor.data.writer import (
+    UNSETTLED_LINKS_FILE,
     delete_posting,
     read_mailbox,
     read_pool,
@@ -67,6 +68,7 @@ from jobadvaisor.intake import alert_mail, mailbox_checks
 from jobadvaisor.intake.alert_runs import (
     AlertRunBusyError,
     AlertRuns,
+    LinkInRunError,
     RunEntry,
     RunNotRunningError,
 )
@@ -148,12 +150,28 @@ class AlertRunEntryBody(BaseModel):
         return self
 
 
+MAX_RUN_ENTRIES = 1000  # entries of one run body: a retry of the whole list of unsettled links
+
+
 class AlertRunBody(BaseModel):
-    """`POST /alert-mails/runs` body: 1 to 100 entries."""
+    """`POST /alert-mails/runs` body: 1 to `MAX_RUN_ENTRIES` entries (more than a mail's 100,
+    so „Alle erneut versuchen“ sends every unsettled link in one run), and the optional
+    `source` a link new to the list of unsettled links is listed with (`paste` by default; the
+    run view sends `mailbox` when it stores an entry of a mailbox run anyway)."""
 
     model_config = ConfigDict(extra="forbid")
 
-    entries: list[AlertRunEntryBody] = Field(min_length=1, max_length=alert_mail.MAX_ENTRIES)
+    entries: list[AlertRunEntryBody] = Field(min_length=1, max_length=MAX_RUN_ENTRIES)
+    source: Literal["mailbox", "paste"] = "paste"
+
+
+class UnsettledLinkBody(BaseModel):
+    """`DELETE /unsettled-links` body: the `url` of the row to remove, compared as duplicate
+    detection compares links."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    url: StrictStr = Field(min_length=1)
 
 
 class MailboxBody(BaseModel):
@@ -183,7 +201,7 @@ class MailboxCheckBody(BaseModel):
 
 class MailboxFinishBody(BaseModel):
     """`POST /mailbox/checks/{id}/finish` body: the chosen entries, none up to all the check
-    offered (there is no upper limit of 100 as for a pasted mail)."""
+    offered, with no upper limit (the check's own offer bounds them)."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -789,18 +807,59 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
             return problem(502, str(error), "reading the mail failed; try again")
         return answer | {"screening": intake.guard.classifier is not None}
 
+    def unsettled_unreadable(error: DataRepositoryError) -> JSONResponse:
+        """503 `unsettled links unreadable` with the loader's problems on one line as `detail`,
+        for a `DataRepositoryError` of `unsettled-links.json`; any other file's error
+        propagates (an internal error)."""
+        if not error.problems[0].startswith(str(UNSETTLED_LINKS_FILE)):
+            raise error
+        return problem(503, "unsettled links unreadable", "; ".join(error.problems))
+
     @app.post("/alert-mails/runs", status_code=202)
     def start_alert_run(body: AlertRunBody) -> dict:
         """Add the chosen entries in the background, each link cleaned again first; answers
-        `{run_id}` at once. 409 `{error: "alert run in progress", detail, run_id}` while a run
-        computes, so the client can follow it; 422 `invalid request`."""
+        `{run_id}` at once. Every link waits in the list of unsettled links from the start; one
+        new to it is listed with the body's `source`, one already listed keeps its row (a retry
+        from the list posts its rows' links without `source`). 409 `{error: "alert run in
+        progress", detail, run_id}` while a run computes, so the client can follow it; 422
+        `invalid request` (more than `MAX_RUN_ENTRIES` entries included); 503 `unsettled links
+        unreadable` (nothing started)."""
         entries = [RunEntry(alert_mail.clean_link(entry.url.strip()), entry.title, entry.force)
                    for entry in body.entries]
         try:
-            return {"run_id": alert_runs.start(entries)}
+            return {"run_id": alert_runs.start(entries, source=body.source)}
         except AlertRunBusyError as error:
             return JSONResponse({"error": "alert run in progress", "detail": str(error),
                                  "run_id": error.run_id}, status_code=409)
+        except DataRepositoryError as error:
+            return unsettled_unreadable(error)
+
+    @app.get("/unsettled-links")
+    def list_unsettled_links() -> dict:
+        """The links alert runs could not settle (`AlertRuns.unsettled`): `{links: [{url, title,
+        source, state, tries, added_at, last_tried_at, attempts: [{step, outcome}], reason,
+        in_run}], run_id}`, newest activity first; `run_id` names the computing alert run, or
+        null. Never a sender, subject or mail text. 503 `unsettled links unreadable`."""
+        try:
+            return alert_runs.unsettled()
+        except DataRepositoryError as error:
+            return unsettled_unreadable(error)
+
+    @app.delete("/unsettled-links")
+    def remove_unsettled_link(body: UnsettledLinkBody) -> dict:
+        """Remove the row of `{url}` (the link goes in the body, so it needs no encoding as a
+        path segment) and answer `{links}` as `GET` does. Changes no posting and no mail mark.
+        404 `not found` without a row, 409 `link in run` for a link the computing run has not
+        ended, 503 `unsettled links unreadable`."""
+        try:
+            alert_runs.remove(body.url)
+            return {"links": alert_runs.unsettled()["links"]}
+        except KeyError:
+            return problem(404, "not found", f"{body.url} is not in the list")
+        except LinkInRunError as error:
+            return problem(409, "link in run", str(error))
+        except DataRepositoryError as error:
+            return unsettled_unreadable(error)
 
     @app.get("/alert-mails/runs/{run_id}")
     def read_alert_run(run_id: str) -> dict:
@@ -814,8 +873,8 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
     def cancel_alert_run(run_id: str) -> dict:
         """Ask the running run to stop after the entry it works on; answers `{run_id}` at once,
         and the run reports `cancel_requested` until it has ended `cancelled`, the entries it
-        did not reach `waiting`. 404 `not found` for an unknown run, 409 `run not running` for
-        one that has ended."""
+        did not reach `waiting` and their links `not_reached` in `GET /unsettled-links`. 404
+        `not found` for an unknown run, 409 `run not running` for one that has ended."""
         try:
             if alert_runs.cancel(run_id) is None:
                 return problem(404, "not found", f"no alert run {run_id}")
@@ -991,13 +1050,15 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
     @app.post("/mailbox/checks/{check_id}/finish", status_code=202)
     def finish_mailbox_check(check_id: str, body: MailboxFinishBody) -> dict:
         """Finish a done check's pick list with `{entries: [{url, title, force?}]}` (none up to
-        all offered, each link cleaned again): one alert run adds them. The mails with no link
-        in the run count as handled at once, the others when the run has ended and every link
-        of theirs in it was stored, a duplicate or closed. Answers `{run_id}` (null without
-        entries). 404 for an unknown check,
-        409 `alert run in progress` (with `run_id`; nothing marked), `check not done` (also a
-        second finish) or `read in progress`, 422 `entry not offered` for a link the check did
-        not offer, 422 `invalid request`."""
+        all offered, each link cleaned again): one alert run adds them, its links listed as
+        unsettled with the source `mailbox` from its start. Every mail of the pick list counts
+        as handled once the run has started, whatever its links' outcomes (one no model read
+        waits, one whose read failed stays unmarked); a link that ends unsettled stays in
+        `GET /unsettled-links`. Answers `{run_id}` (null without entries). 404 for an unknown
+        check, 409 `alert run in progress` (with `run_id`; nothing marked), `check not done`
+        (also a second finish) or `read in progress`, 422 `entry not offered` for a link the
+        check did not offer, 422 `invalid request`, 503 `unsettled links unreadable` (no run,
+        nothing marked)."""
         entries = [RunEntry(alert_mail.clean_link(entry.url.strip()), entry.title, entry.force)
                    for entry in body.entries]
         try:
@@ -1009,6 +1070,8 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
         except AlertRunBusyError as error:
             return JSONResponse({"error": "alert run in progress", "detail": str(error),
                                  "run_id": error.run_id}, status_code=409)
+        except DataRepositoryError as error:
+            return unsettled_unreadable(error)
 
     def stored_answer(posting_id: str, posting: Posting, duplicate_by: str | None,
                       attempts: list | None) -> JSONResponse:

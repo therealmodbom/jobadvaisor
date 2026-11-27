@@ -1,6 +1,10 @@
 import type { Attempt } from '@/api'
 import { cn } from '@/lib/utils'
 
+/** What the list shows of an attempt: the step and its outcome. The unsettled-links list keeps no
+ * address, so its attempts have no `url`. */
+export type ShownAttempt = Pick<Attempt, 'step' | 'outcome'> & Partial<Pick<Attempt, 'url'>>
+
 const STEPS: Record<string, string> = {
   bundesagentur: 'Jobbörse der Bundesagentur',
   plain: 'Einfacher Abruf',
@@ -48,7 +52,7 @@ const GONE = /^(HTTP 404|HTTP 410|closed page \((redirect|page text)\))$/
 
 /** Whether the attempt found the submitted link gone: a `loop:*` step fetches another page of
  * the search for the posting, so a gone answer there is just a failed step. */
-function isGone(attempt: Attempt) {
+function isGone(attempt: ShownAttempt) {
   return !attempt.step.startsWith('loop:') && GONE.test(attempt.outcome)
 }
 
@@ -56,7 +60,7 @@ function isGone(attempt: Attempt) {
  * fetch ladder's, as `POST /postings` and the alert run report them; an attempt on the submitted
  * link that found the posting gone reads „Stelle geschlossen“, one on an alternative source
  * (`loop:*`) stays „fehlgeschlagen“. */
-export function AttemptList({ attempts, className }: { attempts: Attempt[]; className?: string }) {
+export function AttemptList({ attempts, className }: { attempts: ShownAttempt[]; className?: string }) {
   return (
     <ol className={cn('flex list-decimal flex-col gap-1 pl-5', className)}>
       {attempts.map((attempt, index) => (

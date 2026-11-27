@@ -26,4 +26,5 @@ Each ADR has the sections Status, Context, Decision, Alternatives considered, Co
 | 0016 | [Mailbox password encrypted in the state directory, with the key from the secret configuration](0016-mailbox-password-encrypted-in-the-state-directory.md) | Accepted |
 | 0017 | [IMAPClient over the standard library's imaplib](0017-imapclient-over-imaplib.md) | Accepted |
 | 0018 | [A link counts as closed only on undisputed evidence](0018-closed-only-on-undisputed-evidence.md) | Accepted |
-| 0019 | [A mail counts as handled by the outcome of its entries](0019-a-mail-counts-as-handled-by-the-outcome-of-its-entries.md) | Accepted |
+| 0019 | [A mail counts as handled by the outcome of its entries](0019-a-mail-counts-as-handled-by-the-outcome-of-its-entries.md) | Accepted, marking by outcome superseded by 0020 |
+| 0020 | [Unsettled links kept apart from their mail](0020-unsettled-links-kept-apart-from-their-mail.md) | Accepted |

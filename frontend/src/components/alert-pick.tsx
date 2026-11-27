@@ -4,6 +4,7 @@ import type { AlertEntry } from '@/api'
 import { Badge, OriginalLink } from '@/components/posting'
 import { Button } from '@/components/ui/button'
 import { locked as isLocked, PANEL, ROW, ROW_BUTTON } from '@/lib/alert'
+import type { StartError } from '@/lib/alert-run'
 import { cn, isWebUrl } from '@/lib/utils'
 
 /** A hint above the pick list, in the muted box of the intake view. */
@@ -41,10 +42,18 @@ export function Notice({ title, text, Icon, danger = false, children }: {
   )
 }
 
-export function StartFailed() {
+/** What a run start or a pick list's finish says when the list of open links is invalid (503). */
+export const UNREADABLE_LIST = 'Die Liste der offenen Links (unsettled-links.json) ist nicht lesbar. Es wurde nichts hinzugefügt.'
+
+/** The notice of a run that could not start (`error`: the start's `StartError`); `keeps` names what
+ * stays for another try („Die Auswahl“ of a pick list, „Die Liste“ of the open links). The
+ * unreadable list says so and that nothing was added. */
+export function StartFailed({ error = 'failed', keeps = 'Die Auswahl' }: { error?: StartError; keeps?: string }) {
   return (
     <p role="alert" className="rounded-xl border border-danger bg-danger-soft px-4 py-3">
-      Der Lauf konnte nicht gestartet werden. Ist der Server erreichbar? Die Auswahl bleibt, du kannst es noch einmal versuchen.
+      {error === 'unreadable'
+        ? UNREADABLE_LIST
+        : `Der Lauf konnte nicht gestartet werden. Ist der Server erreichbar? ${keeps} bleibt, du kannst es noch einmal versuchen.`}
     </p>
   )
 }

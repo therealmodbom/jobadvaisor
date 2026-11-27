@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "UnsettledAttempt": {
+      "additionalProperties": false,
+      "description": "One ladder attempt of a link's last try: its `step` and `outcome` only, never the\naddress it fetched (a redirect hop may carry a tracking token).",
+      "properties": {
+        "step": {
+          "title": "Step",
+          "type": "string"
+        },
+        "outcome": {
+          "title": "Outcome",
+          "type": "string"
+        }
+      },
+      "required": [
+        "step",
+        "outcome"
+      ],
+      "title": "UnsettledAttempt",
+      "type": "object"
+    },
+    "UnsettledLink": {
+      "additionalProperties": false,
+      "description": "One row of `unsettled-links.json`: the cleaned `url` a run was given (its key is\n`normalize_url(url)`, computed, never stored), the entry's `title`, the `source` that first\nlisted it, its `state` (`waiting` while a run holds it, `unread` and `unclear` for a failed\nentry, `not_reached` for a link a run never ended), the `tries` (entries that ended with\nit), `added_at` and `last_tried_at`, and the `attempts` or the `reason` of the last try.",
+      "properties": {
+        "url": {
+          "minLength": 1,
+          "title": "Url",
+          "type": "string"
+        },
+        "title": {
+          "default": "",
+          "maxLength": 300,
+          "title": "Title",
+          "type": "string"
+        },
+        "source": {
+          "enum": [
+            "mailbox",
+            "paste"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "waiting",
+            "unread",
+            "unclear",
+            "not_reached"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "tries": {
+          "minimum": 0,
+          "title": "Tries",
+          "type": "integer"
+        },
+        "added_at": {
+          "format": "date-time",
+          "title": "Added At",
+          "type": "string"
+        },
+        "last_tried_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Tried At"
+        },
+        "attempts": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/UnsettledAttempt"
+          },
+          "title": "Attempts",
+          "type": "array"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        }
+      },
+      "required": [
+        "url",
+        "source",
+        "state",
+        "tries",
+        "added_at"
+      ],
+      "title": "UnsettledLink",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "`unsettled-links.json`: the links alert runs could not settle, one row per link. A\nmissing file means an empty list. Holds no sender, subject or mail text.",
+  "properties": {
+    "schema_version": {
+      "const": "1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "links": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/UnsettledLink"
+      },
+      "title": "Links",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version"
+  ],
+  "title": "UnsettledLinks",
+  "type": "object"
+}

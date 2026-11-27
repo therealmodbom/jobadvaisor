@@ -480,7 +480,8 @@ const mailEntry = (n: number) => mailEntries(1, n)[0]
 
 test('"Nichts hinzufügen" adds nothing, says the mails count as handled and returns to the mailbox', async () => {
   const calls = await openPicks(THREE(), { 'POST /mailbox/checks/c1/finish': { status: 202, body: { run_id: null } } })
-  expect(screen.getByText(/Eine Mail gilt danach als gelesen, wenn ihre hinzugefügten Anzeigen gespeichert sind; eine Mail, aus der du nichts hinzufügst, sofort\. Eine Mail mit einer Anzeige, die nicht gelesen werden konnte, bietet die nächste Prüfung wieder an\./)).toBeVisible()
+  expect(screen.getByText(/Jede Mail dieser Liste gilt als gelesen, sobald ihre Anzeigen hinzugefügt werden; eine Mail, aus der du nichts hinzufügst, sofort\. Links, die nicht gelesen werden können, landen unter „Offene Links“ und bringen ihre Mail nicht zurück\./)).toBeVisible()
+  expect(screen.queryByText(/bietet die nächste Prüfung wieder an/)).toBeNull()
   await userEvent.click(screen.getByRole('button', { name: 'Nichts hinzufügen' }))
   expect(finishes(calls)[0].body).toEqual({ entries: [] })
   expect(await screen.findByText(/Nichts hinzugefügt/)).toHaveTextContent(/nicht noch einmal angeboten/)
@@ -514,7 +515,19 @@ test('a refused finish, because another alert run computes, shows that run and k
   expect(await screen.findByRole('heading', { name: /erledigt/ })).toBeVisible()
 })
 
-test('a mailbox run with failed entries says that the next check offers their mails again', async () => {
+test('a finish refused because the list of open links is unreadable says so and keeps the pick list', async () => {
+  await openPicks(THREE(), { 'POST /mailbox/checks/c1/finish': { status: 503, body: { error: 'unsettled links unreadable', detail: 'x' } } })
+  await userEvent.click(addButton(6))
+  expect(await screen.findByRole('alert')).toHaveTextContent('Die Liste der offenen Links (unsettled-links.json) ist nicht lesbar. Es wurde nichts hinzugefügt.')
+  expect(screen.getByRole('list', { name: 'Mails der Prüfung' })).toBeVisible()
+  expect(localStorage.getItem(CHECK_KEY)).toBe('c1')
+})
+
+/** The two ways a report tells where unsettled links are kept: the sentence and the link. */
+const OPEN_LINKS = 'stehen unter „Offene Links“'
+const listLink = () => screen.getByRole('link', { name: 'Offene Links ansehen' })
+
+test('a mailbox run with failed entries says their links are kept under "Offene Links", links there and does not promise their mails', async () => {
   sessionStorage.setItem(RUN_KEY, 'r1')
   stubApi({ 'GET /mailbox': { body: CHECKED },
             'GET /alert-mails/runs/r1': { body: { run_id: 'r1', status: 'done', error: null, cancel_requested: false, total: 4, done: 4,
@@ -524,10 +537,15 @@ test('a mailbox run with failed entries says that the next check offers their ma
   const filters = await screen.findByRole('group', { name: 'Filter' })
   expect(within(filters).getAllByRole('button').map((button) => button.textContent))
     .toEqual(['Alle (4)', '1 hinzugefügt', '3 nicht gelesen'])
-  expect(screen.getByText('Die nächste Prüfung bietet die Mails dieser Anzeigen wieder an.')).toBeVisible()
+  const sentence = screen.getByText(/Die Links, die nicht gelesen, nicht beurteilbar oder nicht gestartet sind, stehen unter/)
+  expect(sentence).toHaveTextContent(OPEN_LINKS)
+  expect(sentence).toContainElement(listLink())
+  expect(listLink()).toHaveAttribute('href', '#/offene-links')
+  expect(screen.queryByText(/nächste Prüfung/)).toBeNull()
+  expect(screen.queryByText(/wieder an/)).toBeNull()
 })
 
-test('a cancelled mailbox run says after how many entries and that the next check offers the mails of the rest again', async () => {
+test('a cancelled mailbox run says after how many entries and where the links of the rest are kept', async () => {
   sessionStorage.setItem(RUN_KEY, 'r1')
   stubApi({ 'GET /mailbox': { body: CHECKED },
             'GET /alert-mails/runs/r1': { body: { run_id: 'r1', status: 'cancelled', error: null, cancel_requested: true, total: 3, done: 1,
@@ -535,22 +553,25 @@ test('a cancelled mailbox run says after how many entries and that the next chec
                         ...[2, 3].map((n) => ({ url: mailEntry(n).url, title: `Stelle ${n}`, state: 'waiting' }))] } } })
   view()
   expect(await screen.findByText('Abgebrochen nach 1 von 3 Anzeigen')).toBeVisible()
-  expect(screen.getByText('Die nächste Prüfung bietet die Mails dieser Anzeigen wieder an.')).toBeVisible()
+  expect(screen.getByText(/Die Links, die nicht gelesen, nicht beurteilbar oder nicht gestartet sind, stehen unter/)).toHaveTextContent(OPEN_LINKS)
+  expect(listLink()).toBeVisible()
+  expect(screen.queryByText(/nächste Prüfung/)).toBeNull()
   expect(screen.queryByText(/Füge die Mail erneut ein/)).toBeNull()
   expect(screen.getAllByText('nicht gestartet')).toHaveLength(2)
 })
 
-test('a mailbox run the server forgot says that the next check offers the mails of the unsaved postings again', async () => {
+test('a mailbox run the server forgot says so, that the links not added are kept under "Offene Links", and links there', async () => {
   sessionStorage.setItem(RUN_KEY, 'r1')
   stubApi({ 'GET /mailbox': { body: CHECKED }, 'GET /alert-mails/runs/r1': { status: 404, body: { error: 'run not found' } } })
   view()
   const notice = await screen.findByText(/Der Server kennt den Lauf nicht mehr\./)
-  expect(notice).toHaveTextContent('Die nächste Prüfung bietet die Mails der Anzeigen, die nicht gespeichert wurden, wieder an.')
-  expect(notice).not.toHaveTextContent(/gelten als gelesen/)
+  expect(notice).toHaveTextContent(`Schon gespeicherte Anzeigen bleiben gespeichert, die übrigen Links ${OPEN_LINKS}.`)
+  expect(notice).not.toHaveTextContent(/nächste Prüfung|wieder an/)
+  expect(listLink()).toHaveAttribute('href', '#/offene-links')
   expect(screen.getByRole('button', { name: 'Zurück zum Postfach' })).toBeVisible()
 })
 
-test('a crashed mailbox run says that the next check offers the mails of the unreached postings again', async () => {
+test('a crashed mailbox run says where the links it did not reach are kept, once, with the link', async () => {
   sessionStorage.setItem(RUN_KEY, 'r1')
   stubApi({ 'GET /mailbox': { body: CHECKED },
             'GET /alert-mails/runs/r1': { body: { run_id: 'r1', status: 'failed', error: 'boom', cancel_requested: false, total: 2, done: 1,
@@ -558,9 +579,29 @@ test('a crashed mailbox run says that the next check offers the mails of the unr
                         { url: mailEntry(2).url, title: 'Stelle 2', state: 'waiting' }] } } })
   view()
   const notice = await screen.findByRole('alert')
-  expect(notice).toHaveTextContent('Die nächste Prüfung bietet die Mails der Anzeigen, die nicht erreicht wurden, wieder an.')
-  expect(notice).not.toHaveTextContent(/gelten als gelesen/)
-  expect(screen.getAllByText(/Die nächste Prüfung bietet/)).toHaveLength(1)
+  expect(notice).toHaveTextContent(`Die Links, die er nicht erreicht hat, ${OPEN_LINKS}.`)
+  expect(notice).toContainElement(listLink())
+  expect(notice).not.toHaveTextContent(/nächste Prüfung|wieder an/)
+  expect(screen.getAllByText(/stehen unter „Offene Links“/)).toHaveLength(1)
+})
+
+test('a text duplicate of a mailbox run stored anyway goes out with the source "mailbox", so its row keeps the label', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  const calls = stubApi({
+    'GET /mailbox': { body: CHECKED },
+    'GET /postings/p-9': { body: { posting: { title: 'Lead Engineer Video', company: 'Musterdienst GmbH' } } },
+    'GET /alert-mails/runs/r1': { body: { run_id: 'r1', status: 'done', error: null, cancel_requested: false, total: 1, done: 1,
+      entries: [{ url: mailEntry(1).url, title: 'Stelle 1', state: 'duplicate', posting_id: 'p-9', duplicate_by: 'text' }] } },
+    'POST /alert-mails/runs': { status: 202, body: { run_id: 'r2' } },
+    'GET /alert-mails/runs/r2': { body: { run_id: 'r2', status: 'done', error: null, cancel_requested: false, total: 1, done: 1,
+      entries: [{ url: mailEntry(1).url, title: 'Stelle 1', state: 'stored', posting_id: 'p-10' }] } },
+  })
+  view()
+  await userEvent.click(await screen.findByRole('button', { name: 'Trotzdem als neue Anzeige speichern' }))
+  await userEvent.click(await screen.findByRole('button', { name: 'Ja, als neue Anzeige speichern' }))
+  await screen.findByText('Hinzugefügt')
+  expect(calls.find((call) => call.method === 'POST' && call.path === '/alert-mails/runs')!.body)
+    .toEqual({ entries: [{ url: mailEntry(1).url, title: 'Stelle 1', force: true }], source: 'mailbox' })
 })
 
 test('a mailbox run whose entries all ended well does not say it', async () => {
@@ -570,7 +611,8 @@ test('a mailbox run whose entries all ended well does not say it', async () => {
               entries: [{ url: mailEntry(1).url, title: 'Stelle 1', state: 'stored', posting_id: 'p-1' }] } } })
   view()
   await screen.findByRole('list', { name: 'Stand je Anzeige' })
-  expect(screen.queryByText(/Die nächste Prüfung/)).toBeNull()
+  expect(screen.queryByText(/Offene Links/)).toBeNull()
+  expect(screen.queryByRole('link', { name: 'Offene Links ansehen' })).toBeNull()
 })
 
 test('a check refused because an alert run computes shows that run and lets the check start again once it ended', async () => {

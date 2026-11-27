@@ -662,6 +662,8 @@ test('a run the server no longer knows says so and offers to paste the mail agai
   stubApi({ 'GET /alert-mails/runs/r1': { status: 404, body: { error: 'not found', detail: 'x' } } })
   view()
   expect(await screen.findByRole('heading', { name: 'Lauf nicht mehr bekannt' })).toBeVisible()
+  expect(screen.getByText(/die übrigen Links stehen unter „Offene Links“\. Du kannst die Mail auch noch einmal einfügen/)).toBeVisible()
+  expect(screen.getByRole('link', { name: 'Offene Links ansehen' })).toHaveAttribute('href', '#/offene-links')
   expect(sessionStorage.getItem(RUN_KEY)).toBeNull()
   await userEvent.click(screen.getByRole('button', { name: 'Mail noch einmal einfügen' }))
   expect(field()).toHaveValue('')
@@ -972,26 +974,59 @@ test('an ended run offers no cancel button', async () => {
   expect(screen.queryByRole('button', { name: /Lauf abbrechen|Wird abgebrochen/ })).toBeNull()
 })
 
-test('a cancelled pasted run says after how many entries, shows the rest as not started and says to paste the mail again', async () => {
+test('a cancelled pasted run says after how many entries, shows the rest as not started, names the list once and says to paste the mail again', async () => {
   sessionStorage.setItem(RUN_KEY, 'r1')
   const rows = Array.from({ length: 10 }, (_, i) => i < 4 ? row(i + 1, 'stored', { posting_id: `p-${i + 1}` }) : row(i + 1, 'waiting'))
   stubApi({ 'GET /alert-mails/runs/r1': { body: run(rows, { status: 'cancelled', cancel_requested: true }) } })
   view()
   const list = await screen.findByRole('list', { name: 'Stand je Anzeige' })
   expect(screen.getByText('Abgebrochen nach 4 von 10 Anzeigen')).toBeVisible()
-  expect(screen.getByText('Füge die Mail erneut ein, um die übrigen hinzuzufügen. Was schon gespeichert ist, erscheint dann als gespeichert.')).toBeVisible()
+  const sentence = screen.getByText(/Die Links, die nicht erreicht wurden, stehen unter „Offene Links“\./)
+  expect(sentence).toHaveTextContent('Du kannst die Mail auch erneut einfügen, um die übrigen hinzuzufügen: Was schon gespeichert ist, erscheint dann als gespeichert.')
+  expect(sentence).toContainElement(screen.getByRole('link', { name: 'Offene Links ansehen' }))
+  expect(screen.getAllByText(/stehen unter „Offene Links“/)).toHaveLength(1)
   expect(rowsOf(list).filter((item) => item.textContent?.includes('nicht gestartet'))).toHaveLength(6)
   expect(screen.queryByRole('button', { name: /Lauf abbrechen|Wird abgebrochen/ })).toBeNull()
   expect(screen.getByRole('button', { name: 'Andere Mail einfügen' })).toBeVisible()
   expect(screen.queryByText(/Die nächste Prüfung/)).toBeNull()
 })
 
-test('a pasted run with failed entries does not promise that the next check offers their mails', async () => {
+test('a pasted run with a failed entry says its link is kept under "Offene Links", links there, and does not promise the next check', async () => {
   sessionStorage.setItem(RUN_KEY, 'r1')
   stubApi({ 'GET /alert-mails/runs/r1': { body: run([row(1, 'failed')], { status: 'done' }) } })
   view()
   await screen.findByRole('list', { name: 'Stand je Anzeige' })
+  const sentence = screen.getByText(/Die Links, die nicht gelesen, nicht beurteilbar oder nicht gestartet sind, stehen unter/)
+  expect(sentence).toHaveTextContent('stehen unter „Offene Links“')
+  expect(screen.getByRole('link', { name: 'Offene Links ansehen' })).toHaveAttribute('href', '#/offene-links')
   expect(screen.queryByText(/Die nächste Prüfung/)).toBeNull()
+})
+
+test('a pasted run whose entries all ended well names no list', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /alert-mails/runs/r1': { body: run([row(1, 'stored', { posting_id: 'p-1' })], { status: 'done' }) } })
+  view()
+  await screen.findByRole('list', { name: 'Stand je Anzeige' })
+  expect(screen.queryByRole('link', { name: 'Offene Links ansehen' })).toBeNull()
+})
+
+test('a crashed pasted run keeps the paste-again way and names the list with its link', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  stubApi({ 'GET /alert-mails/runs/r1': { body: run([row(1, 'stored', { posting_id: 'p-1' }), row(2, 'waiting')],
+                                                     { status: 'failed', error: 'RuntimeError' }) } })
+  view()
+  const alert = await screen.findByRole('alert')
+  expect(alert).toHaveTextContent('Die Links, die er nicht erreicht hat, stehen unter „Offene Links“. Du kannst die Mail auch noch einmal einfügen: Gespeicherte Stellen sind dann markiert.')
+  expect(alert).toContainElement(screen.getByRole('link', { name: 'Offene Links ansehen' }))
+})
+
+test('a refused start because the list of open links is unreadable says nothing was added and keeps the pick list', async () => {
+  stubApi({ ...found([entry(1)]), 'POST /alert-mails/runs': { status: 503, body: { error: 'unsettled links unreadable', detail: 'x' } } })
+  view()
+  await findStellen()
+  await userEvent.click(screen.getByRole('button', { name: '1 Anzeige hinzufügen' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('Die Liste der offenen Links (unsettled-links.json) ist nicht lesbar. Es wurde nichts hinzugefügt.')
+  expect(screen.getByRole('list', { name: 'Gefundene Stellen' })).toBeVisible()
 })
 
 // ---- #162: filter by outcome ----

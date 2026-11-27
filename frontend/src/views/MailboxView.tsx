@@ -10,11 +10,12 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { WhyDisabled } from '@/components/why'
 import { MAILBOX_WORDS, plural } from '@/lib/alert'
-import { runStore, useAlertRun } from '@/lib/alert-run'
+import { runStore, useAlertRun, type StartError } from '@/lib/alert-run'
 import { dayLabel, daysBefore, whenLabel } from '@/lib/german'
 import { mailboxReason, oversizedFailure } from '@/lib/mailbox'
 import { useMailbox } from '@/lib/mailbox-check'
 import { SETTINGS_HASH } from '@/lib/sections'
+import { isUnreadable } from '@/lib/unsettled-links'
 import { cn, without } from '@/lib/utils'
 
 const MAILBOX_SECTION = `${SETTINGS_HASH}/postfach`
@@ -42,12 +43,12 @@ const folderSummary = (folders: MailboxAccount['folders']) => folders.names ? fo
  * intake view to the other sources, for an entry the run could not read. */
 export function MailboxView({ active, onText, onPdf }: { active: boolean; onText: () => void; onPdf: () => void }) {
   const box = useMailbox(active)
-  const run = useAlertRun(runs)
+  const run = useAlertRun(runs, 'mailbox')
   const { account, check } = box
   const [since, setSince] = useState(() => daysBefore(FIRST_DAYS))
   const [problem, setProblem] = useState('')
   const [finishing, setFinishing] = useState(false)
-  const [finishFailed, setFinishFailed] = useState(false)
+  const [finishFailed, setFinishFailed] = useState<StartError | null>(null)
   /** The alert run that refused the finish, until it ends. */
   const [busyRun, setBusyRun] = useState<string | null>(null)
   /** What the last finish without entries said, until the next check starts. */
@@ -98,7 +99,7 @@ export function MailboxView({ active, onText, onPdf }: { active: boolean; onText
     }
     setProblem('')
     setFlash('')
-    setFinishFailed(false)
+    setFinishFailed(null)
     setBusyRun(null)
     void box.start(account!.since === null ? since : null)
   }
@@ -109,7 +110,7 @@ export function MailboxView({ active, onText, onPdf }: { active: boolean; onText
   async function finish(entries: AlertEntry[]) {
     if (finishing || !check) return
     setFinishing(true)
-    setFinishFailed(false)
+    setFinishFailed(null)
     try {
       const { run_id: id } = await api<{ run_id: string | null }>(`/mailbox/checks/${check.check_id}/finish`, {
         method: 'POST', json: { entries: entries.map((entry) => ({ url: entry.url, title: entry.title, force: false })) },
@@ -120,7 +121,7 @@ export function MailboxView({ active, onText, onPdf }: { active: boolean; onText
     } catch (error) {
       if (error instanceof ApiError && error.status === 409 && typeof error.body.run_id === 'string') setBusyRun(error.body.run_id)
       else if (error instanceof ApiError && (error.status === 409 || error.status === 404)) void box.refresh()
-      else setFinishFailed(true)
+      else setFinishFailed(isUnreadable(error) ? 'unreadable' : 'failed')
     } finally {
       setFinishing(false)
     }

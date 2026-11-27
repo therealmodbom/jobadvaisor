@@ -1,10 +1,11 @@
 """Browser walkthrough of the alert-mail intake: paste a mail (a synthetic paste event carrying
 `text/html`, as a mail client's copy does), see the pick list with a stored entry marked, add the
 rest, see each outcome including one closed and one failed entry, and see the run again after a
-reload. Real app (`create_app` served by uvicorn) over a temporary data repository, the built
-frontend in Chromium, fake models and fake fetchers (no request leaves the machine). The tests
-share one server and run in order, each building on the one before; run them as a set:
-`pytest -m e2e` after `npm --prefix frontend run build`."""
+reload, and finally see the failed link under „Offene Links“. Real app (`create_app` served by
+uvicorn) over a temporary data repository, the built frontend in Chromium, fake models and fake
+fetchers (no request leaves the machine). The tests share one server and run in order, each
+building on the one before; run them as a set: `pytest -m e2e` after
+`npm --prefix frontend run build`."""
 
 import json
 import re
@@ -20,6 +21,7 @@ from test_triage_graph import POLICY_PACK, Harness, add_posting
 
 from jobadvaisor.api.app import create_app
 from jobadvaisor.data.loader import load
+from jobadvaisor.data.writer import read_unsettled_links
 from jobadvaisor.intake.fetch import FetchError
 from jobadvaisor.intake.fetch import Page as FetchedPage
 from jobadvaisor.intake.postings import Intake
@@ -239,3 +241,24 @@ def test_a_failed_entry_leads_to_the_text_source(page, app_url):
     run.get_by_role("button", name="Text einfügen").click()  # only the unreadable one offers it
     expect(page.get_by_label("Anzeigentext")).to_be_visible()
     expect(source(page, "Text einfügen")).to_have_attribute("aria-pressed", "true")
+
+
+def test_the_unreadable_pasted_link_is_kept_under_open_links(page, app_url, data_root):
+    page.goto(f"{app_url}/#/offene-links")
+    expect(source(page, "Offene Links")).to_have_attribute("aria-pressed", "true")
+    expect(page.get_by_role("heading", name="1 offener Link")).to_be_visible()
+    rows = page.get_by_role("list", name="Offene Links").locator("> li")
+    expect(rows).to_have_count(1)  # the closed link is settled, so it is not listed
+    row = rows.first
+    expect(row.get_by_text("Nicht gelesen", exact=True)).to_be_visible()
+    expect(row).to_contain_text(JOBS[5]["title"])
+    expect(row).to_contain_text("Alert-Mail · in 2 Läufen abgerufen")  # both runs tried it
+    expect(row).not_to_contain_text(JOBS[3]["title"])
+    open_details(row)
+    expect(row).to_contain_text("HTTP 503")
+    # the badge's hidden text is part of each name, with no space before its comma
+    expect(page.get_by_role("link", name="Anzeige hinzufügen, 1 offener Link", exact=True)
+           ).to_be_visible()
+    expect(source(page, "Offene Links, 1 offener Link")).to_be_visible()
+    (kept,) = read_unsettled_links(data_root).links
+    assert (kept.url, kept.source, kept.state, kept.tries) == (FAILING_URL, "paste", "unread", 2)

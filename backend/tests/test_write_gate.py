@@ -48,6 +48,7 @@ def _writes(root):
         "merge_extraction_labels": lambda: writer.merge_extraction_labels(root, {}),
         "write_login_wall_hosts": lambda: writer.write_login_wall_hosts(root, ["example.com"]),
         "write_import_mapping": lambda: writer.write_import_mapping(root, ImportMapping()),
+        "update_unsettled_links": lambda: writer.update_unsettled_links(root, lambda now: now),
     }
 
 

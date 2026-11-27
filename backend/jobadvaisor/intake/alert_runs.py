@@ -1,17 +1,31 @@
 """The background run of the entries chosen from an alert mail
 (`openspec/changes/archive/2026-11-16-alert-mail-intake/design.md` → Run): one entry after the
-other through the normal intake of a link, one run at a time, state in memory only (a restart
-forgets it). The lock guards the state only; the intake and the end hook run outside it."""
+other through the normal intake of a link, one run at a time, run state in memory only (a
+restart forgets it). Every run keeps the list of unsettled links in the data repository
+(`openspec/changes/182-unsettled-links-list/design.md` D3): its links wait from the start, each
+ended entry settles or keeps its row, and the end turns the links it did not reach
+`not_reached`. The lock guards the run state only and is never held while `write_gate` is
+taken; the intake and every list write run outside it."""
 
 import logging
 import threading
 import uuid
-from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from functools import partial
+from typing import Literal
 
 from pydantic import ValidationError
 
+from jobadvaisor.data.models import (
+    MAX_UNSETTLED_REASON,
+    MAX_UNSETTLED_TITLE,
+    UnsettledAttempt,
+    UnsettledLink,
+    UnsettledLinks,
+)
+from jobadvaisor.data.writer import read_unsettled_links, update_unsettled_links
 from jobadvaisor.intake.company_facts import HOST_SPACING_SECONDS, Throttle
 from jobadvaisor.intake.duplicates import normalize_url
 from jobadvaisor.intake.fetch import guarded_link, host_throttle
@@ -19,6 +33,7 @@ from jobadvaisor.intake.ladder import gone_disputed
 from jobadvaisor.intake.postings import Intake, PostingNotFoundError, add_from_url
 
 log = logging.getLogger(__name__)
+Source = Literal["mailbox", "paste"]
 
 
 class AlertRunBusyError(Exception):
@@ -31,6 +46,10 @@ class AlertRunBusyError(Exception):
 
 class RunNotRunningError(Exception):
     """The run is `done`, `failed` or `cancelled`, so it takes no cancel."""
+
+
+class LinkInRunError(Exception):
+    """The link is `waiting` in the list while a run computes, so it cannot be removed."""
 
 
 @dataclass(frozen=True)
@@ -72,41 +91,131 @@ def add_entry(intake: Intake, entry: RunEntry) -> dict:
     return {"state": "duplicate", "posting_id": posting_id, "duplicate_by": duplicate_by}
 
 
+def _rows(links: UnsettledLinks) -> dict[str, UnsettledLink]:
+    """The rows of `links` by their link's key (`normalize_url`); of a key repeated by a hand
+    edit, the first row."""
+    rows: dict[str, UnsettledLink] = {}
+    for row in links.links:
+        rows.setdefault(normalize_url(row.url), row)
+    return rows
+
+
+def _taken(current: UnsettledLinks, entries: list[RunEntry], source: Source,
+           now: datetime) -> UnsettledLinks:
+    """`current` as a run of `entries` starts: every row still `waiting` (a run lost in a
+    restart) turns `not_reached`, then each distinct link of `entries` waits, a new row with
+    `tries: 0` and `added_at: now`, an existing one with the entry's title and all else kept."""
+    rows = {key: row.model_copy(update={"state": "not_reached"}) if row.state == "waiting"
+            else row for key, row in _rows(current).items()}
+    seen = set()
+    for entry in entries:
+        key = normalize_url(entry.url)
+        if key in seen:
+            continue
+        seen.add(key)
+        title = entry.title[:MAX_UNSETTLED_TITLE]
+        rows[key] = rows[key].model_copy(update={"state": "waiting", "title": title}) \
+            if key in rows else UnsettledLink(url=entry.url, title=title, source=source,
+                                              state="waiting", tries=0, added_at=now)
+    return current.model_copy(update={"links": list(rows.values())})
+
+
+TAILED = ("connection failed", "browser failed", "fetch failed")  # outcomes stored as prefix
+
+
+def _bare(outcome: str) -> str:
+    """`outcome` without the variable tail of the `TAILED` outcomes, whose text can name the
+    address a step fetched (the browser's message names the redirect it navigated)."""
+    return next((prefix for prefix in TAILED if outcome.startswith(prefix)), outcome)
+
+
+def _settled(current: UnsettledLinks, *, entry: RunEntry, outcome: dict, source: Source,
+             now: datetime) -> UnsettledLinks:
+    """`current` once `entry` ended with `outcome` (`add_entry`) at `now`: `stored`,
+    `duplicate` and `closed` drop the link's row; `failed` makes it `unclear` (with
+    `unclear: true`) or `unread`, counts one try, and keeps the attempts as `{step, outcome}`
+    (`_bare`) and the reason cut to `MAX_UNSETTLED_REASON`. A row missing for a failed link (a
+    hand edit removed it) is created with `source`."""
+    rows = _rows(current)
+    key = normalize_url(entry.url)
+    if outcome["state"] != "failed":
+        rows.pop(key, None)
+    else:
+        row = rows.get(key) or UnsettledLink(
+            url=entry.url, title=entry.title[:MAX_UNSETTLED_TITLE], source=source,
+            state="waiting", tries=0, added_at=now)
+        rows[key] = row.model_copy(update={
+            "state": "unclear" if outcome.get("unclear") else "unread",
+            "tries": row.tries + 1, "last_tried_at": now,
+            "attempts": [UnsettledAttempt(step=attempt["step"], outcome=_bare(attempt["outcome"]))
+                         for attempt in outcome.get("attempts", [])],
+            "reason": (outcome.get("reason") or "")[:MAX_UNSETTLED_REASON] or None})
+    return current.model_copy(update={"links": list(rows.values())})
+
+
+def _ended(current: UnsettledLinks, *, keys: set[str],
+           unwritten: dict[str, tuple[RunEntry, dict, datetime]],
+           source: Source) -> UnsettledLinks:
+    """`current` once a run over the links `keys` has ended: the outcomes whose own write
+    failed (`unwritten`: link key → entry, outcome, end time) are applied now (`_settled`), and
+    every row of `keys` still `waiting` turns `not_reached`. Rows of other links stay as they
+    are."""
+    for entry, outcome, at in unwritten.values():
+        current = _settled(current, entry=entry, outcome=outcome, source=source, now=at)
+    rows = _rows(current)
+    for key in keys & rows.keys():
+        if rows[key].state == "waiting":
+            rows[key] = rows[key].model_copy(update={"state": "not_reached"})
+    return current.model_copy(update={"links": list(rows.values())})
+
+
 class AlertRuns:
-    """Starts and reads alert runs into `intake`, one at a time, state in memory only. Every
+    """Starts and reads alert runs into `intake`, one at a time, run state in memory only, and
+    keeps the list of unsettled links of `intake.root` (`start`). Every
     request of a run's intake waits on `throttle` (default: one request per host per
     `HOST_SPACING_SECONDS`) through `fetch.host_throttle`; tests pass one on a fake clock."""
 
     def __init__(self, intake: Intake, throttle: Throttle | None = None):
-        self._intake = intake
+        self._intake, self._root = intake, intake.root
         self._throttle = throttle or Throttle(HOST_SPACING_SECONDS)
         self._executor = ThreadPoolExecutor(max_workers=1)
         self._lock = threading.Lock()
         self._state: dict[str, dict] = {}
         self._computing: str | None = None
+        self._held: frozenset[str] = frozenset()  # link keys of the computing run
 
-    def start(self, entries: list[RunEntry],
-              on_end: Callable[[list[dict]], None] | None = None) -> str:
+    def start(self, entries: list[RunEntry], *, source: Source) -> str:
         """Add `entries` in the background and return the run's ID at once. Raises
-        `AlertRunBusyError` while another run computes. `on_end(entries)` gets the final
-        entry states (`read`'s `entries`) on the worker thread, outside this object's lock,
-        after the last entry, after a crash, after a cancel, and before the run's status leaves
-        `running` and the slot is freed. A hook that takes a lock must never take one a caller of
-        `start` holds. An exception in it is logged by its type and never keeps the slot."""
+        `AlertRunBusyError` while another run computes. Once the slot is claimed, and outside
+        this object's lock, the list of unsettled links is written in one change (`_taken`):
+        leftover `waiting` rows turn `not_reached`, and each link of `entries` waits, a new one
+        listed with `source`. When that write raises (`DataRepositoryError` for an unreadable,
+        invalid or unwritable file), the slot is freed, nothing starts and the error propagates.
+        From the claim on, the run holds the keys of its links (`_holding`). The lock is
+        released first because a backup can hold `write_gate` for seconds and `read` must not
+        wait for it. Each fetched entry then settles or keeps its row (`_settled`; a failed
+        write is logged and retried at the end), and the end of the run (after the last entry,
+        a cancel or a crash, before the slot is freed) applies those retries and turns this
+        run's rows still `waiting` `not_reached` (`_ended`); a failure there is logged by its
+        type and never keeps the slot."""
         run_id = uuid.uuid4().hex
         with self._lock:
             if self._computing:
                 raise AlertRunBusyError(self._computing)
             self._computing = run_id
+            self._held = frozenset(normalize_url(entry.url) for entry in entries)
             self._state[run_id] = {
                 "run_id": run_id, "status": "running", "error": None,
                 "cancel_requested": False, "total": len(entries),
                 "entries": [{"url": e.url, "title": e.title, "state": "waiting"} for e in entries]}
         try:
-            self._executor.submit(self._run, run_id, entries, on_end)
+            now = datetime.now(UTC)
+            update_unsettled_links(self._root,
+                                   lambda current: _taken(current, entries, source, now))
+            self._executor.submit(self._run, run_id, entries, source)
         except Exception:
             with self._lock:
-                self._computing = None
+                self._computing, self._held = None, frozenset()
                 del self._state[run_id]
             raise
         return run_id
@@ -116,11 +225,57 @@ class AlertRuns:
         with self._lock:
             return self._computing
 
+    def _holding(self) -> tuple[str | None, frozenset[str]]:
+        """The computing run's ID and the keys (`normalize_url`) of its links, read together;
+        `(None, frozenset())` while none computes."""
+        with self._lock:
+            return self._computing, self._held
+
+    def unsettled(self) -> dict:
+        """The list of unsettled links as the API serves it: `{links, run_id}`, `run_id` the
+        computing run or `None`, `links` newest activity first (`last_tried_at`, else
+        `added_at`), each `{url, title, source, state, tries, added_at, last_tried_at,
+        attempts, reason, in_run}`. A `waiting` row reads `in_run: true` while the computing run
+        holds its link, and `not_reached` otherwise (a process that died mid-run, or a row a
+        lost run left before the start write of the computing one). Raises
+        `DataRepositoryError` for an unreadable or invalid file."""
+        links = read_unsettled_links(self._root)  # first: a run ending meanwhile reads as ended
+        run_id, held = self._holding()
+        answer = []
+        for key, row in sorted(_rows(links).items(), reverse=True,
+                               key=lambda item: item[1].last_tried_at or item[1].added_at):
+            shown = row.model_dump(mode="json") | {"in_run": False}
+            if row.state == "waiting":
+                shown |= {"in_run": True} if key in held else {"state": "not_reached"}
+            answer.append(shown)
+        return {"links": answer, "run_id": run_id}
+
+    def remove(self, url: str) -> None:
+        """Drop the row of `url` (compared by `normalize_url`) from the list in one change.
+        Raises `KeyError` without a row and `LinkInRunError` for a `waiting` row whose link the
+        computing run holds (`_holding`, as `unsettled` reads `in_run`), decided inside that
+        change (under `write_gate`, before this object's lock), so a run starting meanwhile
+        cannot interleave; `DataRepositoryError` for an unreadable, invalid or unwritable file.
+        Changes no posting and no mail mark."""
+        key = normalize_url(url)
+
+        def change(current: UnsettledLinks) -> UnsettledLinks:
+            rows = _rows(current)
+            if key not in rows:
+                raise KeyError(url)
+            run_id, held = self._holding()
+            if rows[key].state == "waiting" and key in held:
+                raise LinkInRunError(f"{url} is still in alert run {run_id}")
+            del rows[key]
+            return current.model_copy(update={"links": list(rows.values())})
+        update_unsettled_links(self._root, change)
+
     def cancel(self, run_id: str) -> str | None:
         """Ask the running run to stop; returns its ID at once. The worker looks for the request
-        before each entry, so the entry it works on is finished, then the run ends `cancelled`
-        and the entries it did not reach stay `waiting`. Answers `None` for an unknown ID and
-        raises `RunNotRunningError` for a run that has ended."""
+        before each entry, so the entry it works on is finished, then the run ends `cancelled`:
+        the entries it did not reach stay `waiting` in the run state (`read`), and their links
+        turn `not_reached` in the list of unsettled links (`_ended`). Answers `None` for an
+        unknown ID and raises `RunNotRunningError` for a run that has ended."""
         with self._lock:
             state = self._state.get(run_id)
             if state is None:
@@ -148,10 +303,11 @@ class AlertRuns:
                        for entry in entries)
             return state | {"entries": entries, "done": done}
 
-    def _run(self, run_id: str, entries: list[RunEntry],
-             on_end: Callable[[list[dict]], None] | None) -> None:
+    def _run(self, run_id: str, entries: list[RunEntry], source: Source) -> None:
         status, error = "done", None
         seen: dict[str, int] = {}  # link key → index of the entry that was fetched for it
+        # link key → (entry, outcome, end time) of an entry whose row could not be written
+        unwritten: dict[str, tuple[RunEntry, dict, datetime]] = {}
         try:
             for index, entry in enumerate(entries):
                 with self._lock:
@@ -173,17 +329,27 @@ class AlertRuns:
                     outcome = add_entry(self._intake, entry)
                 finally:
                     host_throttle.reset(token)
+                now = datetime.now(UTC)
+                try:  # before the entry shows as ended, so a reader of `done` sees its row
+                    update_unsettled_links(self._root, partial(
+                        _settled, entry=entry, outcome=outcome, source=source, now=now))
+                except Exception as failure:  # the run goes on; the end retries the write
+                    log.warning("alert run %s: an ended entry was not written to the list of "
+                                "unsettled links (%s)", run_id, type(failure).__name__)
+                    unwritten[key] = (entry, outcome, now)
                 with self._lock:
                     self._state[run_id]["entries"][index] |= outcome
         except Exception as crash:  # the thread must not die silently
             status, error = "failed", type(crash).__name__
         finally:
-            if on_end is not None:
-                try:
-                    on_end(self.read(run_id)["entries"])
-                except Exception as hook:  # the slot must be freed whatever the hook did
-                    log.warning("alert run %s: the end hook failed (%s)", run_id,
-                                type(hook).__name__)
+            # Before the slot is freed, so no later run's rows are waiting yet.
+            try:
+                update_unsettled_links(self._root, partial(
+                    _ended, keys={normalize_url(entry.url) for entry in entries},
+                    unwritten=unwritten, source=source))
+            except Exception as failure:  # the slot must be freed whatever the write did
+                log.warning("alert run %s: the end of the run was not written to the list of "
+                            "unsettled links (%s)", run_id, type(failure).__name__)
             with self._lock:
                 self._state[run_id] |= {"status": status, "error": error}
-                self._computing = None
+                self._computing, self._held = None, frozenset()
