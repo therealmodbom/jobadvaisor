@@ -7,6 +7,7 @@ import { PostingFields } from '@/components/posting'
 import { AlertMailView } from '@/views/AlertMailView'
 import { MailboxView } from '@/views/MailboxView'
 import { ImportView } from '@/views/ImportView'
+import { UnsettledLinksView } from '@/views/UnsettledLinksView'
 import { ErrorWithRetry, Loading } from '@/components/states'
 import { Button } from '@/components/ui/button'
 import { Input, Textarea } from '@/components/ui/input'
@@ -125,6 +126,8 @@ export function IntakeView({ list = false, open = false }: { list?: boolean; ope
       <div hidden={chosen !== 'mailbox'}>
         <MailboxView active={chosen === 'mailbox'} onText={() => switchTo('text')} onPdf={() => switchTo('pdf')} />
       </div>
+
+      <div hidden={chosen !== 'open'}><UnsettledLinksView state={unsettled} /></div>
 
       <div hidden={chosen !== 'url' && chosen !== 'text' && chosen !== 'pdf'} className="flex flex-col gap-6">
         <form onSubmit={submit} className="flex flex-col gap-4 rounded-xl border bg-card p-5 shadow-card">

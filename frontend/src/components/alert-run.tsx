@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode, type Ref } from 'react'
 import { Check, CircleAlert, CircleSlash, Clock, Copy, Info, LoaderCircle } from 'lucide-react'
-import { api, ApiError, type AlertRunEntry, type AlertRunState, type Attempt, type PostingPageData } from '@/api'
-import { AttemptList } from '@/components/attempts'
+import { api, ApiError, type AlertRunEntry, type AlertRunState, type PostingPageData } from '@/api'
+import { AttemptList, type ShownAttempt } from '@/components/attempts'
 import { Notice, StartFailed } from '@/components/alert-pick'
 import { OriginalLink } from '@/components/posting'
 import { ErrorWithRetry } from '@/components/states'
@@ -264,7 +264,7 @@ function Label({ icon, text, tone, ref }: { icon: ReactNode; text: string; tone?
 /** The attempts of a closed or failed row behind a collapsed „Details: n Versuche“ („1 Versuch“
  * for one), a native `<details>` so the keyboard and the expanded state come from the browser.
  * No attempts, no control. */
-function AttemptDetails({ attempts }: { attempts: Attempt[] }) {
+export function AttemptDetails({ attempts }: { attempts: ShownAttempt[] }) {
   if (attempts.length === 0) return null
   return (
     <details className="text-[15px]">
