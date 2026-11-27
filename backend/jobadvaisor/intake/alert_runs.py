@@ -26,7 +26,7 @@ from jobadvaisor.data.models import (
     UnsettledLink,
     UnsettledLinks,
 )
-from jobadvaisor.data.writer import update_unsettled_links
+from jobadvaisor.data.writer import read_unsettled_links, update_unsettled_links
 from jobadvaisor.intake.company_facts import HOST_SPACING_SECONDS, Throttle
 from jobadvaisor.intake.duplicates import normalize_url
 from jobadvaisor.intake.fetch import guarded_link, host_throttle
@@ -47,6 +47,10 @@ class AlertRunBusyError(Exception):
 
 class RunNotRunningError(Exception):
     """The run is `done`, `failed` or `cancelled`, so it takes no cancel."""
+
+
+class LinkInRunError(Exception):
+    """The link is `waiting` in the list while a run computes, so it cannot be removed."""
 
 
 @dataclass(frozen=True)
@@ -223,6 +227,43 @@ class AlertRuns:
         """The ID of the computing run, or `None`."""
         with self._lock:
             return self._computing
+
+    def unsettled(self) -> dict:
+        """The list of unsettled links as the API serves it: `{links, run_id}`, `run_id` the
+        computing run or `None`, `links` newest activity first (`last_tried_at`, else
+        `added_at`), each `{url, title, source, state, tries, added_at, last_tried_at,
+        attempts, reason, in_run}`. A `waiting` row reads `in_run: true` while a run computes
+        and `not_reached` while none does (a process that died mid-run). Raises
+        `DataRepositoryError` for an unreadable or invalid file."""
+        links = read_unsettled_links(self._root)  # first: a run ending meanwhile reads as ended
+        run_id = self.current()
+        rows = sorted(_rows(links).values(), key=lambda row: row.last_tried_at or row.added_at,
+                      reverse=True)
+        answer = []
+        for row in rows:
+            shown = row.model_dump(mode="json") | {"in_run": False}
+            if row.state == "waiting":
+                shown |= {"in_run": True} if run_id else {"state": "not_reached"}
+            answer.append(shown)
+        return {"links": answer, "run_id": run_id}
+
+    def remove(self, url: str) -> None:
+        """Drop the row of `url` (compared by `normalize_url`) from the list in one change.
+        Raises `KeyError` without a row and `LinkInRunError` for a `waiting` row while a run
+        computes, decided inside that change (under `write_gate`, before this object's lock),
+        so a run starting meanwhile cannot interleave; `DataRepositoryError` for an unreadable
+        or invalid file. Changes no posting and no mail mark."""
+        key = normalize_url(url)
+
+        def change(current: UnsettledLinks) -> UnsettledLinks:
+            rows = _rows(current)
+            if key not in rows:
+                raise KeyError(url)
+            if rows[key].state == "waiting" and (run_id := self.current()):
+                raise LinkInRunError(f"{url} is still in alert run {run_id}")
+            del rows[key]
+            return current.model_copy(update={"links": list(rows.values())})
+        update_unsettled_links(self._root, change)
 
     def cancel(self, run_id: str) -> str | None:
         """Ask the running run to stop; returns its ID at once. The worker looks for the request

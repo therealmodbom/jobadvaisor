@@ -10,13 +10,18 @@ from conftest import FakeStructuredModel, SpacingClock, ToolScriptModel, write_j
 from test_triage_graph import POLICY_PACK
 
 import jobadvaisor.intake.alert_runs as runs_module
-from jobadvaisor.data.loader import DataRepositoryError
+from jobadvaisor.data.loader import DataRepositoryError, write_gate
 from jobadvaisor.data.models import UnsettledLink, UnsettledLinks
-from jobadvaisor.data.writer import read_unsettled_links, update_unsettled_links
+from jobadvaisor.data.writer import (
+    read_unsettled_links,
+    update_mailbox_account,
+    update_unsettled_links,
+)
 from jobadvaisor.intake import ladder as ladder_module
 from jobadvaisor.intake.alert_runs import (
     AlertRunBusyError,
     AlertRuns,
+    LinkInRunError,
     RunEntry,
     RunNotRunningError,
     add_entry,
@@ -892,3 +897,98 @@ def test_the_end_is_written_before_the_slot_is_freed_so_the_next_run_keeps_its_r
     assert rows(tmp_path)[LINKS[0]].state == "waiting"
     release.set()
     finished(runs, second)
+
+
+# --- reading and removing -----------------------------------------------------------------------
+
+
+def shown(runs: AlertRuns) -> dict[str, tuple[str, bool]]:
+    """`unsettled()`'s rows as URL → (state, in_run)."""
+    return {link["url"]: (link["state"], link["in_run"]) for link in runs.unsettled()["links"]}
+
+
+def test_after_a_restart_waiting_rows_read_as_not_reached(tmp_path):
+    """posting-intake → Scenario: Restart during a run (a fresh `AlertRuns` over its file)."""
+    write_json(tmp_path / "policy-pack.json", POLICY_PACK)
+    listed(tmp_path, row(LINKS[0], state="waiting"), row(LINKS[1]))
+    fresh = AlertRuns(Intake(tmp_path, FakeStructuredModel(), ContentGuard(None, {})))
+    answer = fresh.unsettled()
+    assert answer["run_id"] is None
+    assert shown(fresh) == {LINKS[0]: ("not_reached", False), LINKS[1]: ("unread", False)}
+    assert set(answer["links"][0]) == {"url", "title", "source", "state", "tries", "added_at",
+                                       "last_tried_at", "attempts", "reason", "in_run"}
+    assert answer["links"][0]["attempts"] == [{"step": "plain", "outcome": "HTTP 429"}]
+
+
+def test_the_rows_of_the_computing_run_are_in_run_and_the_answer_names_it(
+        runs, tmp_path, monkeypatch):
+    listed(tmp_path, row(LINKS[2]))
+    entered, release = holding_first(monkeypatch)
+    run_id = runs.start([RunEntry(LINKS[0], "A"), RunEntry(LINKS[1], "B")], source="paste")
+    assert entered.wait(10)
+    assert runs.unsettled()["run_id"] == run_id
+    assert shown(runs) == {LINKS[0]: ("waiting", True), LINKS[1]: ("waiting", True),
+                           LINKS[2]: ("unread", False)}
+    release.set()
+    finished(runs, run_id)
+    assert runs.unsettled()["run_id"] is None and shown(runs) == {LINKS[2]: ("unread", False)}
+
+
+def test_the_rows_are_ordered_by_their_latest_activity_newest_first(runs, tmp_path):
+    listed(tmp_path, row(LINKS[0], last_tried_at=datetime(2026, 11, 21, tzinfo=UTC)),
+           row(LINKS[1], last_tried_at=None, added_at=datetime(2026, 11, 22, tzinfo=UTC)),
+           row(LINKS[2], last_tried_at=datetime(2026, 11, 23, tzinfo=UTC)))
+    assert list(shown(runs)) == [LINKS[2], LINKS[1], LINKS[0]]
+
+
+def test_a_removed_link_is_gone_and_nothing_else_changes(runs, tmp_path):
+    """posting-intake → Scenario: Remove a link (also for a fresh `AlertRuns`, as after a
+    restart, and for a link in another tracking form)."""
+    update_mailbox_account(tmp_path, "imap.example.org", 993, "name@example.org")
+    write_json(tmp_path / "postings" / "p1.json", {"schema_version": "1", "title": "T"})
+    before = {path: path.read_bytes() for path in tmp_path.rglob("*.json")
+              if path.name != "unsettled-links.json"}
+    listed(tmp_path, row(LINKS[0]), row(LINKS[1]))
+    runs.remove(f"{LINKS[0]}?utm_source=mail")
+    assert list(shown(runs)) == [LINKS[1]]
+    fresh = AlertRuns(Intake(tmp_path, FakeStructuredModel(), ContentGuard(None, {})))
+    assert list(shown(fresh)) == [LINKS[1]]
+    assert {path: path.read_bytes() for path in tmp_path.rglob("*.json")
+            if path.name != "unsettled-links.json"} == before
+
+
+def test_a_link_the_computing_run_has_not_ended_cannot_be_removed(runs, tmp_path, monkeypatch):
+    """posting-intake → Scenario: Remove during the run; a row the run does not hold can go."""
+    listed(tmp_path, row(LINKS[2]))
+    entered, release = holding_first(monkeypatch)
+    run_id = runs.start([RunEntry(LINKS[0], "A"), RunEntry(LINKS[1], "B")], source="paste")
+    assert entered.wait(10)
+    with pytest.raises(LinkInRunError):
+        runs.remove(LINKS[1])
+    runs.remove(LINKS[2])
+    assert set(shown(runs)) == {LINKS[0], LINKS[1]}
+    release.set()
+    finished(runs, run_id)
+
+
+def test_an_unknown_link_is_not_found(runs, tmp_path):
+    """posting-intake → Scenario: Unknown link."""
+    listed(tmp_path, row(LINKS[0]))
+    with pytest.raises(KeyError):
+        runs.remove(LINKS[1])
+    assert list(shown(runs)) == [LINKS[0]]
+
+
+def test_the_in_run_refusal_is_decided_inside_the_write(runs, tmp_path, monkeypatch):
+    """`remove` asks for the computing run while it holds the write gate, so a run that starts
+    meanwhile cannot list the link as waiting between the check and the removal."""
+    listed(tmp_path, row(LINKS[0], state="waiting"))
+    held = []
+
+    def current():
+        held.append(write_gate._is_owned())
+        return "run-9"
+    monkeypatch.setattr(runs, "current", current)
+    with pytest.raises(LinkInRunError):
+        runs.remove(LINKS[0])
+    assert held == [True]
