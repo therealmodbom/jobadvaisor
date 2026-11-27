@@ -3,7 +3,7 @@
 ## 0. Design gate
 
 - [x] 0.1 Design approved on the canvas https://claude.ai/artifact/LA6KDXpz7UePRYrn5Ccjod (2026-11-27)
-- [ ] 0.2 Revert the prototype edits in `frontend/src` (kept as `tmp/design-182/prototype.patch`) before task 1.1, and verify that `git status` shows no change under `frontend/src`
+- [x] 0.2 Revert the prototype edits in `frontend/src` (kept as `tmp/design-182/prototype.patch`) before task 1.1, and verify that `git status` shows no change under `frontend/src`
 
 ## 1. The file and its writer (D1, D2)
 
