@@ -10,11 +10,18 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from functools import partial
 from typing import Literal
 
 from pydantic import ValidationError
 
-from jobadvaisor.data.models import MAX_UNSETTLED_TITLE, UnsettledLink, UnsettledLinks
+from jobadvaisor.data.models import (
+    MAX_UNSETTLED_REASON,
+    MAX_UNSETTLED_TITLE,
+    UnsettledAttempt,
+    UnsettledLink,
+    UnsettledLinks,
+)
 from jobadvaisor.data.writer import update_unsettled_links
 from jobadvaisor.intake.company_facts import HOST_SPACING_SECONDS, Throttle
 from jobadvaisor.intake.duplicates import normalize_url
@@ -106,6 +113,39 @@ def _taken(current: UnsettledLinks, entries: list[RunEntry], source: Source,
     return current.model_copy(update={"links": list(rows.values())})
 
 
+TAILED = ("connection failed", "browser failed", "fetch failed")  # outcomes stored as prefix
+
+
+def _bare(outcome: str) -> str:
+    """`outcome` without the variable tail of the `TAILED` outcomes, whose text can name the
+    address a step fetched (the browser's message names the redirect it navigated)."""
+    return next((prefix for prefix in TAILED if outcome.startswith(prefix)), outcome)
+
+
+def _settled(current: UnsettledLinks, *, entry: RunEntry, outcome: dict, source: Source,
+             now: datetime) -> UnsettledLinks:
+    """`current` once `entry` ended with `outcome` (`add_entry`) at `now`: `stored`,
+    `duplicate` and `closed` drop the link's row; `failed` makes it `unclear` (with
+    `unclear: true`) or `unread`, counts one try, and keeps the attempts as `{step, outcome}`
+    (`_bare`) and the reason cut to `MAX_UNSETTLED_REASON`. A row missing for a failed link (a
+    hand edit removed it) is created with `source`."""
+    rows = _rows(current)
+    key = normalize_url(entry.url)
+    if outcome["state"] != "failed":
+        rows.pop(key, None)
+    else:
+        row = rows.get(key) or UnsettledLink(
+            url=entry.url, title=entry.title[:MAX_UNSETTLED_TITLE], source=source,
+            state="waiting", tries=0, added_at=now)
+        rows[key] = row.model_copy(update={
+            "state": "unclear" if outcome.get("unclear") else "unread",
+            "tries": row.tries + 1, "last_tried_at": now,
+            "attempts": [UnsettledAttempt(step=attempt["step"], outcome=_bare(attempt["outcome"]))
+                         for attempt in outcome.get("attempts", [])],
+            "reason": (outcome.get("reason") or "")[:MAX_UNSETTLED_REASON] or None})
+    return current.model_copy(update={"links": list(rows.values())})
+
+
 class AlertRuns:
     """Starts and reads alert runs into `intake`, one at a time, state in memory only. Every
     request of a run's intake waits on `throttle` (default: one request per host per
@@ -146,7 +186,7 @@ class AlertRuns:
             now = datetime.now(UTC)
             update_unsettled_links(self._root,
                                    lambda current: _taken(current, entries, source, now))
-            self._executor.submit(self._run, run_id, entries, on_end)
+            self._executor.submit(self._run, run_id, entries, on_end, source)
         except Exception:
             with self._lock:
                 self._computing = None
@@ -192,9 +232,11 @@ class AlertRuns:
             return state | {"entries": entries, "done": done}
 
     def _run(self, run_id: str, entries: list[RunEntry],
-             on_end: Callable[[list[dict]], None] | None) -> None:
+             on_end: Callable[[list[dict]], None] | None, source: Source) -> None:
         status, error = "done", None
         seen: dict[str, int] = {}  # link key → index of the entry that was fetched for it
+        # link key → (entry, outcome, end time) of an entry whose row could not be written
+        unwritten: dict[str, tuple[RunEntry, dict, datetime]] = {}
         try:
             for index, entry in enumerate(entries):
                 with self._lock:
@@ -216,6 +258,14 @@ class AlertRuns:
                     outcome = add_entry(self._intake, entry)
                 finally:
                     host_throttle.reset(token)
+                now = datetime.now(UTC)
+                try:  # before the entry shows as ended, so a reader of `done` sees its row
+                    update_unsettled_links(self._root, partial(
+                        _settled, entry=entry, outcome=outcome, source=source, now=now))
+                except Exception as failure:  # the run goes on; the end retries the write
+                    log.warning("alert run %s: an ended entry was not written to the list of "
+                                "unsettled links (%s)", run_id, type(failure).__name__)
+                    unwritten[key] = (entry, outcome, now)
                 with self._lock:
                     self._state[run_id]["entries"][index] |= outcome
         except Exception as crash:  # the thread must not die silently
