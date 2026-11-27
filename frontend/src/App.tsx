@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
 import { BackupControl, BackupStrip } from '@/components/backup'
 import { SettingsLink } from '@/components/settings'
+import { CountBadge } from '@/components/count-badge'
 import { StaleBanner, VersionFooter } from '@/components/version'
 import { useBackupStatus } from '@/lib/backup'
 import { SECTIONS, SETTINGS_HASH } from '@/lib/sections'
+import { countOf, useUnsettledLinks } from '@/lib/unsettled-links'
 import { cn } from '@/lib/utils'
 import { useBackendVersion } from '@/lib/version'
 import { ChatView } from '@/views/ChatView'
@@ -26,6 +28,10 @@ type View = (typeof VIEWS)[number]
 /** The list import: "Anzeige hinzufügen" with its source "Liste" chosen. */
 const IMPORT_HASH = '#/importieren'
 
+/** The unsettled links: "Anzeige hinzufügen" with its source "Offene Links" chosen. A run's report
+ * links here, and a reload keeps the tab. */
+const OPEN_HASH = '#/offene-links'
+
 const POSTING_PREFIX = '#/anzeigen/'
 
 /** The ID of the posting page the hash opens (`#/anzeigen/<id>`, URI-decoded), else `null`. */
@@ -40,7 +46,8 @@ function postingIdOf(hash: string): string | null {
 }
 
 /** The app shell: the stale-page banner (only when the server runs another version), the header
- * with the main navigation, the backup control and the settings link, the open view (a main view, a posting page or the settings page) and the version footer; the three main
+ * with the main navigation (its item "Anzeige hinzufügen" carries the count of unsettled links),
+ * the backup control and the settings link, the open view (a main view, a posting page or the settings page) and the version footer; the three main
  * views stay mounted but hidden (so an import keeps polling), a posting page mounts only while
  * its route is open and keeps "Anzeigen" current in the navigation. The page sets its own
  * document title. */
@@ -53,9 +60,10 @@ function App() {
   }, [])
   const postingId = postingIdOf(hash)
   const importing = hash === IMPORT_HASH
+  const opening = hash === OPEN_HASH
   const settings = hash === SETTINGS_HASH || hash.startsWith(`${SETTINGS_HASH}/`)
   const section = SECTIONS.find((entry) => hash === `${SETTINGS_HASH}/${entry.id}`)?.id ?? SECTIONS[0].id
-  const view: View = importing ? VIEWS[1] : VIEWS.find((entry) => entry.hash === hash) ?? VIEWS[0]
+  const view: View = importing || opening ? VIEWS[1] : VIEWS.find((entry) => entry.hash === hash) ?? VIEWS[0]
   useEffect(() => {
     document.title = `${settings ? 'Einstellungen' : postingId ? 'Anzeige' : view.title} – JobAdvAIsor`
   }, [view, postingId, settings])
@@ -64,10 +72,11 @@ function App() {
   const [settingsSaved, setSettingsSaved] = useState(0)
   const backendVersion = useBackendVersion()
   const backup = useBackupStatus()
+  const openLinks = countOf(useUnsettledLinks())
 
   const content = {
     '#/pool': <PoolView active={view === VIEWS[0] && postingId === null && !settings} reloadKey={settingsSaved} />,
-    '#/hinzufuegen': <IntakeView list={importing} />,
+    '#/hinzufuegen': <IntakeView list={importing} open={opening} />,
     '#/fragen': <ChatView />,
   }
   return (
@@ -87,7 +96,7 @@ function App() {
                  className={cn('rounded-lg px-3.5 py-2.5 no-underline',
                    item === view && !settings ? 'bg-muted font-bold text-foreground'
                      : 'font-medium text-muted-foreground hover:text-foreground')}>
-                {item.label}
+                {item.label}{item === VIEWS[1] && <CountBadge count={openLinks} />}
               </a>
             ))}
           </nav>

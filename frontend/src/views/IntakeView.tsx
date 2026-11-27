@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Check, CircleAlert, CircleSlash, LoaderCircle, ShieldAlert, ShieldCheck, ShieldOff, Upload, X } from 'lucide-react'
 import { api, ApiError, type Attempt, type BatchResult, type IntakeAnswer, type Posting } from '@/api'
 import { AttemptList } from '@/components/attempts'
+import { CountBadge } from '@/components/count-badge'
 import { PostingFields } from '@/components/posting'
 import { AlertMailView } from '@/views/AlertMailView'
 import { MailboxView } from '@/views/MailboxView'
@@ -10,6 +11,7 @@ import { ErrorWithRetry, Loading } from '@/components/states'
 import { Button } from '@/components/ui/button'
 import { Input, Textarea } from '@/components/ui/input'
 import { categoryNames } from '@/lib/german'
+import { countOf, useUnsettledLinks } from '@/lib/unsettled-links'
 import { cn } from '@/lib/utils'
 
 type Source = 'url' | 'text' | 'pdf' | 'mail' | 'mailbox'
@@ -39,10 +41,14 @@ function intakeError(error: unknown): string {
  * source "Postfach", `MailboxView`), check the fields the app
  * filled, release a flagged posting, and edit the hosts that are never fetched anonymously.
  * With `list` (route `#/importieren`) it shows the source "Liste", the list import
- * (`ImportView`). Both views stay mounted while another source shows, so an import or an alert
- * run keeps polling; choosing "Liste" or leaving it changes the route. */
-export function IntakeView({ list = false }: { list?: boolean }) {
+ * (`ImportView`); with `open` (route `#/offene-links`) the source "Offene Links", whose count
+ * (`useUnsettledLinks`) is a badge on its button. The views stay mounted while another source
+ * shows, so an import or an alert run keeps polling; choosing "Liste" or "Offene Links" or
+ * leaving them changes the route. */
+export function IntakeView({ list = false, open = false }: { list?: boolean; open?: boolean }) {
   const [source, setSource] = useState<Source>('url')
+  const chosen: Source | 'list' | 'open' = list ? 'list' : open ? 'open' : source
+  const unsettled = useUnsettledLinks(chosen === 'open')
   const [url, setUrl] = useState('')
   const [text, setText] = useState('')
   const [file, setFile] = useState<File | null>(null)
@@ -80,13 +86,12 @@ export function IntakeView({ list = false }: { list?: boolean }) {
   }
 
   function switchTo(next: Source) {
-    if (list) window.location.assign('#/hinzufuegen')
+    if (list || open) window.location.assign('#/hinzufuegen')
     setSource(next)
     setStatus({ kind: 'idle' })
   }
 
   const submitLabel = running ? 'Wird hinzugefügt…' : 'Hinzufügen'
-  const chosen = list ? 'list' : source
   return (
     <div className="mx-auto flex max-w-[760px] flex-col gap-6">
       <div>
@@ -99,28 +104,29 @@ export function IntakeView({ list = false }: { list?: boolean }) {
 
       <div role="group" aria-label="Quelle der Anzeige"
            className="inline-flex flex-wrap gap-1 self-start rounded-[10px] bg-muted p-1">
-        {[...SOURCES, ['list', 'Liste'] as const].map(([id, label]) => (
+        {[...SOURCES, ['open', 'Offene Links'] as const, ['list', 'Liste'] as const].map(([id, label]) => (
           <button key={id} type="button" aria-pressed={chosen === id} disabled={running}
-                  onClick={() => id === 'list' ? window.location.assign('#/importieren') : switchTo(id)}
+                  onClick={() => id === 'list' ? window.location.assign('#/importieren')
+                    : id === 'open' ? window.location.assign('#/offene-links') : switchTo(id)}
                   className={cn('min-h-10 rounded-[7px] px-3.5 disabled:opacity-60',
                     chosen === id ? 'bg-card font-bold text-foreground shadow-card'
                       : 'font-medium text-muted-foreground')}>
-            {label}
+            {label}{id === 'open' && <CountBadge count={countOf(unsettled)} />}
           </button>
         ))}
       </div>
 
-      <div hidden={!list}><ImportView /></div>
+      <div hidden={chosen !== 'list'}><ImportView /></div>
 
-      <div hidden={list || source !== 'mail'}>
+      <div hidden={chosen !== 'mail'}>
         <AlertMailView onUrl={() => switchTo('url')} onText={() => switchTo('text')} onPdf={() => switchTo('pdf')} />
       </div>
 
-      <div hidden={list || source !== 'mailbox'}>
-        <MailboxView active={!list && source === 'mailbox'} onText={() => switchTo('text')} onPdf={() => switchTo('pdf')} />
+      <div hidden={chosen !== 'mailbox'}>
+        <MailboxView active={chosen === 'mailbox'} onText={() => switchTo('text')} onPdf={() => switchTo('pdf')} />
       </div>
 
-      <div hidden={list || source === 'mail' || source === 'mailbox'} className="flex flex-col gap-6">
+      <div hidden={chosen !== 'url' && chosen !== 'text' && chosen !== 'pdf'} className="flex flex-col gap-6">
         <form onSubmit={submit} className="flex flex-col gap-4 rounded-xl border bg-card p-5 shadow-card">
           {source === 'url' && (
             <div className="flex flex-col gap-1.5">

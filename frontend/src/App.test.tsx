@@ -1,6 +1,7 @@
-import { render, screen, within } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, expect, test, vi } from 'vitest'
+import { notifyUnsettledLinks } from '@/lib/unsettled-links'
 import { stubApi } from '@/test-api'
 import { NO_MAILBOX, POOL } from '@/test-fixtures'
 import { axe } from '@/test-axe'
@@ -68,6 +69,91 @@ test('the import is the source "Liste" of "Anzeige hinzufügen", and the pool re
   expect(loads).toBe(1)
   await userEvent.click(nav().getByRole('link', { name: 'Anzeigen' }))
   await vi.waitFor(() => expect(loads).toBe(2))
+})
+
+const openLink = (n: number, over: object = {}) => ({
+  url: `https://jobs.example.com/${n}`, title: `Stelle ${n}`, source: 'mailbox', state: 'unread', tries: 1,
+  added_at: '2026-11-27T08:00:00Z', last_tried_at: '2026-11-27T08:05:00Z', attempts: [], reason: null,
+  in_run: false, ...over,
+})
+const links = (count: number) => ({ body: { links: Array.from({ length: count }, (_, index) => openLink(index + 1)), run_id: null } })
+const sourceTabs = () => within(screen.getByRole('group', { name: 'Quelle der Anzeige' }))
+/** Lets the stubbed requests of the shell answer, for a test that expects something not to appear. */
+const settle = () => act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)) })
+
+test('after a run, the navigation item and the tab show the number of open links, part of both names', async () => {
+  stubApi({ 'GET /pool': { body: POOL }, 'GET /unsettled-links': links(12) })
+  window.location.hash = '#/hinzufuegen'
+  render(<App />)
+  expect(await nav().findByRole('link', { name: 'Anzeige hinzufügen, 12 offene Links' })).toBeVisible()
+  expect(sourceTabs().getByRole('button', { name: 'Offene Links, 12 offene Links' })).toBeVisible()
+})
+
+test('the badges say one open link in the singular', async () => {
+  stubApi({ 'GET /pool': { body: POOL }, 'GET /unsettled-links': links(1) })
+  render(<App />)
+  expect(await nav().findByRole('link', { name: 'Anzeige hinzufügen, 1 offener Link' })).toBeVisible()
+})
+
+test('links a computing run still has to fetch are not counted, and each one that fails raises both badges by one', async () => {
+  let failed = 0
+  stubApi({ 'GET /pool': { body: POOL }, 'GET /unsettled-links': () => ({ body: {
+    links: [1, 2, 3].map((n) => n <= failed ? openLink(n) : openLink(n, { state: 'waiting', in_run: true, tries: 0, last_tried_at: null })),
+    run_id: 'r1' } }) })
+  window.location.hash = '#/hinzufuegen'
+  render(<App />)
+  await settle()
+  expect(nav().getByRole('link', { name: 'Anzeige hinzufügen' })).toBeVisible()
+  expect(sourceTabs().getByRole('button', { name: 'Offene Links' })).toBeVisible()
+  failed = 1
+  act(() => notifyUnsettledLinks())
+  expect(await nav().findByRole('link', { name: 'Anzeige hinzufügen, 1 offener Link' })).toBeVisible()
+  expect(sourceTabs().getByRole('button', { name: 'Offene Links, 1 offener Link' })).toBeVisible()
+})
+
+test('without an open link, neither the navigation item nor the tab shows a badge', async () => {
+  stubApi({ 'GET /pool': { body: POOL } })
+  window.location.hash = '#/hinzufuegen'
+  render(<App />)
+  await settle()
+  expect(nav().getByRole('link', { name: 'Anzeige hinzufügen' })).toBeVisible()
+  expect(sourceTabs().getByRole('button', { name: 'Offene Links' })).toBeVisible()
+})
+
+test('an unreadable list shows no badge', async () => {
+  stubApi({ 'GET /pool': { body: POOL },
+            'GET /unsettled-links': { status: 503, body: { error: 'unsettled links unreadable', detail: 'unsettled-links.json: kaputt' } } })
+  window.location.hash = '#/hinzufuegen'
+  render(<App />)
+  await settle()
+  expect(nav().getByRole('link', { name: 'Anzeige hinzufügen' })).toBeVisible()
+  expect(sourceTabs().getByRole('button', { name: 'Offene Links' })).toBeVisible()
+})
+
+test('a reload with five open links shows both badges with 5', async () => {
+  stubApi({ 'GET /pool': { body: POOL }, 'GET /unsettled-links': links(5) })
+  window.location.hash = '#/offene-links'
+  render(<App />)
+  expect(await nav().findByRole('link', { name: 'Anzeige hinzufügen, 5 offene Links' })).toBeVisible()
+  expect(sourceTabs().getByRole('button', { name: 'Offene Links, 5 offene Links' })).toBeVisible()
+})
+
+test('a reload on the address of the tab opens "Offene Links" again, and another source leaves the address', async () => {
+  const calls = stubApi({ 'GET /pool': { body: POOL }, 'GET /policy-pack/login-wall-hosts': { body: { hosts: [] } } })
+  window.location.hash = '#/offene-links'
+  render(<App />)
+  expect(screen.getByRole('heading', { level: 1, name: 'Anzeige hinzufügen' })).toBeVisible()
+  expect(nav().getByRole('link', { name: 'Anzeige hinzufügen' })).toHaveAttribute('aria-current', 'page')
+  expect(sourceTabs().getByRole('button', { name: 'Offene Links' })).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.queryByLabelText('Link zur Anzeige')).not.toBeVisible()
+  expect(document.title).toBe('Anzeige hinzufügen – JobAdvAIsor')
+  await userEvent.click(sourceTabs().getByRole('button', { name: 'PDF' }))
+  expect(window.location.hash).toBe('#/hinzufuegen')
+  expect(sourceTabs().getByRole('button', { name: 'Offene Links' })).toHaveAttribute('aria-pressed', 'false')
+  expect(screen.getByLabelText('Anzeige als PDF')).toBeVisible()
+  await userEvent.click(sourceTabs().getByRole('button', { name: 'Offene Links' }))
+  expect(window.location.hash).toBe('#/offene-links')
+  expect(calls.filter((call) => call.path === '/unsettled-links').length).toBeGreaterThan(1)
 })
 
 test('a reload keeps the open view', () => {
@@ -156,7 +242,8 @@ test('an intake result and the posting page editor can be open at once, each lab
 // Contrast in both themes is checked on the tokens (contrast.test.ts), since jsdom applies no
 // stylesheet; this pass covers structure, names and roles of every view inside the shell.
 test.each([['#/pool', 'Deine Anzeigen'], ['#/hinzufuegen', 'Anzeige hinzufügen'],
-           ['#/importieren', 'Anzeige hinzufügen'], ['#/fragen', 'Fragen zu deinen Anzeigen']])('view %s has no accessibility violations',
+           ['#/importieren', 'Anzeige hinzufügen'], ['#/offene-links', 'Anzeige hinzufügen'],
+           ['#/fragen', 'Fragen zu deinen Anzeigen']])('view %s has no accessibility violations',
   async (hash, title) => {
     stubApi({ 'GET /pool': { body: POOL },
               'GET /policy-pack/login-wall-hosts': { body: { hosts: ['linkedin.com'] } } })
