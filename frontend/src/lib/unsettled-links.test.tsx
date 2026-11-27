@@ -4,7 +4,7 @@ import type { AlertRunState } from '@/api'
 import { stubApi } from '@/test-api'
 import { runStore, useAlertRun } from '@/lib/alert-run'
 import { POLL_MS } from '@/lib/run'
-import { countOf, notifyUnsettledLinks, useUnsettledLinks, type UnsettledLink } from '@/lib/unsettled-links'
+import { countOf, LIST_POLL_MS, notifyUnsettledLinks, useUnsettledLinks, type UnsettledLink } from '@/lib/unsettled-links'
 
 const link = (n: number, over: Partial<UnsettledLink> = {}): UnsettledLink => ({
   url: `https://jobs.example.com/${n}`, title: `Stelle ${n}`, source: 'mailbox', state: 'unread', tries: 1,
@@ -74,6 +74,26 @@ test('the list is read again on the window event', async () => {
   await waitFor(() => expect(reads(calls)).toBe(1))
   act(() => notifyUnsettledLinks())
   await waitFor(() => expect(reads(calls)).toBe(2))
+})
+
+test('while a run computes the list is read again every few seconds, so a run of another device ending frees the buttons; without a run it is not', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  let runId: string | null = 'other'
+  const calls = stubApi({ 'GET /unsettled-links': () => ({
+    body: { links: [link(1, runId ? { state: 'waiting', in_run: true } : {})], run_id: runId } }) })
+  const { result } = renderHook(() => useUnsettledLinks())
+  await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+  expect(result.current).toMatchObject({ runId: 'other' })
+  expect(countOf(result.current)).toBe(0)
+  await act(async () => { await vi.advanceTimersByTimeAsync(LIST_POLL_MS) })
+  expect(reads(calls)).toBe(2)
+  runId = null
+  await act(async () => { await vi.advanceTimersByTimeAsync(LIST_POLL_MS) })
+  expect(result.current).toMatchObject({ runId: null })
+  expect(countOf(result.current)).toBe(1)
+  await act(async () => { await vi.advanceTimersByTimeAsync(LIST_POLL_MS * 3) })
+  expect(reads(calls)).toBe(3)
+  expect(heard).not.toHaveBeenCalled()
 })
 
 test('the list is read again when the tab becomes the shown source, not while it stays shown', async () => {
