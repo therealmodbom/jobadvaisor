@@ -64,9 +64,11 @@ export function useUnsettledLinks(active = false): UnsettledState {
   useEffect(() => {
     let stale = false
     let latest = 0
+    let open = 0
     const read = () => {
       const mine = ++latest
-      api<{ links: UnsettledLink[]; run_id: string | null }>('/unsettled-links').then(
+      open++
+      api<{ links: UnsettledLink[]; run_id: string | null }>('/unsettled-links').finally(() => { open-- }).then(
         (answer) => { if (!stale && mine === latest) setState({ kind: 'ready', links: answer.links, runId: answer.run_id }) },
         (error) => {
           if (stale || mine !== latest) return
@@ -77,7 +79,8 @@ export function useUnsettledLinks(active = false): UnsettledState {
           }
         })
     }
-    readAgain.current = read
+    // A poll waits for every open read, so an answer slower than the interval still counts.
+    readAgain.current = () => { if (open === 0) read() }
     read()
     window.addEventListener(EVENT, read)
     return () => { stale = true; window.removeEventListener(EVENT, read) }

@@ -96,6 +96,22 @@ test('while a run computes the list is read again every few seconds, so a run of
   expect(heard).not.toHaveBeenCalled()
 })
 
+test('a poll answer slower than the poll interval is not discarded: no new poll starts while one is open', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  let answer: ((reply: { body: unknown }) => void) | null = null
+  const calls = stubApi({ 'GET /unsettled-links': () => reads(calls) === 1
+    ? { body: { links: [link(1, { state: 'waiting', in_run: true })], run_id: 'other' } }
+    : new Promise((resolve) => { answer = resolve }) })
+  const { result } = renderHook(() => useUnsettledLinks())
+  await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+  expect(result.current).toMatchObject({ runId: 'other' })
+  await act(async () => { await vi.advanceTimersByTimeAsync(LIST_POLL_MS * 3) }) // the poll hangs for three intervals
+  expect(reads(calls)).toBe(2)
+  await act(async () => { answer!({ body: { links: [link(1)], run_id: null } }) })
+  expect(result.current).toMatchObject({ runId: null })
+  expect(countOf(result.current)).toBe(1)
+})
+
 test('the list is read again when the tab becomes the shown source, not while it stays shown', async () => {
   const calls = stubApi({})
   const { rerender } = renderHook(({ active }) => useUnsettledLinks(active), { initialProps: { active: false } })
