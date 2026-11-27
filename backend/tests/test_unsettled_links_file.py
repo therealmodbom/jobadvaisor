@@ -1,5 +1,6 @@
-"""`unsettled-links.json`: the model and its writer (`openspec/changes/182-unsettled-links-list/
-design.md` D1, D2). Regression tests, no model call."""
+"""`unsettled-links.json`: the model and its writer
+(`openspec/changes/archive/2026-11-27-182-unsettled-links-list/design.md` D1, D2). Regression
+tests, no model call."""
 
 import json
 import threading

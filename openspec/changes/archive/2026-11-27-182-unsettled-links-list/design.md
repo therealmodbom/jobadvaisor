@@ -4,7 +4,7 @@
 
 See proposal.md (Why). Today `MailboxChecks.finish` (`intake/mailbox_checks.py`) marks the mails with no link in the run at once and hands the others to `_marks_at_end`, the `on_end` hook of `AlertRuns.start` (`intake/alert_runs.py`), which marks a mail only when all its links ended `ENDED_WELL`. Run state lives in memory only. A pasted mail's run (`POST /alert-mails/runs`) starts without a hook. `mailbox.json` is read with `_read_entity` and written with `update_mailbox` under `write_gate` (`data/writer.py`); the backup holds `write_gate` from `git add` to the end of the commit.
 
-Why the mail lets go of its links and the list is persisted in the data repository: [ADR 0020](../../../docs/decisions/0020-unsettled-links-kept-apart-from-their-mail.md).
+Why the mail lets go of its links and the list is persisted in the data repository: [ADR 0020](../../../../docs/decisions/0020-unsettled-links-kept-apart-from-their-mail.md).
 
 ## Goals / Non-Goals
 
