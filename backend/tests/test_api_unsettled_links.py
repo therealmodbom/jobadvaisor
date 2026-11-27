@@ -1,5 +1,6 @@
 """`/unsettled-links` and the list upkeep of `POST /alert-mails/runs`
-(`openspec/changes/182-unsettled-links-list/design.md` D7). Regression tests, no model call."""
+(`openspec/changes/archive/2026-11-27-182-unsettled-links-list/design.md` D7). Regression tests,
+no model call."""
 
 import threading
 from datetime import UTC, datetime

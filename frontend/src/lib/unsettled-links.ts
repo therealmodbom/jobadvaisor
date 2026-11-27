@@ -42,19 +42,33 @@ export function notifyUnsettledLinks() {
   window.dispatchEvent(new Event(EVENT))
 }
 
-/** The unsettled links, read on mount, whenever `active` turns true (the tab was opened) and on
- * `notifyUnsettledLinks`. A re-read keeps the rows it shows until the answer arrives, and only the
- * latest answer counts. A 503 `unsettled links unreadable` gives `unreadable`; any other failure
- * keeps a list already read and otherwise gives `failed`. */
+/** How often the list is read again while an alert run computes, so a run another device started
+ * frees the retry buttons once it ends. */
+export const LIST_POLL_MS = 5000
+
+/** The unsettled links, read on mount, whenever `active` turns true (the tab was opened), on
+ * `notifyUnsettledLinks`, and every `LIST_POLL_MS` while the list names a computing run. A re-read
+ * keeps the rows it shows until the answer arrives, and only the latest answer counts. A 503
+ * `unsettled links unreadable` gives `unreadable`; any other failure keeps a list already read and
+ * otherwise gives `failed`. */
 export function useUnsettledLinks(active = false): UnsettledState {
   const [state, setState] = useState<UnsettledState>({ kind: 'loading' })
   const wasActive = useRef(active)
+  const readAgain = useRef(() => {})
+  const runId = state.kind === 'ready' ? state.runId : null
+  useEffect(() => {
+    if (!runId) return
+    const timer = window.setInterval(() => readAgain.current(), LIST_POLL_MS)
+    return () => window.clearInterval(timer)
+  }, [runId])
   useEffect(() => {
     let stale = false
     let latest = 0
+    let open = 0
     const read = () => {
       const mine = ++latest
-      api<{ links: UnsettledLink[]; run_id: string | null }>('/unsettled-links').then(
+      open++
+      api<{ links: UnsettledLink[]; run_id: string | null }>('/unsettled-links').finally(() => { open-- }).then(
         (answer) => { if (!stale && mine === latest) setState({ kind: 'ready', links: answer.links, runId: answer.run_id }) },
         (error) => {
           if (stale || mine !== latest) return
@@ -65,6 +79,8 @@ export function useUnsettledLinks(active = false): UnsettledState {
           }
         })
     }
+    // A poll waits for every open read, so an answer slower than the interval still counts.
+    readAgain.current = () => { if (open === 0) read() }
     read()
     window.addEventListener(EVENT, read)
     return () => { stale = true; window.removeEventListener(EVENT, read) }

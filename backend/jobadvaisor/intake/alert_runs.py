@@ -2,9 +2,9 @@
 (`openspec/changes/archive/2026-11-16-alert-mail-intake/design.md` → Run): one entry after the
 other through the normal intake of a link, one run at a time, run state in memory only (a
 restart forgets it). Every run keeps the list of unsettled links in the data repository
-(`openspec/changes/182-unsettled-links-list/design.md` D3): its links wait from the start, each
-ended entry settles or keeps its row, and the end turns the links it did not reach
-`not_reached`. The lock guards the run state only and is never held while `write_gate` is
+(`openspec/changes/archive/2026-11-27-182-unsettled-links-list/design.md` D3): its links wait
+from the start, each ended entry settles or keeps its row, and the end turns the links it did
+not reach `not_reached`. The lock guards the run state only and is never held while `write_gate` is
 taken; the intake and every list write run outside it."""
 
 import logging

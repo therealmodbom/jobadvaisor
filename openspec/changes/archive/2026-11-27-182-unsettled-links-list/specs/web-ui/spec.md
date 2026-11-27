@@ -64,7 +64,7 @@ The tab „Offene Links“ SHALL have its own address, so a reload and the link 
 - **THEN** the tab says that the list cannot be read and names the file, and no badge shows
 
 ### Requirement: Count of unsettled links
-The source tab „Offene Links“ and the navigation item „Anzeige hinzufügen“ SHALL each show, as a badge, the number of unsettled links that need attention: every link of the list except those a computing run still has to fetch. At 0 there SHALL be no badge. The number SHALL be part of the accessible name of both. It SHALL be read when the app loads and when the tab is opened, and again when a run starts, each time it ends an entry, when it ends, and after a link was removed.
+The source tab „Offene Links“ and the navigation item „Anzeige hinzufügen“ SHALL each show, as a badge, the number of unsettled links that need attention: every link of the list except those a computing run still has to fetch. At 0 there SHALL be no badge. The number SHALL be part of the accessible name of both. It SHALL be read when the app loads and when the tab is opened, and again when a run starts, each time it ends an entry, when it ends, after a link was removed, and every few seconds while an alert run computes.
 
 #### Scenario: Open links after a run
 - **WHEN** a run has ended with 12 links unsettled and the list was empty before
@@ -81,6 +81,10 @@ The source tab „Offene Links“ and the navigation item „Anzeige hinzufügen
 #### Scenario: Reload
 - **WHEN** the user reloads the app with five links open
 - **THEN** both badges show 5
+
+#### Scenario: Run of another device ends
+- **WHEN** the user opens „Offene Links“ while a run started on another device computes, and that run ends
+- **THEN** within a few seconds the retry buttons and „Entfernen“ are enabled again and both badges count the links that need attention, without a reload
 
 ### Requirement: Remove an unsettled link
 Each row of „Offene Links“ SHALL offer „Entfernen“, which removes the link at once and without a confirm step, since no posting or mail changes. The view SHALL announce the removal, update the count and move the focus to the next row, or to the list's heading after the last one. While the computing run has not yet ended a link, its „Entfernen“ SHALL be disabled, with an info icon beside it that says why.

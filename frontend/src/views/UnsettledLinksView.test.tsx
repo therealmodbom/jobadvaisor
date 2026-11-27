@@ -2,7 +2,7 @@ import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { whenLabel } from '@/lib/german'
-import { notifyUnsettledLinks, type UnsettledLink } from '@/lib/unsettled-links'
+import { LIST_POLL_MS, notifyUnsettledLinks, type UnsettledLink } from '@/lib/unsettled-links'
 import { axe } from '@/test-axe'
 import { stubApi } from '@/test-api'
 import { POOL } from '@/test-fixtures'
@@ -296,6 +296,23 @@ test('while a run computes, every retry button is disabled with an info icon tha
   expect(within(rows()[1]).getByRole('button', { name: 'Warum sind die Knöpfe gesperrt?' })).toBeVisible()
   await userEvent.click(all)
   expect(calls.filter((call) => call.method === 'POST')).toHaveLength(0)
+})
+
+test('opened while a run of another device computes, the tab frees its buttons and counts once that run ends', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  let runId: string | null = 'other'
+  const list = [link(1), link(2, { state: 'waiting', in_run: true, tries: 0, last_tried_at: null, attempts: [] })]
+  serve(list, null, { 'GET /unsettled-links': () => ({ body: { links: list, run_id: runId } }) })
+  render(<App />)
+  await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+  expect(screen.getByRole('button', { name: 'Alle erneut versuchen (2)' })).toBeDisabled()
+  expect(nav().getByRole('link', { name: 'Anzeige hinzufügen, 1 offener Link' })).toBeVisible()
+  runId = null
+  list[1] = link(2)
+  await act(async () => { await vi.advanceTimersByTimeAsync(LIST_POLL_MS) })
+  expect(screen.getByRole('button', { name: 'Alle erneut versuchen (2)' })).toBeEnabled()
+  for (const row of rows()) expect(within(row).getByRole('button', { name: 'Entfernen' })).toBeEnabled()
+  expect(nav().getByRole('link', { name: 'Anzeige hinzufügen, 2 offene Links' })).toBeVisible()
 })
 
 test('a start that fails shows in the list, which stays', async () => {
