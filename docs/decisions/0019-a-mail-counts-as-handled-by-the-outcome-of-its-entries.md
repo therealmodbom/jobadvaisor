@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted, 2026-11-25.
+Accepted, 2026-11-25. The first two decisions are superseded by [ADR 0020](0020-unsettled-links-kept-apart-from-their-mail.md): a mail counts as handled once its entries went into a run, and its unsettled links are kept in a persisted list. The other two stand.
 
 ## Context
 
