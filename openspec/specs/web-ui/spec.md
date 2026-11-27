@@ -1195,6 +1195,10 @@ Each row of „Offene Links“ SHALL offer „Entfernen“, which removes the li
 - **WHEN** that run has stored one link and the user presses „Zurück zu den offenen Links“
 - **THEN** the tab lists the four others, each with one more run in „in n Läufen abgerufen“
 
+#### Scenario: Retry refused
+- **WHEN** another run started on another device after the list was read, and the user presses „Erneut versuchen“
+- **THEN** no run starts, and the tab shows the computing run's progress
+
 #### Scenario: Retry while a run computes
 - **WHEN** a mailbox run computes and the user opens „Offene Links“
 - **THEN** „Alle erneut versuchen“ and every „Erneut versuchen“ are disabled, and their info icon says that a run is computing

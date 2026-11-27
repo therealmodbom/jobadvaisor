@@ -160,3 +160,11 @@ The user SHALL be able to try one or all unsettled links again. That SHALL start
 #### Scenario: Retry during a run
 - **WHEN** the user tries links again while another alert run computes
 - **THEN** no run starts, and the answer names the computing run
+
+#### Scenario: List names the computing run
+- **WHEN** the list is read while an alert run computes, and again after it has ended
+- **THEN** the first answer names that run, and the second names none
+
+#### Scenario: More than 100 links
+- **WHEN** the list holds 140 links and the user tries all of them again
+- **THEN** one run of the 140 links starts
