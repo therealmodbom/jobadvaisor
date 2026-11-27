@@ -38,12 +38,14 @@ function serve(list: UnsettledLink[], runId: string | null = null, extra: Parame
 }
 
 beforeEach(() => {
+  sessionStorage.clear()
   window.location.hash = '#/offene-links'
 })
 
 afterEach(() => {
   window.location.hash = ''
   vi.unstubAllGlobals()
+  vi.useRealTimers()
 })
 
 test('after a run, the tab lists each link with outcome, title, source, runs and last try, in neutral rows', async () => {
@@ -167,10 +169,119 @@ test('while a run computes, the rows it still has to fetch cannot be removed and
   expect(within(settled).getByRole('button', { name: 'Entfernen' })).toBeEnabled()
   expect(within(waiting).getByText('Wartet')).toBeVisible()
   expect(within(waiting).getByRole('button', { name: 'Entfernen' })).toBeDisabled()
-  const why = within(waiting).getByRole('button', { name: 'Warum ist Entfernen nicht möglich?' })
-  await userEvent.click(why)
+  await userEvent.click(within(waiting).getByRole('button', { name: 'Warum sind die Knöpfe gesperrt?' }))
   expect(within(waiting).getByRole('tooltip')).toHaveTextContent('Der laufende Lauf hat diesen Link noch vor sich.')
   expect(await nav().findByRole('link', { name: 'Anzeige hinzufügen, 1 offener Link' })).toBeVisible()
+})
+
+// ---- retry ----
+
+const RETRY_KEY = 'jobadvaisor.retry-run'
+const runOf = (links: UnsettledLink[], states: Record<number, 'stored' | 'failed' | 'waiting' | 'running'> = {},
+               over: object = {}) => {
+  const entries = links.map((item, index) => ({ url: item.url, title: item.title, state: states[index] ?? 'waiting' }))
+  return { run_id: 'r1', status: 'running', error: null, cancel_requested: false, total: entries.length,
+           done: entries.filter((entry) => ['stored', 'failed'].includes(entry.state)).length, entries, ...over }
+}
+
+test('"Alle erneut versuchen" counts every row, posts all links without a source and shows the run with its cancel', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  const list = [1, 2, 3, 4, 5].map((n) => link(n))
+  const calls = serve(list, null, {
+    'POST /alert-mails/runs': { status: 202, body: { run_id: 'r1' } },
+    'GET /alert-mails/runs/r1': { body: runOf(list, { 0: 'running' }) },
+  })
+  render(<App />)
+  await userEvent.click(await screen.findByRole('button', { name: 'Alle erneut versuchen (5)' }))
+  expect(await screen.findByRole('button', { name: 'Lauf abbrechen' })).toBeVisible()
+  const start = calls.find((call) => call.method === 'POST' && call.path === '/alert-mails/runs')!
+  expect(start.body).toEqual({ entries: list.map((item) => ({ url: item.url, title: item.title, force: false })) })
+  expect(screen.queryByRole('list', { name: 'Offene Links' })).toBeNull()
+  expect(sessionStorage.getItem(RETRY_KEY)).toBe('r1')
+})
+
+test('"Erneut versuchen" on a row posts that link alone', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  const list = [link(1), link(2)]
+  const calls = serve(list, null, {
+    'POST /alert-mails/runs': { status: 202, body: { run_id: 'r1' } },
+    'GET /alert-mails/runs/r1': { body: runOf([list[1]], { 0: 'running' }) },
+  })
+  render(<App />)
+  await screen.findByRole('list', { name: 'Offene Links' })
+  await userEvent.click(within(rows()[1]).getByRole('button', { name: 'Erneut versuchen' }))
+  await screen.findByRole('button', { name: 'Lauf abbrechen' })
+  expect(calls.find((call) => call.method === 'POST' && call.path === '/alert-mails/runs')!.body)
+    .toEqual({ entries: [{ url: list[1].url, title: 'Stelle 2', force: false }] })
+})
+
+test('"Zurück zu den offenen Links" lists the others, each with one more run, and the heading has the focus', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  const list = [link(1), link(2), link(3)]
+  serve(list, null, {
+    'POST /alert-mails/runs': () => {
+      list.splice(0, 1) // the first link was stored
+      list.forEach((item) => { item.tries += 1 })
+      return { status: 202, body: { run_id: 'r1' } }
+    },
+    'GET /alert-mails/runs/r1': { body: runOf([link(1), link(2), link(3)], { 0: 'stored', 1: 'failed', 2: 'failed' }, { status: 'done' }) },
+  })
+  render(<App />)
+  await userEvent.click(await screen.findByRole('button', { name: 'Alle erneut versuchen (3)' }))
+  await userEvent.click(await screen.findByRole('button', { name: 'Zurück zu den offenen Links' }))
+  const heading = await screen.findByRole('heading', { level: 2, name: '2 offene Links' })
+  expect(rows()).toHaveLength(2)
+  expect(rows()[0]).toHaveTextContent('in 2 Läufen abgerufen')
+  expect(heading).toHaveFocus()
+  expect(sessionStorage.getItem(RETRY_KEY)).toBeNull()
+})
+
+test('a retry refused because another run computes shows that run instead', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  const list = [link(1)]
+  serve(list, null, {
+    'POST /alert-mails/runs': { status: 409, body: { error: 'alert run in progress', detail: 'x', run_id: 'r9' } },
+    'GET /alert-mails/runs/r9': { body: runOf([link(7), link(8)], { 0: 'running' }, { run_id: 'r9' }) },
+  })
+  render(<App />)
+  await screen.findByRole('list', { name: 'Offene Links' })
+  await userEvent.click(within(rows()[0]).getByRole('button', { name: 'Erneut versuchen' }))
+  expect(await screen.findByRole('heading', { name: '0 von 2 erledigt' })).toBeVisible()
+  expect(screen.getByRole('button', { name: 'Lauf abbrechen' })).toBeVisible()
+  expect(sessionStorage.getItem(RETRY_KEY)).toBe('r9')
+})
+
+test('while a run computes, every retry button is disabled with an info icon that names the run, and a press starts nothing', async () => {
+  const list = [link(1), link(2, { state: 'waiting', in_run: true, tries: 0, last_tried_at: null, attempts: [] })]
+  const calls = serve(list, 'r1')
+  render(<App />)
+  await screen.findByRole('list', { name: 'Offene Links' })
+  const all = screen.getByRole('button', { name: 'Alle erneut versuchen (2)' })
+  expect(all).toBeDisabled()
+  await userEvent.click(screen.getByRole('button', { name: 'Warum ist erneut versuchen nicht möglich?' }))
+  expect(screen.getByRole('tooltip')).toHaveTextContent('Gerade rechnet ein Lauf.')
+  for (const row of rows()) expect(within(row).getByRole('button', { name: 'Erneut versuchen' })).toBeDisabled()
+  expect(within(rows()[0]).getByRole('button', { name: 'Entfernen' })).toBeEnabled()
+  await userEvent.click(all)
+  expect(calls.filter((call) => call.method === 'POST')).toHaveLength(0)
+})
+
+test('a start that fails shows in the list, which stays', async () => {
+  const list = [link(1), link(2)]
+  serve(list, null, { 'POST /alert-mails/runs': { status: 500, body: { error: 'boom' } } })
+  render(<App />)
+  await userEvent.click(await screen.findByRole('button', { name: 'Alle erneut versuchen (2)' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('Der Lauf konnte nicht gestartet werden.')
+  expect(rows()).toHaveLength(2)
+  expect(screen.getByRole('button', { name: 'Alle erneut versuchen (2)' })).toBeEnabled()
+})
+
+test('a retry run kept across a reload shows in the tab again', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  sessionStorage.setItem(RETRY_KEY, 'r1')
+  serve([link(1)], 'r1', { 'GET /alert-mails/runs/r1': { body: runOf([link(1)], { 0: 'running' }) } })
+  render(<App />)
+  expect(await screen.findByRole('button', { name: 'Lauf abbrechen' })).toBeVisible()
 })
 
 test('the tab has no accessibility violations', async () => {

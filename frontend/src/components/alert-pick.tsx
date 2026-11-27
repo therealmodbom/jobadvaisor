@@ -41,10 +41,12 @@ export function Notice({ title, text, Icon, danger = false, children }: {
   )
 }
 
-export function StartFailed() {
+/** The notice of a run that could not start; `keeps` names what stays for another try („Die
+ * Auswahl“ of a pick list, „Die Liste“ of the open links). */
+export function StartFailed({ keeps = 'Die Auswahl' }: { keeps?: string }) {
   return (
     <p role="alert" className="rounded-xl border border-danger bg-danger-soft px-4 py-3">
-      Der Lauf konnte nicht gestartet werden. Ist der Server erreichbar? Die Auswahl bleibt, du kannst es noch einmal versuchen.
+      Der Lauf konnte nicht gestartet werden. Ist der Server erreichbar? {keeps} bleibt, du kannst es noch einmal versuchen.
     </p>
   )
 }

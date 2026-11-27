@@ -127,7 +127,9 @@ export function IntakeView({ list = false, open = false }: { list?: boolean; ope
         <MailboxView active={chosen === 'mailbox'} onText={() => switchTo('text')} onPdf={() => switchTo('pdf')} />
       </div>
 
-      <div hidden={chosen !== 'open'}><UnsettledLinksView state={unsettled} /></div>
+      <div hidden={chosen !== 'open'}>
+        <UnsettledLinksView state={unsettled} onText={() => switchTo('text')} onPdf={() => switchTo('pdf')} />
+      </div>
 
       <div hidden={chosen !== 'url' && chosen !== 'text' && chosen !== 'pdf'} className="flex flex-col gap-6">
         <form onSubmit={submit} className="flex flex-col gap-4 rounded-xl border bg-card p-5 shadow-card">

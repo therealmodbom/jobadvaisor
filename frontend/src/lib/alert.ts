@@ -38,6 +38,18 @@ export const PASTE_WORDS: RunWords = {
   again: null,
 }
 
+/** The words of a run started from „Offene Links“ (the retry of one link or of all). Its run
+ * shows in that tab, so no sentence points there; `again` does not say „again“, since a run of
+ * another source that this tab attached to may hold links the list did not have. */
+export const RETRY_WORDS: RunWords = {
+  over: 'Zurück zu den offenen Links',
+  lost: 'Der Server kennt den Lauf nicht mehr. Schon gespeicherte Anzeigen bleiben gespeichert, die übrigen Links stehen weiter in der Liste.',
+  lostAction: 'Zurück zu den offenen Links',
+  crash: 'Die übrigen Links stehen weiter in der Liste.',
+  cancelled: null,
+  again: 'Die Links, die nicht hinzugefügt wurden, stehen in der Liste der offenen Links.',
+}
+
 /** The words of a run of entries picked from a mailbox check: a mail is marked handled only when
  * all its entries ended well, so after a lost or crashed run the next check offers the mails of
  * the postings that were not stored or not reached again. */
