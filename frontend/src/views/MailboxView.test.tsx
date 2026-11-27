@@ -585,6 +585,25 @@ test('a crashed mailbox run says where the links it did not reach are kept, once
   expect(screen.getAllByText(/stehen unter „Offene Links“/)).toHaveLength(1)
 })
 
+test('a text duplicate of a mailbox run stored anyway goes out with the source "mailbox", so its row keeps the label', async () => {
+  sessionStorage.setItem(RUN_KEY, 'r1')
+  const calls = stubApi({
+    'GET /mailbox': { body: CHECKED },
+    'GET /postings/p-9': { body: { posting: { title: 'Lead Engineer Video', company: 'Musterdienst GmbH' } } },
+    'GET /alert-mails/runs/r1': { body: { run_id: 'r1', status: 'done', error: null, cancel_requested: false, total: 1, done: 1,
+      entries: [{ url: mailEntry(1).url, title: 'Stelle 1', state: 'duplicate', posting_id: 'p-9', duplicate_by: 'text' }] } },
+    'POST /alert-mails/runs': { status: 202, body: { run_id: 'r2' } },
+    'GET /alert-mails/runs/r2': { body: { run_id: 'r2', status: 'done', error: null, cancel_requested: false, total: 1, done: 1,
+      entries: [{ url: mailEntry(1).url, title: 'Stelle 1', state: 'stored', posting_id: 'p-10' }] } },
+  })
+  view()
+  await userEvent.click(await screen.findByRole('button', { name: 'Trotzdem als neue Anzeige speichern' }))
+  await userEvent.click(await screen.findByRole('button', { name: 'Ja, als neue Anzeige speichern' }))
+  await screen.findByText('Hinzugefügt')
+  expect(calls.find((call) => call.method === 'POST' && call.path === '/alert-mails/runs')!.body)
+    .toEqual({ entries: [{ url: mailEntry(1).url, title: 'Stelle 1', force: true }], source: 'mailbox' })
+})
+
 test('a mailbox run whose entries all ended well does not say it', async () => {
   sessionStorage.setItem(RUN_KEY, 'r1')
   stubApi({ 'GET /mailbox': { body: CHECKED },

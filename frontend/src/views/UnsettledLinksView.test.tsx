@@ -109,7 +109,7 @@ test('an unreadable list says so and names the file, and no badge shows', async 
             'GET /unsettled-links': { status: 503, body: { error: 'unsettled links unreadable', detail: 'unsettled-links.json: invalid' } } })
   render(<App />)
   const notice = await screen.findByRole('alert')
-  expect(notice).toHaveTextContent('Die Liste der offenen Links (unsettled-links.json im Datenrepository) ist nicht lesbar.')
+  expect(notice).toHaveTextContent('Die Liste der offenen Links (unsettled-links.json) ist nicht lesbar.')
   expect(nav().getByRole('link', { name: 'Anzeige hinzufügen' })).toBeVisible()
   expect(tabs().getByRole('button', { name: 'Offene Links' })).toBeVisible()
 })

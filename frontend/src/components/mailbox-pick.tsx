@@ -219,7 +219,9 @@ function MailItem({ mail, reading, failure, on, toggle, setMany, collapsed, onCo
  * (keys read here) and `failures` (key to reason) describe, beside the check's own `reading`
  * flags (read in another tab). While a mail is read, or `busyRun` (an alert run that refused the
  * finish) computes, adding waits and a visible info icon says why; `finishing` waits for the
- * answer and `finishFailed` says it did not come. `onBusyEnded` runs when that run is over. */
+ * answer and `finishFailed` says it did not come (`unreadable`: the list of open links is
+ * invalid and nothing was added; `failed`: anything else; null: no failure). `onBusyEnded` runs
+ * when that run is over. */
 export function MailboxPickList({ check, reading, failures, finishing, finishFailed, busyRun, onBusyEnded, onRead, onAdd, onNothing, onText }: {
   check: MailboxCheckState
   reading: Set<string>

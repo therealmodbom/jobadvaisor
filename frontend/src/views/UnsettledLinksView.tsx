@@ -77,7 +77,7 @@ export function UnsettledLinksView({ state, onText, onPdf }: { state: UnsettledS
   if (state.kind === 'unreadable') {
     return (
       <Notice danger Icon={CircleAlert} title="Offene Links nicht lesbar"
-              text="Die Liste der offenen Links (unsettled-links.json im Datenrepository) ist nicht lesbar. Bis sie repariert ist, startet kein Lauf.">
+              text="Die Liste der offenen Links (unsettled-links.json) ist nicht lesbar. Bis sie repariert ist, startet kein Lauf.">
         {null}
       </Notice>
     )

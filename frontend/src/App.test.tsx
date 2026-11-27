@@ -151,9 +151,11 @@ test('a reload on the address of the tab opens "Offene Links" again, and another
   expect(window.location.hash).toBe('#/hinzufuegen')
   expect(sourceTabs().getByRole('button', { name: 'Offene Links' })).toHaveAttribute('aria-pressed', 'false')
   expect(screen.getByLabelText('Anzeige als PDF')).toBeVisible()
+  await settle()
+  const before = calls.filter((call) => call.path === '/unsettled-links').length
   await userEvent.click(sourceTabs().getByRole('button', { name: 'Offene Links' }))
   expect(window.location.hash).toBe('#/offene-links')
-  expect(calls.filter((call) => call.path === '/unsettled-links').length).toBeGreaterThan(1)
+  await vi.waitFor(() => expect(calls.filter((call) => call.path === '/unsettled-links').length).toBeGreaterThan(before))
 })
 
 test('a reload keeps the open view', () => {
