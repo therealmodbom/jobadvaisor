@@ -95,6 +95,16 @@ test('the badges say one open link in the singular', async () => {
   expect(await nav().findByRole('link', { name: 'Anzeige hinzufügen, 1 offener Link' })).toBeVisible()
 })
 
+test('the comma of the hidden count sits inline after the label, so a browser puts no space before it', async () => {
+  // A browser starts a new word at the visually hidden text, since `sr-only` takes it out of the
+  // flow; jsdom does not, so the name check above cannot see that. The comma and the space stay inline.
+  stubApi({ 'GET /pool': { body: POOL }, 'GET /unsettled-links': links(1) })
+  render(<App />)
+  const link = await nav().findByRole('link', { name: 'Anzeige hinzufügen, 1 offener Link' })
+  expect(link.querySelector('.sr-only')!.textContent).toBe('1 offener Link')
+  expect(link.textContent).toBe('Anzeige hinzufügen, 11 offener Link')
+})
+
 test('links a computing run still has to fetch are not counted, and each one that fails raises both badges by one', async () => {
   let failed = 0
   stubApi({ 'GET /pool': { body: POOL }, 'GET /unsettled-links': () => ({ body: {
@@ -120,11 +130,16 @@ test('without an open link, neither the navigation item nor the tab shows a badg
   expect(sourceTabs().getByRole('button', { name: 'Offene Links' })).toBeVisible()
 })
 
-test('an unreadable list shows no badge', async () => {
-  stubApi({ 'GET /pool': { body: POOL },
-            'GET /unsettled-links': { status: 503, body: { error: 'unsettled links unreadable', detail: 'unsettled-links.json: kaputt' } } })
+test('a list that turns unreadable shows no badge', async () => {
+  let unreadable = false
+  stubApi({ 'GET /pool': { body: POOL }, 'GET /unsettled-links': () => unreadable
+    ? { status: 503, body: { error: 'unsettled links unreadable', detail: 'unsettled-links.json: kaputt' } }
+    : links(2) })
   window.location.hash = '#/hinzufuegen'
   render(<App />)
+  expect(await nav().findByRole('link', { name: 'Anzeige hinzufügen, 2 offene Links' })).toBeVisible()
+  unreadable = true
+  act(() => notifyUnsettledLinks())
   await settle()
   expect(nav().getByRole('link', { name: 'Anzeige hinzufügen' })).toBeVisible()
   expect(sourceTabs().getByRole('button', { name: 'Offene Links' })).toBeVisible()

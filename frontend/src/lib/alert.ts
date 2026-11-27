@@ -41,7 +41,7 @@ export const PASTE_WORDS: RunWords = {
   lostAction: 'Mail noch einmal einfügen',
   crash: 'Die Links, die er nicht erreicht hat, stehen unter „Offene Links“. Du kannst die Mail auch noch einmal einfügen: Gespeicherte Stellen sind dann markiert.',
   cancelled: 'Die Links, die nicht erreicht wurden, stehen unter „Offene Links“. Du kannst die Mail auch erneut einfügen, um die übrigen hinzuzufügen: Was schon gespeichert ist, erscheint dann als gespeichert.',
-  again: 'Die Links, die nicht gelesen wurden oder nicht erreicht sind, stehen unter „Offene Links“.',
+  again: 'Die Links, die nicht gelesen, nicht beurteilbar oder nicht gestartet sind, stehen unter „Offene Links“.',
   listLink: true,
 }
 
@@ -54,7 +54,7 @@ export const RETRY_WORDS: RunWords = {
   lostAction: 'Zurück zu den offenen Links',
   crash: 'Die übrigen Links stehen weiter in der Liste.',
   cancelled: null,
-  again: 'Die Links, die nicht hinzugefügt wurden, stehen in der Liste der offenen Links.',
+  again: 'Die Links, die nicht gelesen, nicht beurteilbar oder nicht gestartet sind, stehen in der Liste der offenen Links.',
   listLink: false,
 }
 
@@ -67,6 +67,6 @@ export const MAILBOX_WORDS: RunWords = {
   lostAction: 'Zurück zum Postfach',
   crash: 'Die Links, die er nicht erreicht hat, stehen unter „Offene Links“.',
   cancelled: null,
-  again: 'Die Links, die nicht gelesen wurden oder nicht erreicht sind, stehen unter „Offene Links“. Ihre Mails gelten als gelesen.',
+  again: 'Die Links, die nicht gelesen, nicht beurteilbar oder nicht gestartet sind, stehen unter „Offene Links“. Ihre Mails gelten als gelesen.',
   listLink: true,
 }

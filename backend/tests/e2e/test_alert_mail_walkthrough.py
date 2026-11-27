@@ -256,7 +256,9 @@ def test_the_unreadable_pasted_link_is_kept_under_open_links(page, app_url, data
     expect(row).not_to_contain_text(JOBS[3]["title"])
     open_details(row)
     expect(row).to_contain_text("HTTP 503")
-    expect(page.get_by_role("link", name=re.compile(r"^Anzeige hinzufügen\s*, 1 offener Link$"))
-           ).to_be_visible()  # the badge's hidden text is part of the link's name
+    # the badge's hidden text is part of each name, with no space before its comma
+    expect(page.get_by_role("link", name="Anzeige hinzufügen, 1 offener Link", exact=True)
+           ).to_be_visible()
+    expect(source(page, "Offene Links, 1 offener Link")).to_be_visible()
     (kept,) = read_unsettled_links(data_root).links
     assert (kept.url, kept.source, kept.state, kept.tries) == (FAILING_URL, "paste", "unread", 2)

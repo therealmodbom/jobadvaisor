@@ -25,12 +25,16 @@ const LABELS = {
 /** Where the run of a retry keeps its ID across a reload, apart from the mailbox's and the paste's. */
 const retryRuns = runStore('jobadvaisor.retry-run', 'jobadvaisor.retry-run-base')
 
+/** The most links „Alle erneut versuchen“ sends: a run body takes at most `MAX_RUN_ENTRIES` (1000)
+ * entries (`backend/jobadvaisor/api/app.py`), so a longer list sends its first 1000. */
+const MAX_RETRY = 1000
+
 /** Why the retry buttons are disabled while an alert run computes (only that run is named). */
 const BUSY_REASON = 'Gerade rechnet ein Lauf. Danach kannst du die Links erneut versuchen.'
 
 /** The source tab „Offene Links“: the links alert runs could not settle, one neutral row each
  * with its outcome, title, link, meta line and attempts, „Entfernen“ and „Erneut versuchen“ per
- * row and „Alle erneut versuchen (n)“ in the head. `state` is the list as `useUnsettledLinks`
+ * row and „Alle erneut versuchen (n)“ in the head (n the links it sends, at most `MAX_RETRY`). `state` is the list as `useUnsettledLinks`
  * reads it (the intake view owns that read, so the tab and its badge share one). A retry is one
  * alert run, shown in this tab (`AlertRunView`, `RETRY_WORDS`) until „Zurück zu den offenen
  * Links“; a start refused because another run computes attaches to that run. While a run computes
@@ -85,6 +89,7 @@ export function UnsettledLinksView({ state, onText, onPdf }: { state: UnsettledS
 
   const { links } = state
   const busy = state.runId !== null || run.starting
+  const retried = links.slice(0, MAX_RETRY)
 
   /** Removes `link` at once, without a confirm step: no posting or mail changes. A link that is
    * gone already counts as removed; the list is read again either way. */
@@ -129,8 +134,8 @@ export function UnsettledLinksView({ state, onText, onPdf }: { state: UnsettledS
         {links.length > 0 && (
           <div className="flex items-center gap-1 max-sm:w-full">
             <Button type="button" disabled={busy} aria-describedby={busy ? allWhyId : undefined}
-                    onClick={() => retry(links)} className="max-sm:min-h-11 max-sm:flex-1">
-              <RotateCw className="size-4" aria-hidden="true" />{`Alle erneut versuchen (${links.length})`}
+                    onClick={() => retry(retried)} className="max-sm:min-h-11 max-sm:flex-1">
+              <RotateCw className="size-4" aria-hidden="true" />{`Alle erneut versuchen (${retried.length})`}
             </Button>
             {busy && <WhyDisabled id={allWhyId} label="Warum ist erneut versuchen nicht möglich?" reason={BUSY_REASON} />}
           </div>
@@ -156,7 +161,7 @@ export function UnsettledLinksView({ state, onText, onPdf }: { state: UnsettledS
 /** One unsettled link: its outcome, title, link, the meta line (source, runs, since when, last try),
  * what the outcome means where it needs a word, and the attempts of the last try. `busy` (an
  * alert run computes) disables „Erneut versuchen“, and „Entfernen“ too for a row the run still has
- * to fetch, with one info icon that says why; `removeRef` hands the „Entfernen“ button to the
+ * to fetch, with one info icon that says why (its label names one button or both); `removeRef` hands the „Entfernen“ button to the
  * list, for the focus move. */
 function LinkRow({ link, busy, removeRef, onRetry, onRemove }: {
   link: UnsettledLink
@@ -211,7 +216,7 @@ function LinkRow({ link, busy, removeRef, onRetry, onRemove }: {
           </Button>
         </div>
         {busy && (
-          <WhyDisabled id={whyId} label="Warum sind die Knöpfe gesperrt?"
+          <WhyDisabled id={whyId} label={link.in_run ? 'Warum sind die Knöpfe gesperrt?' : 'Warum ist „Erneut versuchen“ gesperrt?'}
                        reason={link.in_run ? 'Der laufende Lauf hat diesen Link noch vor sich. Danach kannst du ihn erneut versuchen oder entfernen.' : BUSY_REASON} />
         )}
       </div>

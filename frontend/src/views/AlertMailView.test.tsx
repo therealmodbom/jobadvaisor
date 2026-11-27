@@ -996,7 +996,7 @@ test('a pasted run with a failed entry says its link is kept under "Offene Links
   stubApi({ 'GET /alert-mails/runs/r1': { body: run([row(1, 'failed')], { status: 'done' }) } })
   view()
   await screen.findByRole('list', { name: 'Stand je Anzeige' })
-  const sentence = screen.getByText(/Die Links, die nicht gelesen wurden oder nicht erreicht sind/)
+  const sentence = screen.getByText(/Die Links, die nicht gelesen, nicht beurteilbar oder nicht gestartet sind, stehen unter/)
   expect(sentence).toHaveTextContent('stehen unter „Offene Links“')
   expect(screen.getByRole('link', { name: 'Offene Links ansehen' })).toHaveAttribute('href', '#/offene-links')
   expect(screen.queryByText(/Die nächste Prüfung/)).toBeNull()

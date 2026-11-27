@@ -10,7 +10,6 @@ offer one posting and a link whose fetch is disputed: the run, the next check (w
 offer the mails again), the link under „Offene Links“ at a phone's width, a retry and a removal."""
 
 import json
-import re
 import threading
 import time
 import zlib
@@ -351,7 +350,8 @@ def test_a_posting_in_two_mails_is_fetched_once_and_a_disputed_link_does_not_bri
     expect(rows.get_by_text("Stelle geschlossen", exact=True)).to_have_count(0)  # not closed
     expect(page.get_by_role("button", name="Lauf abbrechen")).to_have_count(0)  # the run is over
     expect(page.get_by_text(
-        "stehen unter „Offene Links“. Ihre Mails gelten als gelesen.")).to_be_visible()
+        "Die Links, die nicht gelesen, nicht beurteilbar oder nicht gestartet sind, stehen unter "
+        "„Offene Links“. Ihre Mails gelten als gelesen.")).to_be_visible()
     expect(page.get_by_text("wieder an")).to_have_count(0)  # no mail is offered again
     expect(page.get_by_role("link", name="Offene Links ansehen")).to_have_attribute(
         "href", "#/offene-links")
@@ -405,8 +405,10 @@ def test_the_next_check_does_not_offer_the_mail_of_the_disputed_link_and_the_lis
     expect(page.get_by_text("Keine neuen Mails seit dem")).to_be_visible(timeout=WAIT)
     expect(page.get_by_role("list", name="Mails der Prüfung")).to_have_count(0)
     assert full_reads(fake) == reads  # neither mail was read again
-    expect(page.get_by_role("link", name=re.compile(r"^Anzeige hinzufügen\s*, 1 offener Link$"))
-           ).to_be_visible()  # the badge's hidden text is part of the link's name
+    # the badge's hidden text is part of each name, with no space before its comma
+    expect(page.get_by_role("link", name="Anzeige hinzufügen, 1 offener Link", exact=True)
+           ).to_be_visible()
+    expect(source(page, "Offene Links, 1 offener Link")).to_be_visible()
 
     source(page, "Offene Links").click()
     expect(page.get_by_role("heading", name="1 offener Link")).to_be_visible()

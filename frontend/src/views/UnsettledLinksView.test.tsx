@@ -1,8 +1,8 @@
-import { render, screen, within } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { whenLabel } from '@/lib/german'
-import type { UnsettledLink } from '@/lib/unsettled-links'
+import { notifyUnsettledLinks, type UnsettledLink } from '@/lib/unsettled-links'
 import { axe } from '@/test-axe'
 import { stubApi } from '@/test-api'
 import { POOL } from '@/test-fixtures'
@@ -104,10 +104,15 @@ test('without open links the tab says that no link is open', async () => {
   expect(screen.queryByRole('list', { name: 'Offene Links' })).toBeNull()
 })
 
-test('an unreadable list says so and names the file, and no badge shows', async () => {
-  stubApi({ 'GET /pool': { body: POOL }, 'GET /policy-pack/login-wall-hosts': { body: { hosts: [] } },
-            'GET /unsettled-links': { status: 503, body: { error: 'unsettled links unreadable', detail: 'unsettled-links.json: invalid' } } })
+test('a list that turns unreadable says so and names the file, and its badges go', async () => {
+  let unreadable = false
+  serve([link(1), link(2)], null, { 'GET /unsettled-links': () => unreadable
+    ? { status: 503, body: { error: 'unsettled links unreadable', detail: 'unsettled-links.json: invalid' } }
+    : { body: { links: [link(1), link(2)], run_id: null } } })
   render(<App />)
+  expect(await nav().findByRole('link', { name: 'Anzeige hinzufügen, 2 offene Links' })).toBeVisible()
+  unreadable = true
+  act(() => notifyUnsettledLinks())
   const notice = await screen.findByRole('alert')
   expect(notice).toHaveTextContent('Die Liste der offenen Links (unsettled-links.json) ist nicht lesbar.')
   expect(nav().getByRole('link', { name: 'Anzeige hinzufügen' })).toBeVisible()
@@ -129,14 +134,15 @@ test('removing a link takes its row away at once, announces it, lowers both badg
   const calls = serve(list)
   render(<App />)
   expect(await nav().findByRole('link', { name: 'Anzeige hinzufügen, 3 offene Links' })).toBeVisible()
-  await userEvent.click(within(rows()[0]).getByRole('button', { name: 'Entfernen' }))
-  expect(calls.find((call) => call.method === 'DELETE')!.body).toEqual({ url: 'https://jobs.example.com/1' })
+  await userEvent.click(within(rows()[1]).getByRole('button', { name: 'Entfernen' }))
+  expect(calls.find((call) => call.method === 'DELETE')!.body).toEqual({ url: 'https://jobs.example.com/2' })
   expect(await screen.findByRole('heading', { level: 2, name: '2 offene Links' })).toBeVisible()
   expect(rows()).toHaveLength(2)
-  expect(screen.getByText('„Stelle 1“ entfernt.')).toHaveAttribute('role', 'status')
+  expect(screen.getByText('„Stelle 2“ entfernt.')).toHaveAttribute('role', 'status')
   expect(await nav().findByRole('link', { name: 'Anzeige hinzufügen, 2 offene Links' })).toBeVisible()
   expect(tabs().getByRole('button', { name: 'Offene Links, 2 offene Links' })).toBeVisible()
-  expect(within(rows()[0]).getByRole('button', { name: 'Entfernen' })).toHaveFocus()
+  expect(rows()[1]).toHaveTextContent('Stelle 3') // the row after the removed one
+  expect(within(rows()[1]).getByRole('button', { name: 'Entfernen' })).toHaveFocus()
 })
 
 test('removing the last row moves the focus to the heading', async () => {
@@ -200,6 +206,22 @@ test('"Alle erneut versuchen" counts every row, posts all links without a source
   expect(sessionStorage.getItem(RETRY_KEY)).toBe('r1')
 })
 
+test('"Alle erneut versuchen" sends at most the 1000 links a run body takes, and its count says so', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  const list = Array.from({ length: 1001 }, (_, index) => link(index + 1))
+  const calls = serve(list, null, {
+    'POST /alert-mails/runs': { status: 202, body: { run_id: 'r1' } },
+    'GET /alert-mails/runs/r1': { body: runOf(list.slice(0, 1000), { 0: 'running' }) },
+  })
+  render(<App />)
+  expect(await screen.findByRole('heading', { level: 2, name: '1001 offene Links' })).toBeVisible()
+  await userEvent.click(screen.getByRole('button', { name: 'Alle erneut versuchen (1000)' }))
+  await screen.findByRole('button', { name: 'Lauf abbrechen' })
+  const start = calls.find((call) => call.method === 'POST' && call.path === '/alert-mails/runs')!
+  expect((start.body as { entries: { url: string }[] }).entries.map((entry) => entry.url))
+    .toEqual(list.slice(0, 1000).map((item) => item.url))
+}, 30_000)
+
 test('"Erneut versuchen" on a row posts that link alone', async () => {
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
   const list = [link(1), link(2)]
@@ -218,16 +240,22 @@ test('"Erneut versuchen" on a row posts that link alone', async () => {
 test('"Zurück zu den offenen Links" lists the others, each with one more run, and the heading has the focus', async () => {
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
   const list = [link(1), link(2), link(3)]
+  let ended = false
   serve(list, null, {
-    'POST /alert-mails/runs': () => {
-      list.splice(0, 1) // the first link was stored
-      list.forEach((item) => { item.tries += 1 })
-      return { status: 202, body: { run_id: 'r1' } }
+    'POST /alert-mails/runs': { status: 202, body: { run_id: 'r1' } },
+    'GET /alert-mails/runs/r1': () => {
+      if (!ended) { // the list changes as the run ends, so only a read after that shows it
+        ended = true
+        list.splice(0, 1) // the first link was stored
+        list.forEach((item) => { item.tries += 1 })
+      }
+      return { body: runOf([link(1), link(2), link(3)], { 0: 'stored', 1: 'failed', 2: 'failed' }, { status: 'done' }) }
     },
-    'GET /alert-mails/runs/r1': { body: runOf([link(1), link(2), link(3)], { 0: 'stored', 1: 'failed', 2: 'failed' }, { status: 'done' }) },
   })
   render(<App />)
   await userEvent.click(await screen.findByRole('button', { name: 'Alle erneut versuchen (3)' }))
+  // the end of the run reads the list again, before „Zurück“ does
+  expect(await nav().findByRole('link', { name: 'Anzeige hinzufügen, 2 offene Links' })).toBeVisible()
   await userEvent.click(await screen.findByRole('button', { name: 'Zurück zu den offenen Links' }))
   const heading = await screen.findByRole('heading', { level: 2, name: '2 offene Links' })
   expect(rows()).toHaveLength(2)
@@ -262,6 +290,10 @@ test('while a run computes, every retry button is disabled with an info icon tha
   expect(screen.getByRole('tooltip')).toHaveTextContent('Gerade rechnet ein Lauf.')
   for (const row of rows()) expect(within(row).getByRole('button', { name: 'Erneut versuchen' })).toBeDisabled()
   expect(within(rows()[0]).getByRole('button', { name: 'Entfernen' })).toBeEnabled()
+  // one disabled button in a row the run does not hold, both in a row it still has to fetch
+  expect(within(rows()[0]).getByRole('button', { name: 'Warum ist „Erneut versuchen“ gesperrt?' })).toBeVisible()
+  expect(within(rows()[0]).queryByRole('button', { name: 'Warum sind die Knöpfe gesperrt?' })).toBeNull()
+  expect(within(rows()[1]).getByRole('button', { name: 'Warum sind die Knöpfe gesperrt?' })).toBeVisible()
   await userEvent.click(all)
   expect(calls.filter((call) => call.method === 'POST')).toHaveLength(0)
 })
@@ -289,7 +321,7 @@ test('the retry run points to no list, since it shows in the list tab: its repor
   sessionStorage.setItem(RETRY_KEY, 'r1')
   serve([link(1)], null, { 'GET /alert-mails/runs/r1': { body: runOf([link(1)], { 0: 'failed' }, { status: 'done' }) } })
   const { unmount } = render(<App />)
-  expect(await screen.findByText('Die Links, die nicht hinzugefügt wurden, stehen in der Liste der offenen Links.')).toBeVisible()
+  expect(await screen.findByText('Die Links, die nicht gelesen, nicht beurteilbar oder nicht gestartet sind, stehen in der Liste der offenen Links.')).toBeVisible()
   expect(screen.queryByRole('link', { name: 'Offene Links ansehen' })).toBeNull()
   unmount()
   serve([link(1)], null, { 'GET /alert-mails/runs/r1': { status: 404, body: { error: 'not found' } } })
