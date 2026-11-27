@@ -55,5 +55,5 @@ None.
   - `intake/mailbox_checks.py`: `finish` marks every mail of the pick list after the run started; `_marks_at_end` and `ENDED_WELL` go.
   - `api/app.py`: `GET /unsettled-links` (with the computing run's ID) and `DELETE /unsettled-links` (one link); a retry uses `POST /alert-mails/runs`; the run routes pass their source (`POST /alert-mails/runs` takes it as an optional body field); an unreadable list answers 503.
 - **Frontend:** the tab and its list in `views/IntakeView.tsx` plus a new view with the retry buttons and its own run view, the badge in `App.tsx`, the texts in `lib/alert.ts` (`MAILBOX_WORDS`, `PASTE_WORDS`) and `components/mailbox-pick.tsx`.
-- **Docs:** ADR 0020 supersedes the first two decisions of ADR 0019; `AGENTS.md` (Current state) and the README where the mailbox workflow is described.
+- **Docs:** ADR 0020 supersedes the first decision of ADR 0019 and the end-of-run marking of its second; `AGENTS.md` (Current state) and the README where the mailbox workflow is described.
 - **Tests:** backend tests for the writer, runs and checks; frontend tests for the tab, badge and texts; the e2e walkthrough `test_mailbox_walkthrough.py`, whose disputed link no longer brings its mail back but lands in the list. If the navigation markup changes, the README images are retaken.
