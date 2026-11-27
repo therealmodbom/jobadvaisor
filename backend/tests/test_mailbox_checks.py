@@ -81,11 +81,13 @@ class StubRuns:
 
     def __init__(self):
         self.started, self.hooks, self.error, self.computing = [], [], None, None
+        self.sources = []
 
-    def start(self, entries, on_end=None):
+    def start(self, entries, on_end=None, *, source):
         if self.error:
             raise self.error
         self.started.append(list(entries))
+        self.sources.append(source)
         self.hooks.append(on_end)
         return "run-1"
 
@@ -403,6 +405,7 @@ def test_finishing_starts_one_run_with_the_chosen_entries_and_marks_the_mails_wh
     chosen = [RunEntry(A, "Job a"), RunEntry(C, "Job c", force=True)]
     assert checks.finish(check_id, chosen) == "run-1"
     assert runs.started == [chosen] and handled(root) == {3, 5}  # mails 1 and 2 await the run
+    assert runs.sources == ["mailbox"]
     assert checks.read(check_id)["status"] == "finished"
     runs.end({A: "stored", C: "duplicate"})
     assert handled(root) == {1, 2, 3, 5}
@@ -454,9 +457,9 @@ def test_the_run_starts_before_any_mail_is_marked(root):
     seen = []
 
     class Spy(StubRuns):
-        def start(self, entries, on_end=None):
+        def start(self, entries, on_end=None, *, source):
             seen.append(handled(root))
-            return super().start(entries, on_end)
+            return super().start(entries, on_end, source=source)
 
     checks, check_id, runs, _ = offering(root, runs=Spy())
     settle(checks, check_id)
@@ -664,8 +667,9 @@ def test_the_busy_read_happens_under_the_checks_lock(root):
 
 def test_a_finish_and_a_start_racing_never_leave_a_running_check_beside_a_marking_run(root):
     class Running(StubRuns):
-        def start(self, entries, on_end=None):
-            self.computing = super().start(entries, on_end)  # the run computes from now on
+        def start(self, entries, on_end=None, *, source):
+            # the run computes from now on
+            self.computing = super().start(entries, on_end, source=source)
             return self.computing
 
     def race(checks, check_id) -> dict:

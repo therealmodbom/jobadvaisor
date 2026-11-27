@@ -2,6 +2,7 @@
 
 import threading
 import time
+from datetime import UTC, datetime
 
 import httpx
 import pytest
@@ -9,6 +10,9 @@ from conftest import FakeStructuredModel, SpacingClock, ToolScriptModel, write_j
 from test_triage_graph import POLICY_PACK
 
 import jobadvaisor.intake.alert_runs as runs_module
+from jobadvaisor.data.loader import DataRepositoryError
+from jobadvaisor.data.models import UnsettledLink, UnsettledLinks
+from jobadvaisor.data.writer import read_unsettled_links, update_unsettled_links
 from jobadvaisor.intake import ladder as ladder_module
 from jobadvaisor.intake.alert_runs import (
     AlertRunBusyError,
@@ -68,17 +72,17 @@ def test_a_failed_submit_does_not_block_later_runs(runs, monkeypatch):
 
     monkeypatch.setattr(runs._executor, "submit", broken)
     with pytest.raises(RuntimeError):
-        runs.start([RunEntry(LINKS[0], "A")])
+        runs.start([RunEntry(LINKS[0], "A")], source="paste")
     monkeypatch.setattr(runs._executor, "submit", real)
     monkeypatch.setattr(runs_module, "add_from_url", fake_add({LINKS[0]: ("p1", None)}))
-    assert finished(runs, runs.start([RunEntry(LINKS[0], "A")]))["status"] == "done"
+    assert finished(runs, runs.start([RunEntry(LINKS[0], "A")], source="paste"))["status"] == "done"
 
 
 def test_the_guard_holds_each_entry_link_and_is_cleared_after(runs, monkeypatch):
     seen = []
     monkeypatch.setattr(runs_module, "add_from_url", fake_add(
         {LINKS[0]: ("a", None), LINKS[1]: ("b", None)}, seen))
-    finished(runs, runs.start([RunEntry(LINKS[0], "A"), RunEntry(LINKS[1], "B")]))
+    finished(runs, runs.start([RunEntry(LINKS[0], "A"), RunEntry(LINKS[1], "B")], source="paste"))
     assert [(url, guard) for url, guard, _ in seen] == [(LINKS[0], LINKS[0]), (LINKS[1], LINKS[1])]
     assert runs._executor.submit(guarded_link.get).result() is None
 
@@ -87,7 +91,8 @@ def test_a_failing_entry_does_not_stop_the_others(runs, monkeypatch):
     attempts = [{"step": "plain", "url": LINKS[1], "outcome": "HTTP 403"}]
     monkeypatch.setattr(runs_module, "add_from_url", fake_add({
         LINKS[0]: ("a", None), LINKS[1]: PostingNotFoundError(attempts), LINKS[2]: ("c", None)}))
-    state = finished(runs, runs.start([RunEntry(url, f"T{n}") for n, url in enumerate(LINKS)]))
+    state = finished(runs, runs.start(
+        [RunEntry(url, f"T{n}") for n, url in enumerate(LINKS)], source="paste"))
     assert state["status"] == "done" and state["total"] == state["done"] == 3
     assert [e["state"] for e in state["entries"]] == ["stored", "failed", "stored"]
     assert state["entries"][1]["attempts"] == attempts
@@ -99,7 +104,8 @@ def test_a_closed_entry_is_reported_as_closed_and_counts_as_done(runs, monkeypat
     attempts = [{"step": "plain", "url": LINKS[0], "outcome": "closed page (redirect)"}]
     monkeypatch.setattr(runs_module, "add_from_url", fake_add({
         LINKS[0]: PostingNotFoundError(attempts, closed=True), LINKS[1]: ("b", None)}))
-    state = finished(runs, runs.start([RunEntry(LINKS[0], "A"), RunEntry(LINKS[1], "B")]))
+    state = finished(runs, runs.start([RunEntry(LINKS[0], "A"), RunEntry(LINKS[1], "B")],
+                                      source="paste"))
     assert state["status"] == "done" and state["total"] == state["done"] == 2
     assert [e["state"] for e in state["entries"]] == ["closed", "stored"]
     assert state["entries"][0]["attempts"] == attempts
@@ -203,7 +209,7 @@ def test_a_closed_entry_counts_as_done_while_the_run_goes_on(runs, monkeypatch):
             return "b", None, None, []
         raise PostingNotFoundError([], closed=True)
     monkeypatch.setattr(runs_module, "add_from_url", add)
-    run_id = runs.start([RunEntry(LINKS[0], "A"), RunEntry(LINKS[1], "B")])
+    run_id = runs.start([RunEntry(LINKS[0], "A"), RunEntry(LINKS[1], "B")], source="paste")
     for _ in range(300):
         if runs.read(run_id)["done"] == 1:
             break
@@ -219,13 +225,13 @@ def test_a_closed_entry_counts_as_done_while_the_run_goes_on(runs, monkeypatch):
     (RuntimeError("secret detail"), "RuntimeError")])
 def test_other_errors_fail_the_entry_with_a_reason(runs, monkeypatch, error, reason):
     monkeypatch.setattr(runs_module, "add_from_url", fake_add({LINKS[0]: error}))
-    entry = finished(runs, runs.start([RunEntry(LINKS[0], "A")]))["entries"][0]
+    entry = finished(runs, runs.start([RunEntry(LINKS[0], "A")], source="paste"))["entries"][0]
     assert entry["state"] == "failed" and entry["reason"] == reason
 
 
 def test_an_entry_stored_meanwhile_is_a_duplicate_by_url(runs, monkeypatch):
     monkeypatch.setattr(runs_module, "add_from_url", fake_add({LINKS[0]: ("alt", "url")}))
-    entry = finished(runs, runs.start([RunEntry(LINKS[0], "A")]))["entries"][0]
+    entry = finished(runs, runs.start([RunEntry(LINKS[0], "A")], source="paste"))["entries"][0]
     assert (entry["state"], entry["posting_id"], entry["duplicate_by"]) == (
         "duplicate", "alt", "url")
 
@@ -233,16 +239,18 @@ def test_an_entry_stored_meanwhile_is_a_duplicate_by_url(runs, monkeypatch):
 def test_a_text_duplicate_is_stored_when_forced(runs, monkeypatch):
     seen = []
     monkeypatch.setattr(runs_module, "add_from_url", fake_add({LINKS[0]: ("alt", "text")}, seen))
-    first = finished(runs, runs.start([RunEntry(LINKS[0], "A")]))["entries"][0]
+    first = finished(runs, runs.start([RunEntry(LINKS[0], "A")], source="paste"))["entries"][0]
     assert (first["state"], first["duplicate_by"]) == ("duplicate", "text")
-    forced = finished(runs, runs.start([RunEntry(LINKS[0], "A", force=True)]))["entries"][0]
+    forced = finished(runs, runs.start([RunEntry(LINKS[0], "A", force=True)],
+                                       source="paste"))["entries"][0]
     assert (forced["state"], forced["posting_id"]) == ("stored", "neu")
     assert [allow for _, _, allow in seen] == [False, True]
 
 
 def test_a_forced_link_duplicate_stays_a_duplicate(runs, monkeypatch):
     monkeypatch.setattr(runs_module, "add_from_url", fake_add({LINKS[0]: ("alt", "url")}))
-    entry = finished(runs, runs.start([RunEntry(LINKS[0], "A", force=True)]))["entries"][0]
+    entry = finished(runs, runs.start([RunEntry(LINKS[0], "A", force=True)],
+                                      source="paste"))["entries"][0]
     assert (entry["state"], entry["duplicate_by"]) == ("duplicate", "url")
 
 
@@ -253,11 +261,11 @@ def test_a_second_start_is_refused_while_the_first_computes(runs, monkeypatch):
         release.wait(30)
         return "a", None, None, []
     monkeypatch.setattr(runs_module, "add_from_url", held)
-    first = runs.start([RunEntry(LINKS[0], "A")])
+    first = runs.start([RunEntry(LINKS[0], "A")], source="paste")
     time.sleep(0.05)
     assert runs.read(first)["entries"][0]["state"] == "running"
     with pytest.raises(AlertRunBusyError) as refused:
-        runs.start([RunEntry(LINKS[1], "B")])
+        runs.start([RunEntry(LINKS[1], "B")], source="paste")
     assert refused.value.run_id == first
     release.set()
     assert finished(runs, first)["status"] == "done"
@@ -267,7 +275,7 @@ def test_a_crash_of_the_loop_fails_the_run(runs, monkeypatch):
     def crash(intake, entry):
         raise KeyError("boom")
     monkeypatch.setattr(runs_module, "add_entry", crash)
-    state = finished(runs, runs.start([RunEntry(LINKS[0], "A")]))
+    state = finished(runs, runs.start([RunEntry(LINKS[0], "A")], source="paste"))
     assert (state["status"], state["error"]) == ("failed", "KeyError")
 
 
@@ -282,7 +290,7 @@ def test_a_link_in_two_tracking_forms_is_fetched_once_and_the_copy_names_the_fir
     monkeypatch.setattr(runs_module, "add_from_url", fake_add(
         {first: ("a", None), LINKS[1]: ("b", None)}, seen))
     state = finished(runs, runs.start([RunEntry(first, "A"), RunEntry(second, "A again"),
-                                       RunEntry(LINKS[1], "B")]))
+                                       RunEntry(LINKS[1], "B")], source="paste"))
     assert [url for url, _, _ in seen] == [first, LINKS[1]]
     one, two, three = state["entries"]
     assert (one["state"], one["posting_id"]) == (two["state"], two["posting_id"]) == ("stored", "a")
@@ -294,7 +302,8 @@ def test_a_copy_takes_every_outcome_field_of_the_first(runs, monkeypatch):
     attempts = [{"step": "plain", "url": LINKS[0], "outcome": "HTTP 404"}]
     monkeypatch.setattr(runs_module, "add_from_url", fake_add({
         LINKS[0]: PostingNotFoundError(attempts, closed=False)}))
-    state = finished(runs, runs.start([RunEntry(LINKS[0], "A"), RunEntry(f"{LINKS[0]}/", "B")]))
+    state = finished(runs, runs.start([RunEntry(LINKS[0], "A"), RunEntry(f"{LINKS[0]}/", "B")],
+                                      source="paste"))
     first, copy = state["entries"]
     assert copy["state"] == "failed" and copy["attempts"] == attempts and copy["same_as"] == 0
     assert copy | {"url": first["url"], "title": first["title"]} == first | {"same_as": 0}
@@ -311,7 +320,7 @@ def test_two_entries_on_one_host_are_spaced_by_the_runs_throttle(tmp_path, close
                     loop_model=ToolScriptModel(plan=[]))
     runs = AlertRuns(intake, clock.throttle())
     state = finished(runs, runs.start([RunEntry(f"{closed_site.url}/open", "A"),
-                                       RunEntry(f"{closed_site.url}/alt", "B")]))
+                                       RunEntry(f"{closed_site.url}/alt", "B")], source="paste"))
     assert [e["state"] for e in state["entries"]][0] == "stored"
     assert closed_site.hits == ["/open", "/alt"] and clock.sleeps == [3]
 
@@ -323,7 +332,7 @@ def test_the_runs_throttle_is_set_around_each_entry_and_cleared_after(runs, monk
         seen.append(host_throttle.get())
         return "p", None, None, []
     monkeypatch.setattr(runs_module, "add_from_url", add)
-    finished(runs, runs.start([RunEntry(LINKS[0], "A"), RunEntry(LINKS[1], "B")]))
+    finished(runs, runs.start([RunEntry(LINKS[0], "A"), RunEntry(LINKS[1], "B")], source="paste"))
     assert seen == [runs._throttle, runs._throttle]
     assert runs._executor.submit(host_throttle.get).result() is None
 
@@ -360,7 +369,7 @@ def test_current_names_the_computing_run_and_nothing_after_it(runs, monkeypatch)
         return "a", None, None, []
     monkeypatch.setattr(runs_module, "add_from_url", held)
     assert runs.current() is None
-    run_id = runs.start([RunEntry(LINKS[0], "A")])
+    run_id = runs.start([RunEntry(LINKS[0], "A")], source="paste")
     assert runs.current() == run_id
     release.set()
     finished(runs, run_id)
@@ -371,7 +380,7 @@ def test_the_end_hook_gets_the_final_entries_before_the_status_leaves_running(ru
     monkeypatch.setattr(runs_module, "add_from_url", fake_add({
         LINKS[0]: ("a", None), LINKS[1]: PostingNotFoundError([], closed=True)}))
     hook = EndHook(runs)
-    run_id = runs.start([RunEntry(LINKS[0], "A"), RunEntry(LINKS[1], "B")], hook)
+    run_id = runs.start([RunEntry(LINKS[0], "A"), RunEntry(LINKS[1], "B")], hook, source="paste")
     state = finished(runs, run_id)
     call, = hook.calls  # a single call; reading the run from inside it did not deadlock
     assert [e["state"] for e in call["entries"]] == ["stored", "closed"]
@@ -387,7 +396,7 @@ def test_the_end_hook_runs_after_a_crash_with_the_entries_as_they_stood(runs, mo
         return {"state": "stored", "posting_id": "a"}
     monkeypatch.setattr(runs_module, "add_entry", crash_on_second)
     hook = EndHook(runs)
-    state = finished(runs, runs.start([RunEntry(url, "T") for url in LINKS], hook))
+    state = finished(runs, runs.start([RunEntry(url, "T") for url in LINKS], hook, source="paste"))
     assert state["status"] == "failed"
     call, = hook.calls
     assert [e["state"] for e in call["entries"]] == ["stored", "running", "waiting"]
@@ -399,10 +408,10 @@ def test_an_exception_in_the_end_hook_is_logged_by_type_and_frees_the_slot(
     monkeypatch.setattr(runs_module, "add_from_url", fake_add({LINKS[0]: ("a", None)}))
     hook = EndHook(runs, ValueError("secret detail"))
     with caplog.at_level("WARNING"):
-        state = finished(runs, runs.start([RunEntry(LINKS[0], "A")], hook))
+        state = finished(runs, runs.start([RunEntry(LINKS[0], "A")], hook, source="paste"))
     assert state["status"] == "done" and runs.current() is None
     assert "ValueError" in caplog.text and "secret detail" not in caplog.text
-    assert finished(runs, runs.start([RunEntry(LINKS[0], "A")]))["status"] == "done"
+    assert finished(runs, runs.start([RunEntry(LINKS[0], "A")], source="paste"))["status"] == "done"
 
 
 def test_a_failed_submit_never_calls_the_end_hook(runs, monkeypatch):
@@ -411,7 +420,7 @@ def test_a_failed_submit_never_calls_the_end_hook(runs, monkeypatch):
     monkeypatch.setattr(runs._executor, "submit", broken)
     hook = EndHook(runs)
     with pytest.raises(RuntimeError):
-        runs.start([RunEntry(LINKS[0], "A")], hook)
+        runs.start([RunEntry(LINKS[0], "A")], hook, source="paste")
     assert hook.calls == [] and runs.current() is None
 
 
@@ -438,7 +447,7 @@ def test_a_cancel_stops_after_the_current_entry_and_the_rest_stay_waiting(runs, 
     seen = []
     entered, release = holding_first(monkeypatch, seen)
     hook = EndHook(runs)
-    run_id = runs.start([RunEntry(url, "T") for url in LINKS], hook)
+    run_id = runs.start([RunEntry(url, "T") for url in LINKS], hook, source="paste")
     assert entered.wait(10)
     assert runs.read(run_id)["cancel_requested"] is False
     assert runs.cancel(run_id) == run_id
@@ -457,7 +466,7 @@ def test_a_cancel_during_the_last_entry_ends_done_with_the_request_noted(runs, m
     """No entry was left out, so the run is `done`, not `cancelled` (spec: Cancel during the
     last entry)."""
     entered, release = holding_first(monkeypatch)
-    run_id = runs.start([RunEntry(LINKS[0], "A")])
+    run_id = runs.start([RunEntry(LINKS[0], "A")], source="paste")
     assert entered.wait(10)
     assert runs.cancel(run_id) == run_id
     release.set()
@@ -470,7 +479,7 @@ def test_a_cancel_during_the_last_entry_ends_done_with_the_request_noted(runs, m
 def test_an_entry_whose_first_link_was_never_reached_stays_waiting(runs, monkeypatch):
     entered, release = holding_first(monkeypatch)
     run_id = runs.start([RunEntry(LINKS[0], "A"), RunEntry(LINKS[1], "B"),
-                         RunEntry(f"{LINKS[1]}?utm_source=mail", "B again")])
+                         RunEntry(f"{LINKS[1]}?utm_source=mail", "B again")], source="paste")
     assert entered.wait(10)
     runs.cancel(run_id)
     release.set()
@@ -484,7 +493,7 @@ def test_a_cancel_before_the_first_entry_runs_none(runs, monkeypatch):
     release = threading.Event()
     runs._executor.submit(release.wait, 30)  # the worker is busy until released
     monkeypatch.setattr(runs_module, "add_from_url", fake_add({LINKS[0]: ("a", None)}, seen))
-    run_id = runs.start([RunEntry(LINKS[0], "A")])
+    run_id = runs.start([RunEntry(LINKS[0], "A")], source="paste")
     runs.cancel(run_id)
     release.set()
     state = finished(runs, run_id)
@@ -503,8 +512,124 @@ def test_a_cancel_of_an_ended_run_is_refused_and_changes_nothing(runs, monkeypat
         monkeypatch.setattr(runs_module, "add_entry", lambda intake, entry: 1 / 0)
     else:
         monkeypatch.setattr(runs_module, "add_from_url", fake_add({LINKS[0]: ("a", None)}))
-    state = finished(runs, runs.start([RunEntry(LINKS[0], "A")]))
+    state = finished(runs, runs.start([RunEntry(LINKS[0], "A")], source="paste"))
     assert state["status"] == how
     with pytest.raises(RunNotRunningError):
         runs.cancel(state["run_id"])
     assert runs.read(state["run_id"]) == state
+
+
+# --- the list of unsettled links: start ---------------------------------------------------------
+
+EARLIER = datetime(2026, 11, 20, 9, 0, tzinfo=UTC)
+
+
+def rows(root) -> dict[str, UnsettledLink]:
+    """The rows of `unsettled-links.json` under `root` by URL."""
+    return {row.url: row for row in read_unsettled_links(root).links}
+
+
+def listed(root, *links: UnsettledLink) -> None:
+    """Write `links` as the list file under `root`."""
+    update_unsettled_links(root, lambda current: UnsettledLinks(schema_version="1",
+                                                                links=list(links)))
+
+
+def row(url: str, **changes) -> UnsettledLink:
+    """A row of `url` that one earlier run left unread."""
+    return UnsettledLink.model_validate({
+        "url": url, "title": "Old title", "source": "mailbox", "state": "unread", "tries": 1,
+        "added_at": EARLIER, "last_tried_at": EARLIER,
+        "attempts": [{"step": "plain", "outcome": "HTTP 429"}], "reason": None} | changes)
+
+
+def test_every_link_is_waiting_in_the_list_before_the_first_entry_runs(runs, tmp_path,
+                                                                       monkeypatch):
+    """posting-intake → Scenario: Waiting during the run (the rows exist before any entry)."""
+    seen = []
+
+    def add(intake, url, *, allow_text_duplicate=False):
+        seen.append({key: value.state for key, value in rows(tmp_path).items()})
+        return "p", None, None, []
+    monkeypatch.setattr(runs_module, "add_from_url", add)
+    finished(runs, runs.start([RunEntry(url, f"T{n}") for n, url in enumerate(LINKS)],
+                              source="mailbox"))
+    assert seen[0] == dict.fromkeys(LINKS, "waiting")
+    new = read_unsettled_links(tmp_path).links[0]
+    assert (new.title, new.source, new.tries, new.last_tried_at, new.attempts) == (
+        "T0", "mailbox", 0, None, [])
+    assert new.added_at.tzinfo is not None
+
+
+def test_two_entries_with_one_link_give_one_row_with_the_first_title(runs, tmp_path,
+                                                                     monkeypatch):
+    entered, release = holding_first(monkeypatch)
+    run_id = runs.start([RunEntry(LINKS[0], "A"), RunEntry(f"{LINKS[0]}?utm_source=mail", "B")],
+                        source="paste")
+    assert entered.wait(10)
+    assert [(r.url, r.title) for r in read_unsettled_links(tmp_path).links] == [(LINKS[0], "A")]
+    release.set()
+    finished(runs, run_id)
+
+
+@pytest.mark.parametrize("broken", ["invalid file", "write fails"])
+def test_a_list_that_cannot_be_written_starts_no_run(runs, tmp_path, monkeypatch, broken):
+    """posting-intake → Scenario: List cannot be written."""
+    seen = []
+    monkeypatch.setattr(runs_module, "add_from_url", fake_add({LINKS[0]: ("a", None)}, seen))
+    if broken == "invalid file":
+        (tmp_path / "unsettled-links.json").write_text("{not json")
+        error = DataRepositoryError
+    else:
+        def refuse(root, change):
+            raise OSError("read-only")
+        monkeypatch.setattr(runs_module, "update_unsettled_links", refuse)
+        error = OSError
+    with pytest.raises(error):
+        runs.start([RunEntry(LINKS[0], "A")], source="paste")
+    assert runs.current() is None and runs._state == {}
+    assert runs._executor.submit(lambda: None).result() is None and seen == []
+    monkeypatch.undo()
+    (tmp_path / "unsettled-links.json").unlink(missing_ok=True)
+    monkeypatch.setattr(runs_module, "add_from_url", fake_add({LINKS[0]: ("a", None)}))
+    assert finished(runs, runs.start([RunEntry(LINKS[0], "A")], source="paste"))[
+        "status"] == "done"
+
+
+def test_a_link_left_waiting_by_a_lost_run_turns_not_reached_at_the_next_start(
+        runs, tmp_path, monkeypatch):
+    """posting-intake → Scenario: Next run after a restart."""
+    listed(tmp_path, row(LINKS[2], state="waiting"))
+    entered, release = holding_first(monkeypatch)
+    run_id = runs.start([RunEntry(LINKS[0], "A"), RunEntry(LINKS[1], "B")], source="paste")
+    assert entered.wait(10)
+    assert {url: r.state for url, r in rows(tmp_path).items()} == {
+        LINKS[2]: "not_reached", LINKS[0]: "waiting", LINKS[1]: "waiting"}
+    release.set()
+    finished(runs, run_id)
+
+
+def test_a_listed_link_taken_again_waits_with_its_row_kept(runs, tmp_path, monkeypatch):
+    """A store-anyway run from a mailbox row goes through the paste route and keeps the row's
+    source, first date, tries and last try (design D1 → A link taken again)."""
+    listed(tmp_path, row(LINKS[0], reason="no posting text", attempts=[]))
+    entered, release = holding_first(monkeypatch)
+    run_id = runs.start([RunEntry(f"{LINKS[0]}?utm_source=mail", "New title", force=True)],
+                        source="paste")
+    assert entered.wait(10)
+    taken, = read_unsettled_links(tmp_path).links
+    assert taken == row(LINKS[0], reason="no posting text", attempts=[], state="waiting",
+                        title="New title")
+    release.set()
+    finished(runs, run_id)
+
+
+def test_a_repeated_row_in_a_hand_edited_file_keeps_the_first(runs, tmp_path, monkeypatch):
+    listed(tmp_path, row(LINKS[0], title="First"), row(f"{LINKS[0]}/", title="Second"))
+    entered, release = holding_first(monkeypatch)
+    run_id = runs.start([RunEntry(LINKS[1], "B")], source="paste")
+    assert entered.wait(10)
+    assert [(r.url, r.title) for r in read_unsettled_links(tmp_path).links] == [
+        (LINKS[0], "First"), (LINKS[1], "B")]
+    release.set()
+    finished(runs, run_id)

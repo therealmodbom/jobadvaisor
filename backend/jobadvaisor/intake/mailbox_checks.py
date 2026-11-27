@@ -383,7 +383,7 @@ class MailboxChecks:
                 stored = read_mailbox(self._root)
                 account = (stored.host, stored.user) if stored else None
                 run_id = self._alert_runs.start(
-                    entries, _marks_at_end(self._root, later, account))
+                    entries, _marks_at_end(self._root, later, account), source="mailbox")
             handled = [ref for ref, waits in now if not waits]
             waiting = [ref for ref, waits in now if waits]
             try:

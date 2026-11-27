@@ -149,11 +149,14 @@ class AlertRunEntryBody(BaseModel):
 
 
 class AlertRunBody(BaseModel):
-    """`POST /alert-mails/runs` body: 1 to 100 entries."""
+    """`POST /alert-mails/runs` body: 1 to 100 entries, and the optional `source` a link new to
+    the list of unsettled links is listed with (`paste` by default; the run view sends `mailbox`
+    when it stores an entry of a mailbox run anyway)."""
 
     model_config = ConfigDict(extra="forbid")
 
     entries: list[AlertRunEntryBody] = Field(min_length=1, max_length=alert_mail.MAX_ENTRIES)
+    source: Literal["mailbox", "paste"] = "paste"
 
 
 class MailboxBody(BaseModel):
@@ -797,7 +800,7 @@ def create_app(runs: Runs | None = None, intake: Intake | None = None,
         entries = [RunEntry(alert_mail.clean_link(entry.url.strip()), entry.title, entry.force)
                    for entry in body.entries]
         try:
-            return {"run_id": alert_runs.start(entries)}
+            return {"run_id": alert_runs.start(entries, source=body.source)}
         except AlertRunBusyError as error:
             return JSONResponse({"error": "alert run in progress", "detail": str(error),
                                  "run_id": error.run_id}, status_code=409)
