@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api, ApiError, type AlertRunEntry, type AlertRunState } from '@/api'
 import { POLL_FAILURES, POLL_MS } from '@/lib/run'
+import { notifyUnsettledLinks } from '@/lib/unsettled-links'
 
 /** The base of a stored-anyway run: the original run, and each stored-anyway run with the row it
  * replaces, oldest first. */
@@ -84,8 +85,15 @@ export type RunRowRef = { index: number; base: AlertRunEntry[] }
  * report a stored-anyway run of one row belongs to; `starting` and `startError` belong to
  * `start`, which POSTs `entries` as a run (or, with `row`, a run of one text duplicate stored
  * anyway) and shows it at once. A 409 attaches to the computing run. `attach` shows run `id`
- * (from `entries`, when they are known), `clear` drops the run. */
-export function useAlertRun(store: RunStore) {
+ * (from `entries`, when they are known), `clear` drops the run.
+ *
+ * Every move of the run changes the list of unsettled links, so the hook calls
+ * `notifyUnsettledLinks` when it starts or attaches to a run, when a poll shows more ended
+ * entries, when a poll shows the run no longer running and when the server forgot the run.
+ * `source` (`mailbox`) is sent with a stored-anyway run only, so the row of a mailbox run's link
+ * keeps its source label; without it the body carries none (the route's default is `paste`, and
+ * a link already listed keeps its row either way). */
+export function useAlertRun(store: RunStore, source?: 'mailbox') {
   const [runId, setRunId] = useState<string | null>(store.get)
   const [progress, setProgress] = useState<AlertRunState | null>(null)
   const [pollFailed, setPollFailed] = useState(false)
@@ -93,8 +101,10 @@ export function useAlertRun(store: RunStore) {
   const [forced, setForced] = useState<RunRowRef | null>(null)
   const [starting, setStarting] = useState(false)
   const [startError, setStartError] = useState(false)
+  /** How many entries the last poll showed ended; -1 before any (a reload), so its first poll notifies. */
+  const doneSeen = useRef(-1)
 
-  const running = runId !== null && (progress === null || progress.status === 'running')
+  const running =runId !== null && (progress === null || progress.status === 'running')
 
   useEffect(() => {
     // After a reload: rebuild the original report and put each stored-anyway run's row back into it.
@@ -121,6 +131,8 @@ export function useAlertRun(store: RunStore) {
       if (stale) return
       failures = 0
       setProgress(next)
+      if (next.done > doneSeen.current || next.status !== 'running') notifyUnsettledLinks()
+      doneSeen.current = next.done
     }, (error) => {
       if (stale) return
       if (error instanceof ApiError && error.status === 404) {
@@ -129,6 +141,7 @@ export function useAlertRun(store: RunStore) {
         setProgress(null)
         setForced(null)
         setGone(true)
+        notifyUnsettledLinks()
       } else if (++failures >= POLL_FAILURES) {
         clearInterval(timer)
         setPollFailed(true)
@@ -151,7 +164,9 @@ export function useAlertRun(store: RunStore) {
     setForced(null)
     setPollFailed(false)
     setGone(false)
+    doneSeen.current = 0
     setRunId(id)
+    notifyUnsettledLinks()
   }
 
   /** Drops the run, its stored ID and every notice about it. */
@@ -171,7 +186,9 @@ export function useAlertRun(store: RunStore) {
     setStarting(true)
     setStartError(false)
     try {
-      const { run_id: id } = await api<{ run_id: string }>('/alert-mails/runs', { method: 'POST', json: { entries } })
+      const { run_id: id } = await api<{ run_id: string }>('/alert-mails/runs', {
+        method: 'POST', json: row && source ? { entries, source } : { entries },
+      })
       const prior = row ? store.getBase() : null
       store.set(id, row && runId ? { id: prior?.id ?? runId,
                                      overlays: [...(prior?.overlays ?? []), { run: id, index: row.index }] } : undefined)
@@ -179,7 +196,9 @@ export function useAlertRun(store: RunStore) {
       setPollFailed(false)
       setProgress({ run_id: id, status: 'running', error: null, cancel_requested: false, total: entries.length, done: 0,
                     entries: entries.map((entry) => ({ url: entry.url, title: entry.title, state: row ? 'running' : 'waiting' })) })
+      doneSeen.current = 0
       setRunId(id)
+      notifyUnsettledLinks()
       return true
     } catch (error) {
       if (error instanceof ApiError && error.status === 409 && typeof error.body.run_id === 'string') {
@@ -187,7 +206,9 @@ export function useAlertRun(store: RunStore) {
         setProgress(null)
         setForced(null)
         setPollFailed(false)
+        doneSeen.current = 0
         setRunId(error.body.run_id)
+        notifyUnsettledLinks()
       } else {
         setStartError(true)
       }

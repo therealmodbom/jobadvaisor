@@ -42,7 +42,7 @@ const folderSummary = (folders: MailboxAccount['folders']) => folders.names ? fo
  * intake view to the other sources, for an entry the run could not read. */
 export function MailboxView({ active, onText, onPdf }: { active: boolean; onText: () => void; onPdf: () => void }) {
   const box = useMailbox(active)
-  const run = useAlertRun(runs)
+  const run = useAlertRun(runs, 'mailbox')
   const { account, check } = box
   const [since, setSince] = useState(() => daysBefore(FIRST_DAYS))
   const [problem, setProblem] = useState('')

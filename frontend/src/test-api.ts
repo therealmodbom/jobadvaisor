@@ -15,11 +15,13 @@ const QUIET_BACKUP = {
 
 /** Replaces `fetch` with a router over `routes` ("METHOD /path" → answer or answer function),
  * and returns the calls it received. An unrouted request fails the test. The app shell asks
- * `GET /health` and `GET /backup` on every render, so it answers healthy with version `dev` and
- * a quiet backup (nothing pending) unless a test routes them itself. */
+ * `GET /health` and `GET /backup` on every render, and the intake view and the shell ask
+ * `GET /unsettled-links`, so it answers healthy with version `dev`, a quiet backup (nothing
+ * pending) and an empty list of unsettled links unless a test routes them itself. */
 export function stubApi(routes: Record<string, Answer | ((call: Call) => Answer)>): Call[] {
   routes = { 'GET /health': { body: { status: 'ok', checks: { data_repo: 'ok' }, version: 'dev' } },
              'GET /backup': { body: QUIET_BACKUP },
+             'GET /unsettled-links': { body: { links: [], run_id: null } },
              ...routes }
   const calls: Call[] = []
   vi.stubGlobal('fetch', vi.fn(async (path: string, init: RequestInit = {}) => {
