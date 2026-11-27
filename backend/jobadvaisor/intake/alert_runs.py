@@ -5,12 +5,11 @@ restart forgets it). Every run keeps the list of unsettled links in the data rep
 (`openspec/changes/182-unsettled-links-list/design.md` D3): its links wait from the start, each
 ended entry settles or keeps its row, and the end turns the links it did not reach
 `not_reached`. The lock guards the run state only and is never held while `write_gate` is
-taken; the intake, every list write and the end hook run outside it."""
+taken; the intake and every list write run outside it."""
 
 import logging
 import threading
 import uuid
-from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -184,8 +183,7 @@ class AlertRuns:
         self._state: dict[str, dict] = {}
         self._computing: str | None = None
 
-    def start(self, entries: list[RunEntry],
-              on_end: Callable[[list[dict]], None] | None = None, *, source: Source) -> str:
+    def start(self, entries: list[RunEntry], *, source: Source) -> str:
         """Add `entries` in the background and return the run's ID at once. Raises
         `AlertRunBusyError` while another run computes. Once the slot is claimed, and outside
         this object's lock, the list of unsettled links is written in one change (`_taken`):
@@ -196,12 +194,8 @@ class AlertRuns:
         wait for it. Each fetched entry then settles or keeps its row (`_settled`; a failed
         write is logged and retried at the end), and the end of the run (after the last entry,
         a cancel or a crash, before the slot is freed) applies those retries and turns this
-        run's rows still `waiting` `not_reached` (`_ended`). `on_end(entries)` gets the final
-        entry states (`read`'s `entries`) on the worker thread, outside this object's lock,
-        after the last entry, after a crash, after a cancel, after the end's write, and before
-        the run's status leaves `running` and the slot is freed. A hook that takes a lock must
-        never take one a caller of `start` holds. An exception in it is logged by its type and
-        never keeps the slot."""
+        run's rows still `waiting` `not_reached` (`_ended`); a failure there is logged by its
+        type and never keeps the slot."""
         run_id = uuid.uuid4().hex
         with self._lock:
             if self._computing:
@@ -215,7 +209,7 @@ class AlertRuns:
             now = datetime.now(UTC)
             update_unsettled_links(self._root,
                                    lambda current: _taken(current, entries, source, now))
-            self._executor.submit(self._run, run_id, entries, on_end, source)
+            self._executor.submit(self._run, run_id, entries, source)
         except Exception:
             with self._lock:
                 self._computing = None
@@ -297,8 +291,7 @@ class AlertRuns:
                        for entry in entries)
             return state | {"entries": entries, "done": done}
 
-    def _run(self, run_id: str, entries: list[RunEntry],
-             on_end: Callable[[list[dict]], None] | None, source: Source) -> None:
+    def _run(self, run_id: str, entries: list[RunEntry], source: Source) -> None:
         status, error = "done", None
         seen: dict[str, int] = {}  # link key → index of the entry that was fetched for it
         # link key → (entry, outcome, end time) of an entry whose row could not be written
@@ -345,12 +338,6 @@ class AlertRuns:
             except Exception as failure:  # the slot must be freed whatever the write did
                 log.warning("alert run %s: the end of the run was not written to the list of "
                             "unsettled links (%s)", run_id, type(failure).__name__)
-            if on_end is not None:
-                try:
-                    on_end(self.read(run_id)["entries"])
-                except Exception as hook:  # the slot must be freed whatever the hook did
-                    log.warning("alert run %s: the end hook failed (%s)", run_id,
-                                type(hook).__name__)
             with self._lock:
                 self._state[run_id] |= {"status": status, "error": error}
                 self._computing = None

@@ -251,14 +251,12 @@ def update_mailbox_account(root: Path, host: str, port: int, user: str,
     return update_mailbox(root, change)
 
 
-def mark_mails(root: Path, handled: Iterable[MailRef] = (), waiting: Iterable[MailRef] = (),
-               account: tuple[str, str] | None = None) -> Mailbox | None:
+def mark_mails(root: Path, handled: Iterable[MailRef] = (),
+               waiting: Iterable[MailRef] = ()) -> Mailbox:
     """Record `handled` mails as never to be read again and `waiting` mails as waiting for
     screening, and return the mailbox. A handled mail leaves `waiting`. Read-modify-write under
-    the write gate, so a change made meanwhile survives. Given `account` (`(host, user)`), the
-    marks are made only while that account is the stored one, decided inside the same hold of
-    the gate: otherwise nothing is marked and the stored mailbox (`None` without one) is
-    answered. Without `account`, raises `ValueError` without a configured mailbox."""
+    the write gate (`update_mailbox`), so a change made meanwhile survives. Raises `ValueError`
+    without a configured mailbox and like `read_mailbox`."""
     handled, waiting = list(handled), list(waiting)
 
     def change(current: Mailbox | None) -> Mailbox:
@@ -267,11 +265,7 @@ def mark_mails(root: Path, handled: Iterable[MailRef] = (), waiting: Iterable[Ma
         return current.model_copy(update={
             "handled": current.handled.marked(handled),
             "waiting": current.waiting.unmarked(handled).marked(waiting)})
-    with write_gate:
-        stored = read_mailbox(root)
-        if account is not None and (stored is None or account != (stored.host, stored.user)):
-            return stored
-        return update_mailbox(root, change)
+    return update_mailbox(root, change)
 
 
 UNSETTLED_LINKS_FILE = Path("unsettled-links.json")

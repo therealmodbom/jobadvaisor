@@ -557,9 +557,7 @@ def test_finishing_with_entries_starts_one_alert_run_and_marks_the_mails(tmp_pat
     answer = app.post(f"/mailbox/checks/{state['check_id']}/finish", {"entries": chosen})
     assert answer.status_code == 202 and answer.json() == {"run_id": "run-1"}
     assert [entry.url for entry in app.runs.started[0]] == urls[:2]
-    assert read_mailbox(root).handled.uids["Posteingang"].uids == [2]  # mail 1 awaits the run
-    app.runs.end({url: "stored" for url in urls[:2]})
-    assert read_mailbox(root).handled.uids["Posteingang"].uids == [1, 2]
+    assert read_mailbox(root).handled.uids["Posteingang"].uids == [1, 2]  # once it started
     assert app.get("/mailbox").json()["check_id"] is None
     assert app.get(f"/mailbox/checks/{state['check_id']}").json()["status"] == "finished"
 
