@@ -276,6 +276,28 @@ test('a start that fails shows in the list, which stays', async () => {
   expect(screen.getByRole('button', { name: 'Alle erneut versuchen (2)' })).toBeEnabled()
 })
 
+test('a start refused because the list is unreadable says nothing was added, in the list', async () => {
+  serve([link(1)], null, { 'POST /alert-mails/runs': { status: 503, body: { error: 'unsettled links unreadable', detail: 'x' } } })
+  render(<App />)
+  await userEvent.click(await screen.findByRole('button', { name: 'Alle erneut versuchen (1)' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('Die Liste der offenen Links (unsettled-links.json) ist nicht lesbar. Es wurde nichts hinzugefügt.')
+  expect(rows()).toHaveLength(1)
+})
+
+test('the retry run points to no list, since it shows in the list tab: its report and its lost notice have no link', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  sessionStorage.setItem(RETRY_KEY, 'r1')
+  serve([link(1)], null, { 'GET /alert-mails/runs/r1': { body: runOf([link(1)], { 0: 'failed' }, { status: 'done' }) } })
+  const { unmount } = render(<App />)
+  expect(await screen.findByText('Die Links, die nicht hinzugefügt wurden, stehen in der Liste der offenen Links.')).toBeVisible()
+  expect(screen.queryByRole('link', { name: 'Offene Links ansehen' })).toBeNull()
+  unmount()
+  serve([link(1)], null, { 'GET /alert-mails/runs/r1': { status: 404, body: { error: 'not found' } } })
+  render(<App />)
+  expect(await screen.findByRole('heading', { name: 'Lauf nicht mehr bekannt' })).toBeVisible()
+  expect(screen.queryByRole('link', { name: 'Offene Links ansehen' })).toBeNull()
+})
+
 test('a retry run kept across a reload shows in the tab again', async () => {
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
   sessionStorage.setItem(RETRY_KEY, 'r1')

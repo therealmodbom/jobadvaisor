@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { api, ApiError, type AlertRunEntry, type AlertRunState } from '@/api'
 import { POLL_FAILURES, POLL_MS } from '@/lib/run'
-import { notifyUnsettledLinks } from '@/lib/unsettled-links'
+import { isUnreadable, notifyUnsettledLinks } from '@/lib/unsettled-links'
 
 /** The base of a stored-anyway run: the original run, and each stored-anyway run with the row it
  * replaces, oldest first. */
@@ -73,6 +73,10 @@ export function outcomeOf(entry: AlertRunEntry): Outcome | null {
   }
 }
 
+/** Why a run did not start: `unreadable` is the 503 for an invalid list file (nothing was started or
+ * marked), `failed` anything else (the server did not answer, or refused the body). */
+export type StartError = 'failed' | 'unreadable'
+
 /** One entry to add: `force` stores a text duplicate anyway. */
 export type RunEntry = { url: string; title: string; force: boolean }
 /** The row of a text duplicate stored anyway, and the report it belongs to. */
@@ -82,8 +86,8 @@ export type RunRowRef = { index: number; base: AlertRunEntry[] }
  * shows (null: none); `progress` its last state (null: not read yet); `running` is true until the
  * state says otherwise; `pollFailed` after `POLL_FAILURES` failed polls in a row (`retryPoll`
  * resumes); `gone` when the server no longer knows the run (it restarted, 404); `forced` the
- * report a stored-anyway run of one row belongs to; `starting` and `startError` belong to
- * `start`, which POSTs `entries` as a run (or, with `row`, a run of one text duplicate stored
+ * report a stored-anyway run of one row belongs to; `starting` and `startError` (a `StartError`,
+ * null for none) belong to `start`, which POSTs `entries` as a run (or, with `row`, a run of one text duplicate stored
  * anyway) and shows it at once. A 409 attaches to the computing run. `attach` shows run `id`
  * (from `entries`, when they are known), `clear` drops the run.
  *
@@ -100,11 +104,11 @@ export function useAlertRun(store: RunStore, source?: 'mailbox') {
   const [gone, setGone] = useState(false)
   const [forced, setForced] = useState<RunRowRef | null>(null)
   const [starting, setStarting] = useState(false)
-  const [startError, setStartError] = useState(false)
+  const [startError, setStartError] = useState<StartError | null>(null)
   /** How many entries the last poll showed ended; -1 before any (a reload), so its first poll notifies. */
   const doneSeen = useRef(-1)
 
-  const running =runId !== null && (progress === null || progress.status === 'running')
+  const running = runId !== null && (progress === null || progress.status === 'running')
 
   useEffect(() => {
     // After a reload: rebuild the original report and put each stored-anyway run's row back into it.
@@ -176,7 +180,7 @@ export function useAlertRun(store: RunStore, source?: 'mailbox') {
     setProgress(null)
     setForced(null)
     setGone(false)
-    setStartError(false)
+    setStartError(null)
   }
 
   /** Starts a run of `entries`, as the first run of a view or, with `row`, a run of one text duplicate
@@ -184,7 +188,7 @@ export function useAlertRun(store: RunStore, source?: 'mailbox') {
   async function start(entries: RunEntry[], row?: RunRowRef): Promise<boolean> {
     if (starting || running) return false
     setStarting(true)
-    setStartError(false)
+    setStartError(null)
     try {
       const { run_id: id } = await api<{ run_id: string }>('/alert-mails/runs', {
         method: 'POST', json: row && source ? { entries, source } : { entries },
@@ -210,7 +214,7 @@ export function useAlertRun(store: RunStore, source?: 'mailbox') {
         setRunId(error.body.run_id)
         notifyUnsettledLinks()
       } else {
-        setStartError(true)
+        setStartError(isUnreadable(error) ? 'unreadable' : 'failed')
       }
       return false
     } finally {

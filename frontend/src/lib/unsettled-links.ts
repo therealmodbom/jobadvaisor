@@ -27,6 +27,13 @@ export type UnsettledState =
   | { kind: 'unreadable'; detail: string }
   | { kind: 'failed' }
 
+/** Whether `error` is the 503 `unsettled links unreadable` of a route that needs the list file
+ * (the list, a removal, a run start, the finish of a pick list): the file is invalid, and nothing
+ * was started or marked. */
+export function isUnreadable(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 503 && error.error === 'unsettled links unreadable'
+}
+
 const EVENT = 'unsettled-links-changed'
 
 /** Tells every `useUnsettledLinks` to read the list again; called when a run's state moves and
@@ -51,8 +58,8 @@ export function useUnsettledLinks(active = false): UnsettledState {
         (answer) => { if (!stale && mine === latest) setState({ kind: 'ready', links: answer.links, runId: answer.run_id }) },
         (error) => {
           if (stale || mine !== latest) return
-          if (error instanceof ApiError && error.status === 503 && error.error === 'unsettled links unreadable') {
-            setState({ kind: 'unreadable', detail: error.detail })
+          if (isUnreadable(error)) {
+            setState({ kind: 'unreadable', detail: (error as ApiError).detail })
           } else {
             setState((now) => now.kind === 'ready' ? now : { kind: 'failed' })
           }

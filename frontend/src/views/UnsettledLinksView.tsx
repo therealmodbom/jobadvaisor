@@ -138,7 +138,7 @@ export function UnsettledLinksView({ state, onText, onPdf }: { state: UnsettledS
       </div>
       <p role="status" className="sr-only">{announce}</p>
       {problem && <p role="alert" className="text-danger">{problem}</p>}
-      {run.startError && <StartFailed keeps="Die Liste" />}
+      {run.startError && <StartFailed error={run.startError} keeps="Die Liste" />}
       {links.length > 0 && (
         <ul aria-label="Offene Links" className="flex flex-col gap-2.5">
           {links.map((link, index) => (
