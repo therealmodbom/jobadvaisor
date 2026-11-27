@@ -72,7 +72,7 @@ UnsettledLink:
 `AlertRuns.unsettled()` answers the rows as the API serves them, so the rule about runs lives next to the runs.
 
 - A row `waiting` while `current()` is `None` reads as `not_reached`, which covers a process that died mid-run. The start sweep (D3) covers a new run after such a restart.
-- Each row carries `in_run: true` when it is `waiting` and a run computes.
+- Each row carries `in_run: true` when it is `waiting` and a run computes, and the answer names that run (`run_id`).
 - Order: most recent activity first (`last_tried_at`, else `added_at`).
 
 Rejected: rewriting `waiting` rows at app startup. It needs a startup hook in the app factory for what one comparison at read time gives.
@@ -94,21 +94,28 @@ Rejected: rewriting `waiting` rows at app startup. It needs a startup hook in th
 
 ### D7 API
 
-- `GET /unsettled-links` answers `{links: [{url, title, source, state, tries, added_at, last_tried_at, attempts, reason, in_run}]}`. The client counts the badge from `links`.
+- `GET /unsettled-links` answers `{links: [{url, title, source, state, tries, added_at, last_tried_at, attempts, reason, in_run}], run_id}`, `run_id` the computing alert run or null. The client counts the badge from `links` without `in_run` rows, and disables the retry buttons while `run_id` is set.
+- **A retry is a run:** „Erneut versuchen“ and „Alle erneut versuchen“ post the rows' links to `POST /alert-mails/runs` without `source`. Every link is in the list already, so D1 keeps each row's source and first date. No retry route of its own: the run, its cancel, its throttle and its list upkeep are the ones every alert run has. 409 `alert run in progress` names the computing run, as today.
 - `DELETE /unsettled-links` with the body `{url}` answers `{links}` (the list after the removal). Errors: 404 `not found`, 409 `link in run`. The link goes in the body because a URL as a path segment needs double encoding and a body keeps it whole.
 - `POST /alert-mails/runs` takes an optional `source` in its body (`"paste"` by default). The run view sends `"mailbox"` when it stores a row of a mailbox run anyway. `MailboxChecks.finish` passes `"mailbox"`.
 - **An unreadable or invalid `unsettled-links.json`** (a hand edit, a bad merge): `GET` and `DELETE /unsettled-links`, `POST /alert-mails/runs` and the finish of a pick list answer 503 `unsettled links unreadable` with the loader's one-line problem as `detail`. Nothing starts and no mail is marked. The frontend shows „Die Liste der offenen Links (unsettled-links.json) ist nicht lesbar. Es wurde nichts hinzugefügt.“ for a run, the same first sentence in the tab, and no badge.
 
 ### D8 Frontend
 
-The view is designed first as a Design artifact on the JobAdvAIsor Design System, before any UI code: the tab, a row in every state, the badge on the tab and on the navigation item, the empty list, and a phone's width. The design review confirms that the navigation item carries a badge, and decides the word for a not reached link („Nicht erreicht“, or the run view's „nicht gestartet“).
+The approved design is the canvas [Offene Links (#182)](https://claude.ai/artifact/LA6KDXpz7UePRYrn5Ccjod), screenshots of the real app with a prototype in the components and fictional demo data. Its rules, as approved on 2026-11-27:
+
+- **Rows:** neutral, with only the outcome word in colour, unlike the red rows of failed entries in the run view. The outcome comes first, then the title, the link and one muted meta line: source · „in n Läufen abgerufen“ (or „noch in keinem Lauf abgerufen“) · „offen seit <date>“ · „zuletzt <date>“. „Details: n Versuche“ keeps the run view's word for the attempts of the last try. A link not reached reads „Nicht gestartet“, the run view's word.
+- **Buttons:** „Alle erneut versuchen (n)“ in the list head, the only filled button. Each row has „Erneut versuchen“ and „Entfernen“ as outline buttons, stacked on the right, and at a phone's width below the text at full width. While an alert run computes, the retry buttons and the „Entfernen“ of waiting rows are disabled, each row with one info icon that gives the reason.
+- **Badge:** a filled pill after the label of the tab and of the navigation item „Anzeige hinzufügen“. It counts the rows that need attention (no `in_run`), with no pill at 0.
+- **A retry's run** replaces the list in the tab with the run view (`AlertRunView` with `RETRY_WORDS`, own run store), whose „Zurück zu den offenen Links“ returns to the list.
 
 - **Route:** `#/offene-links` opens „Anzeige hinzufügen“ with the source „Offene Links“ chosen, like `#/importieren` opens „Liste“. So a run report can link there, and a reload keeps the tab.
 - **View:** a new `UnsettledLinksView`, mounted by `IntakeView` like `MailboxView`.
   - Rows reuse `OriginalLink` (`components/posting.tsx`), `AttemptList` (`components/attempts.tsx`), `AttemptDetails` (`components/alert-run.tsx`, exported for it) and the outcome words of `RunRow` where they match.
   - „Entfernen“ removes at once and announces through a `role="status"` line.
   - The focus moves to the next row's „Entfernen“, else to the list's heading.
-  - A row with `in_run` shows an info icon with the reason instead of the button.
+  - Disabled buttons pair with `WhyDisabled` (`components/why.tsx`), as elsewhere in the app.
+  - The retry run uses `useAlertRun(runStore('jobadvaisor.retry-run', …))`, so a reload keeps it, like the mailbox run.
 - **Count and freshness:** `useUnsettledLinks()` in `lib/unsettled-links.ts` reads `GET /unsettled-links` on mount, when the tab „Offene Links“ becomes the shown source, and whenever the window event `unsettled-links-changed` fires.
   - `App` and `IntakeView` show the count from it, and `UnsettledLinksView` its rows.
   - The run hook (`useAlertRun`) dispatches the event when a run starts, each time a poll shows more ended entries (`done` grew), and when the run leaves `running`. The view dispatches it after a removal. So the badge falls during a run, and `in_run` rows lose that mark once their entry ends.
@@ -117,7 +124,7 @@ The view is designed first as a Design artifact on the JobAdvAIsor Design System
   - A shared hook or context in the app tree was rejected: the counter sits in `App` while the run hook sits deep inside `IntakeView`, and an event avoids threading a callback through both.
 - **Texts** (`lib/alert.ts`):
   - `RunWords` stay strings. `RunPanel` renders one link „Offene Links“ to `#/offene-links` after the `again`, `lost` or `crash` text it shows, so the words name the list and the panel owns the link.
-  - `MAILBOX_WORDS.again` and `PASTE_WORDS.again` say that the links not added are kept under „Offene Links“.
+  - `MAILBOX_WORDS.again` and `PASTE_WORDS.again` say that the links not added are kept under „Offene Links“. `RETRY_WORDS` says they stay there, and its run shows no link to the tab it is in.
   - `MAILBOX_WORDS.lost` and `crash` stop promising that the next check offers the mails again.
   - `PASTE_WORDS.lost`, `crash` and `cancelled` keep the paste-again way and add the list.
   - The note below the pick list (`components/mailbox-pick.tsx`) changes per the spec.
@@ -126,7 +133,7 @@ The view is designed first as a Design artifact on the JobAdvAIsor Design System
 ## Risks / Trade-offs
 
 - **One file write per ended entry.** A run of 100 entries writes the file about 100 times, and each write waits for a backup that holds `write_gate`. Each write is small and the fetches take seconds, so it is negligible. → No batching.
-- **The badge counts waiting links.** During a run of 100 entries it shows 100 and falls as links settle. → Accepted: they are open until they end. The design review can choose to count only ended rows.
+- **The retry buttons know only of alert runs**, not of a mailbox check reading mails: a retry during a check is fine, and a pick list finished meanwhile is refused with 409 as today. The canvas's info text says „ein Lauf oder eine Postfachprüfung“; the built text names only the run.
 - **A link settled elsewhere stays listed** (single add, text or PDF from a failed row). → The user removes it. #169 and #166 add the ways to settle it from the list.
 - **A per-entry write that fails** is retried once at the end of the run (D3). Only when that fails too does the row stay `waiting`, read as not reached, with the try not counted. → Logged. The link is not lost.
 - **An invalid file after a hand edit blocks every run** until it is fixed (D7). → Accepted: the same holds for `mailbox.json`, and the error names the file and the problem.

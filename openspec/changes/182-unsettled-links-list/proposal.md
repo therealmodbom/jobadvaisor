@@ -13,14 +13,14 @@ Marking the mail handled at once is only safe when the unsettled links are kept 
 - **Every alert run keeps the list, from a mailbox or a pasted mail.**
   - When a run starts, each of its links enters the list as waiting, before any mail is marked, so a restart or crash cannot lose a link whose mail already counts as handled.
   - When an entry ends, its link leaves the list if it ended stored, as a duplicate or closed, and stays with its outcome otherwise: „Nicht gelesen“ (attempts, or a reason such as a refused model call) or „Nicht beurteilbar“.
-  - A link the run did not reach (a cancel, a crash, a restart) shows as „Nicht erreicht“.
+  - A link the run did not reach (a cancel, a crash, a restart) shows as „Nicht gestartet“, the run view's word.
   - A link chosen again in a later run updates its row and counts one more try.
-- **„Offene Links“ in the app.** A new source tab next to „Postfach“ under „Anzeige hinzufügen“ lists the unsettled links with title, link, outcome, tries, first and last try, and lets the user remove a link. A count badge on the tab, and on the navigation item „Anzeige hinzufügen“, shows how many links are open. The view is designed as a Design artifact before UI code.
+- **„Offene Links“ in the app.** A new source tab next to „Postfach“ under „Anzeige hinzufügen“ lists the unsettled links with outcome, title, link, source, runs, first and last try. The user can try one or all of them again, which starts a normal alert run shown in the tab, or remove a link. A count badge on the tab and on the navigation item „Anzeige hinzufügen“ shows how many links need attention. The approved design is the canvas [Offene Links (#182)](https://claude.ai/artifact/LA6KDXpz7UePRYrn5Ccjod).
 - **Run and pick-list texts.** The run view of a mailbox run no longer says that the next check offers the mails again; it points to „Offene Links“, and so does a pasted run with unsettled entries. The note below the mailbox pick list says that every mail counts as handled once the run starts, and that links not read stay under „Offene Links“.
 
 ## Non-goals
 
-- Setting a link's outcome by hand ([#169 (Unsettled links, step 2: set a link's outcome by hand)](https://github.com/therealmodbom/jobadvaisor/issues/169)), trying a link again ([#183 (Unsettled links, step 3: try a link again)](https://github.com/therealmodbom/jobadvaisor/issues/183)), remembering links judged closed ([#166 (Unsettled links, step 4: remember links a run judged closed)](https://github.com/therealmodbom/jobadvaisor/issues/166)) and the model verdict on an unknown page state ([#176 (Page state no rule knows: a model gives a verdict, the user confirms)](https://github.com/therealmodbom/jobadvaisor/issues/176)). The row shape leaves room for them.
+- Setting a link's outcome by hand ([#169 (Unsettled links, step 2: set a link's outcome by hand)](https://github.com/therealmodbom/jobadvaisor/issues/169)), trying links again on their own, without a press ([#183 (Unsettled links, step 3: try a link again)](https://github.com/therealmodbom/jobadvaisor/issues/183), whose retry by hand moved here), remembering links judged closed ([#166 (Unsettled links, step 4: remember links a run judged closed)](https://github.com/therealmodbom/jobadvaisor/issues/166)) and the model verdict on an unknown page state ([#176 (Page state no rule knows: a model gives a verdict, the user confirms)](https://github.com/therealmodbom/jobadvaisor/issues/176)). The row shape leaves room for them.
 - Settling a listed link through another route (a single link, pasted text or a PDF from the failed row, the list import): the row stays until the user removes it, or a later alert run settles it.
 - Showing a listed link as such in a later pick list: it is offered like any new entry until #166.
 - Metadata beyond title, source and dates (company, mail date): added once operation shows a gap.
@@ -39,11 +39,11 @@ None.
 - `data-repository`: modifies „Documented schema per entity“ (names the new entity); adds „Unsettled links stored in the data repository“ and „Unsettled links stored without mail text“.
 - `posting-intake`:
   - Modifies „Handled mails“, „Mailbox entries added like alert entries“ and „Cancel an alert run“ (a mail counts as handled once the run has started).
-  - Adds „Unsettled links kept in a list“, „Links a run did not reach“, „Tries of an unsettled link“, „No run while the list is unreadable“ and „Unsettled link removed“.
+  - Adds „Unsettled links kept in a list“, „Links a run did not reach“, „Tries of an unsettled link“, „No run while the list is unreadable“, „Unsettled link removed“ and „Unsettled links tried again by hand“.
 - `web-ui`:
   - Modifies „Note on handled mails below the pick list“.
   - Removes „Mails offered again after a mailbox run“, replaced by „Unsettled links named after a run“.
-  - Adds „Unsettled links tab“, „Unsettled links tab address and empty states“, „Count of unsettled links“ and „Remove an unsettled link“.
+  - Adds „Unsettled links tab“, „Row of an unsettled link“, „Unsettled links tab address and empty states“, „Count of unsettled links“, „Remove an unsettled link“ and „Try unsettled links again“.
 
 ## Impact
 
@@ -53,7 +53,7 @@ None.
   - `data/writer.py`: read and update functions under `write_gate`, like `read_mailbox` and `update_mailbox`.
   - `intake/alert_runs.py`: `start` takes the source and writes the waiting rows before the worker starts; each ended entry updates its row; the end of the run and a later start turn leftover waiting rows into not reached.
   - `intake/mailbox_checks.py`: `finish` marks every mail of the pick list after the run started; `_marks_at_end` and `ENDED_WELL` go.
-  - `api/app.py`: `GET /unsettled-links` and `DELETE /unsettled-links` (one link); the run routes pass their source (`POST /alert-mails/runs` takes it as an optional body field); an unreadable list answers 503.
-- **Frontend:** the tab and its list in `views/IntakeView.tsx` plus a new view, the badge in `App.tsx`, the texts in `lib/alert.ts` (`MAILBOX_WORDS`, `PASTE_WORDS`) and `components/mailbox-pick.tsx`.
+  - `api/app.py`: `GET /unsettled-links` (with the computing run's ID) and `DELETE /unsettled-links` (one link); a retry uses `POST /alert-mails/runs`; the run routes pass their source (`POST /alert-mails/runs` takes it as an optional body field); an unreadable list answers 503.
+- **Frontend:** the tab and its list in `views/IntakeView.tsx` plus a new view with the retry buttons and its own run view, the badge in `App.tsx`, the texts in `lib/alert.ts` (`MAILBOX_WORDS`, `PASTE_WORDS`) and `components/mailbox-pick.tsx`.
 - **Docs:** ADR 0020 supersedes the first two decisions of ADR 0019; `AGENTS.md` (Current state) and the README where the mailbox workflow is described.
 - **Tests:** backend tests for the writer, runs and checks; frontend tests for the tab, badge and texts; the e2e walkthrough `test_mailbox_walkthrough.py`, whose disputed link no longer brings its mail back but lands in the list. If the navigation markup changes, the README images are retaken.

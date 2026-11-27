@@ -856,3 +856,18 @@ The user SHALL be able to remove a link from the list of unsettled links. A link
 #### Scenario: Unknown link
 - **WHEN** a request removes a link that is not in the list
 - **THEN** it is refused as not found
+
+### Requirement: Unsettled links tried again by hand
+The user SHALL be able to try one or all unsettled links again. That SHALL start one alert run with those links, kept like any run's links („Unsettled links kept in a list“), so each keeps its row, its source and the date it entered the list. It SHALL be refused while another alert run computes, naming that run. The list SHALL name the computing run, if any, so the client knows when a retry is refused.
+
+#### Scenario: Retry stores a link
+- **WHEN** the user tries a link again that is in the list as not read, and the run stores it
+- **THEN** the link leaves the list, and no mail is marked or offered again
+
+#### Scenario: Retry fails again
+- **WHEN** the user tries a link from a mailbox run again, and it fails again
+- **THEN** its row keeps the source mailbox and its first date, and shows one more try with the new outcome
+
+#### Scenario: Retry during a run
+- **WHEN** the user tries links again while another alert run computes
+- **THEN** no run starts, and the answer names the computing run
