@@ -182,14 +182,16 @@ class AlertRuns:
         self._lock = threading.Lock()
         self._state: dict[str, dict] = {}
         self._computing: str | None = None
+        self._held: frozenset[str] = frozenset()  # link keys of the computing run
 
     def start(self, entries: list[RunEntry], *, source: Source) -> str:
         """Add `entries` in the background and return the run's ID at once. Raises
         `AlertRunBusyError` while another run computes. Once the slot is claimed, and outside
         this object's lock, the list of unsettled links is written in one change (`_taken`):
         leftover `waiting` rows turn `not_reached`, and each link of `entries` waits, a new one
-        listed with `source`. When that write raises (`DataRepositoryError` for an unreadable or
-        invalid file), the slot is freed, nothing starts and the error propagates. The lock is
+        listed with `source`. When that write raises (`DataRepositoryError` for an unreadable,
+        invalid or unwritable file), the slot is freed, nothing starts and the error propagates.
+        From the claim on, the run holds the keys of its links (`_holding`). The lock is
         released first because a backup can hold `write_gate` for seconds and `read` must not
         wait for it. Each fetched entry then settles or keeps its row (`_settled`; a failed
         write is logged and retried at the end), and the end of the run (after the last entry,
@@ -201,6 +203,7 @@ class AlertRuns:
             if self._computing:
                 raise AlertRunBusyError(self._computing)
             self._computing = run_id
+            self._held = frozenset(normalize_url(entry.url) for entry in entries)
             self._state[run_id] = {
                 "run_id": run_id, "status": "running", "error": None,
                 "cancel_requested": False, "total": len(entries),
@@ -212,7 +215,7 @@ class AlertRuns:
             self._executor.submit(self._run, run_id, entries, source)
         except Exception:
             with self._lock:
-                self._computing = None
+                self._computing, self._held = None, frozenset()
                 del self._state[run_id]
             raise
         return run_id
@@ -222,38 +225,46 @@ class AlertRuns:
         with self._lock:
             return self._computing
 
+    def _holding(self) -> tuple[str | None, frozenset[str]]:
+        """The computing run's ID and the keys (`normalize_url`) of its links, read together;
+        `(None, frozenset())` while none computes."""
+        with self._lock:
+            return self._computing, self._held
+
     def unsettled(self) -> dict:
         """The list of unsettled links as the API serves it: `{links, run_id}`, `run_id` the
         computing run or `None`, `links` newest activity first (`last_tried_at`, else
         `added_at`), each `{url, title, source, state, tries, added_at, last_tried_at,
-        attempts, reason, in_run}`. A `waiting` row reads `in_run: true` while a run computes
-        and `not_reached` while none does (a process that died mid-run). Raises
+        attempts, reason, in_run}`. A `waiting` row reads `in_run: true` while the computing run
+        holds its link, and `not_reached` otherwise (a process that died mid-run, or a row a
+        lost run left before the start write of the computing one). Raises
         `DataRepositoryError` for an unreadable or invalid file."""
         links = read_unsettled_links(self._root)  # first: a run ending meanwhile reads as ended
-        run_id = self.current()
-        rows = sorted(_rows(links).values(), key=lambda row: row.last_tried_at or row.added_at,
-                      reverse=True)
+        run_id, held = self._holding()
         answer = []
-        for row in rows:
+        for key, row in sorted(_rows(links).items(), reverse=True,
+                               key=lambda item: item[1].last_tried_at or item[1].added_at):
             shown = row.model_dump(mode="json") | {"in_run": False}
             if row.state == "waiting":
-                shown |= {"in_run": True} if run_id else {"state": "not_reached"}
+                shown |= {"in_run": True} if key in held else {"state": "not_reached"}
             answer.append(shown)
         return {"links": answer, "run_id": run_id}
 
     def remove(self, url: str) -> None:
         """Drop the row of `url` (compared by `normalize_url`) from the list in one change.
-        Raises `KeyError` without a row and `LinkInRunError` for a `waiting` row while a run
-        computes, decided inside that change (under `write_gate`, before this object's lock),
-        so a run starting meanwhile cannot interleave; `DataRepositoryError` for an unreadable
-        or invalid file. Changes no posting and no mail mark."""
+        Raises `KeyError` without a row and `LinkInRunError` for a `waiting` row whose link the
+        computing run holds (`_holding`, as `unsettled` reads `in_run`), decided inside that
+        change (under `write_gate`, before this object's lock), so a run starting meanwhile
+        cannot interleave; `DataRepositoryError` for an unreadable, invalid or unwritable file.
+        Changes no posting and no mail mark."""
         key = normalize_url(url)
 
         def change(current: UnsettledLinks) -> UnsettledLinks:
             rows = _rows(current)
             if key not in rows:
                 raise KeyError(url)
-            if rows[key].state == "waiting" and (run_id := self.current()):
+            run_id, held = self._holding()
+            if rows[key].state == "waiting" and key in held:
                 raise LinkInRunError(f"{url} is still in alert run {run_id}")
             del rows[key]
             return current.model_copy(update={"links": list(rows.values())})
@@ -261,9 +272,10 @@ class AlertRuns:
 
     def cancel(self, run_id: str) -> str | None:
         """Ask the running run to stop; returns its ID at once. The worker looks for the request
-        before each entry, so the entry it works on is finished, then the run ends `cancelled`
-        and the entries it did not reach stay `waiting`. Answers `None` for an unknown ID and
-        raises `RunNotRunningError` for a run that has ended."""
+        before each entry, so the entry it works on is finished, then the run ends `cancelled`:
+        the entries it did not reach stay `waiting` in the run state (`read`), and their links
+        turn `not_reached` in the list of unsettled links (`_ended`). Answers `None` for an
+        unknown ID and raises `RunNotRunningError` for a run that has ended."""
         with self._lock:
             state = self._state.get(run_id)
             if state is None:
@@ -340,4 +352,4 @@ class AlertRuns:
                             "unsettled links (%s)", run_id, type(failure).__name__)
             with self._lock:
                 self._state[run_id] |= {"status": status, "error": error}
-                self._computing = None
+                self._computing, self._held = None, frozenset()

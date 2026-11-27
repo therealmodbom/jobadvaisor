@@ -83,6 +83,17 @@ def test_an_invalid_result_raises_and_leaves_the_file_as_it_was(tmp_path):
     assert (tmp_path / "unsettled-links.json").read_text() == before
 
 
+def test_a_write_that_fails_raises_as_an_unreadable_list(tmp_path, monkeypatch):
+    """posting-intake → Scenario: List cannot be written: the `OSError` is one problem naming
+    the file, so the routes answer it like an invalid file (design D7)."""
+    def refuse(path, entity):
+        raise PermissionError("read-only")
+    monkeypatch.setattr(writer, "_replace", refuse)
+    with pytest.raises(DataRepositoryError) as raised:
+        update_unsettled_links(tmp_path, lambda current: current)
+    assert raised.value.problems == ["unsettled-links.json: not writable: read-only"]
+
+
 def test_an_update_waits_for_the_write_gate(tmp_path):
     done = threading.Event()
     thread = threading.Thread(target=lambda: (update_unsettled_links(

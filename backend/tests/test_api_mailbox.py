@@ -14,6 +14,7 @@ from fake_imap import FakeFolder, FakeImap, FakeMail, build_mail
 from fastapi.testclient import TestClient
 from test_alert_mail import fixture
 from test_alert_mail_model import Broken
+from test_api_unsettled_links import refuse_list_writes
 from test_guard import THRESHOLDS
 from test_mailbox_checks import DAY, KEY, PASSWORD, SERVER_TEXT, StubRuns, imap
 from test_triage_graph import POLICY_PACK, Harness, add_posting
@@ -597,13 +598,18 @@ def test_a_mailbox_runs_unread_link_is_listed_without_any_mail_text(tmp_path, ro
             assert mail_text not in written
 
 
-def test_a_finish_over_an_unreadable_list_is_503_and_marks_nothing(tmp_path, root):
+@pytest.mark.parametrize("broken", ["invalid file", "write fails"])
+def test_a_finish_over_an_unreadable_list_is_503_and_marks_nothing(tmp_path, root, monkeypatch,
+                                                                   broken):
     """posting-intake → Scenario: List cannot be written."""
     app = api(tmp_path, root, ba_mail(1), empty_mail(2), real_runs=True)
     app.configure()
     state = app.check()
     url = state["mails"][0]["preview"]["entries"][0]["url"]
-    (root / "unsettled-links.json").write_text("{not json")
+    if broken == "invalid file":
+        (root / "unsettled-links.json").write_text("{not json")
+    else:
+        refuse_list_writes(monkeypatch)
     answer = app.post(f"/mailbox/checks/{state['check_id']}/finish",
                       {"entries": [{"url": url, "title": "t"}]})
     assert answer.status_code == 503 and answer.json()["error"] == "unsettled links unreadable"

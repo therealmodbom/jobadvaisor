@@ -284,10 +284,14 @@ def update_unsettled_links(root: Path,
     """Replace `unsettled-links.json` under `root` by `change(current)` and return it, like
     `update_mailbox`: `current` is the file as it stands under the write gate (an empty list when
     missing), the result is validated again and swapped in by rename. Raises like
-    `read_unsettled_links`, whatever `change` raises, and `ValueError` for an invalid result;
+    `read_unsettled_links`, also for a file that cannot be written (an `OSError`, as one
+    problem naming the file), whatever `change` raises, and `ValueError` for an invalid result;
     the file then stays as it was."""
     links = UnsettledLinks.model_validate(change(read_unsettled_links(root)).model_dump())
-    _replace(root / UNSETTLED_LINKS_FILE, links)
+    try:
+        _replace(root / UNSETTLED_LINKS_FILE, links)
+    except OSError as error:
+        raise DataRepositoryError([f"{UNSETTLED_LINKS_FILE}: not writable: {error}"]) from error
     return links
 
 

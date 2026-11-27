@@ -9,6 +9,7 @@ import pytest
 from conftest import FakeStructuredModel, SpacingClock, ToolScriptModel, write_json
 from test_triage_graph import POLICY_PACK
 
+import jobadvaisor.data.writer as writer_module
 import jobadvaisor.intake.alert_runs as runs_module
 from jobadvaisor.data.loader import DataRepositoryError, write_gate
 from jobadvaisor.data.models import UnsettledLink, UnsettledLinks
@@ -521,13 +522,11 @@ def test_a_list_that_cannot_be_written_starts_no_run(runs, tmp_path, monkeypatch
     monkeypatch.setattr(runs_module, "add_from_url", fake_add({LINKS[0]: ("a", None)}, seen))
     if broken == "invalid file":
         (tmp_path / "unsettled-links.json").write_text("{not json")
-        error = DataRepositoryError
     else:
-        def refuse(root, change):
-            raise OSError("read-only")
-        monkeypatch.setattr(runs_module, "update_unsettled_links", refuse)
-        error = OSError
-    with pytest.raises(error):
+        def refuse(path, entity):
+            raise PermissionError("read-only")
+        monkeypatch.setattr(writer_module, "_replace", refuse)
+    with pytest.raises(DataRepositoryError, match="unsettled-links.json"):
         runs.start([RunEntry(LINKS[0], "A")], source="paste")
     assert runs.current() is None and runs._state == {}
     assert runs._executor.submit(lambda: None).result() is None and seen == []
@@ -866,6 +865,31 @@ def test_the_rows_of_the_computing_run_are_in_run_and_the_answer_names_it(
     assert runs.unsettled()["run_id"] is None and shown(runs) == {LINKS[2]: ("unread", False)}
 
 
+def test_a_row_a_lost_run_left_waiting_is_not_in_run_before_the_start_write(
+        runs, tmp_path, monkeypatch):
+    """posting-intake → Requirement: Links a run did not reach („while the computing run is not
+    the one that took it“): between claiming the slot and the start write, a row a lost run left
+    `waiting` reads `not_reached` and can be removed, while a link of the new run is held."""
+    listed(tmp_path, row(LINKS[2], state="waiting"), row(LINKS[1], state="waiting"))
+    write = runs_module.update_unsettled_links
+    seen = {}
+
+    def first_write(root, change):
+        if not seen:  # the start write: the slot is claimed, the rows are not written yet
+            seen["shown"] = shown(runs)
+            with pytest.raises(LinkInRunError):
+                runs.remove(LINKS[1])
+            runs.remove(LINKS[2])
+        return write(root, change)
+    monkeypatch.setattr(runs_module, "update_unsettled_links", first_write)
+    monkeypatch.setattr(runs_module, "add_from_url", fake_add({LINKS[0]: ("a", None),
+                                                               LINKS[1]: ("b", None)}))
+    finished(runs, runs.start([RunEntry(LINKS[0], "A"), RunEntry(LINKS[1], "B")],
+                              source="paste"))
+    assert seen["shown"] == {LINKS[2]: ("not_reached", False), LINKS[1]: ("waiting", True)}
+    assert shown(runs) == {}
+
+
 def test_the_rows_are_ordered_by_their_latest_activity_newest_first(runs, tmp_path):
     listed(tmp_path, row(LINKS[0], last_tried_at=datetime(2026, 11, 21, tzinfo=UTC)),
            row(LINKS[1], last_tried_at=None, added_at=datetime(2026, 11, 22, tzinfo=UTC)),
@@ -917,10 +941,10 @@ def test_the_in_run_refusal_is_decided_inside_the_write(runs, tmp_path, monkeypa
     listed(tmp_path, row(LINKS[0], state="waiting"))
     held = []
 
-    def current():
+    def holding():
         held.append(write_gate._is_owned())
-        return "run-9"
-    monkeypatch.setattr(runs, "current", current)
+        return "run-9", frozenset({runs_module.normalize_url(LINKS[0])})
+    monkeypatch.setattr(runs, "_holding", holding)
     with pytest.raises(LinkInRunError):
         runs.remove(LINKS[0])
     assert held == [True]

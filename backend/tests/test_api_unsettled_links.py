@@ -9,6 +9,7 @@ from conftest import write_json
 from test_api_alert_mails import client, settled
 from test_triage_graph import POLICY_PACK, add_posting
 
+import jobadvaisor.data.writer as writer_module
 import jobadvaisor.intake.alert_runs as runs_module
 from jobadvaisor.data.models import UnsettledLink, UnsettledLinks
 from jobadvaisor.data.writer import (
@@ -225,10 +226,27 @@ def test_a_removal_of_a_link_in_the_computing_run_is_409(tmp_path, root, monkeyp
 # --- an unreadable list -----------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("call", ["list", "remove", "run"])
+def refuse_list_writes(monkeypatch) -> None:
+    """Make every write of `unsettled-links.json` fail with an `OSError`; other files write."""
+    replace = writer_module._replace
+
+    def refusing(path, entity):
+        if path.name == "unsettled-links.json":
+            raise PermissionError("read-only")
+        replace(path, entity)
+    monkeypatch.setattr(writer_module, "_replace", refusing)
+
+
+@pytest.mark.parametrize("call", ["list", "remove", "run", "remove: write fails",
+                                  "run: write fails"])
 def test_an_invalid_list_file_is_503_and_starts_nothing(tmp_path, root, monkeypatch, call):
-    """posting-intake → Scenario: Invalid list file."""
-    (root / "unsettled-links.json").write_text('{"schema_version": "1", "links": [{}]}')
+    """posting-intake → Scenarios: Invalid list file, List cannot be written."""
+    if call.endswith("write fails"):
+        listed(root, row(A))
+        refuse_list_writes(monkeypatch)
+        call = call.split(":")[0]
+    else:
+        (root / "unsettled-links.json").write_text('{"schema_version": "1", "links": [{}]}')
     seen = []
     monkeypatch.setattr(runs_module, "add_from_url", lambda *args, **kwargs: seen.append(args))
     http = client(tmp_path, root)
