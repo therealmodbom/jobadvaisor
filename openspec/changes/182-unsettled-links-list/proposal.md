@@ -2,7 +2,7 @@
 
 ## Why
 
-Since #159 (Postings shown as closed after a single 404 are lost), a mail of a mailbox run counts as handled only when every link of it in the run ended stored, as a duplicate or closed. A link that ends „Nicht gelesen“ or „Nicht beurteilbar“, often a rate-limited LinkedIn link, keeps its mail open, so every check offers the whole mail again, fetches the same link again and spends one of its `max_mails` places on it ([#175 (Unsettled links: a list of their own, so their mail counts as handled)](https://github.com/therealmodbom/jobadvaisor/issues/175)). The way out, leaving the entry unticked in the next pick list, does not work: by then the user cannot tell which entry failed. In one live run of 128 entries, 27 ended unsettled.
+Since #159 (Postings shown as closed after a single 404 are lost), a mail of a mailbox run counts as handled only when every link of it in the run ended stored, as a duplicate or closed. A link that ends „Nicht gelesen“ or „Nicht beurteilbar“, often a rate-limited LinkedIn link, keeps its mail open, so every check offers the whole mail again, fetches the same link again and spends one of its `max_mails` places on it ([#175 (Unsettled links: a list of their own, so their mail counts as handled)](https://github.com/therealmodbom/jobadvaisor/issues/175)). The way out, leaving the entry unticked in the next pick list, does not work: by then the user cannot tell which entry failed.
 
 Marking the mail handled at once is only safe when the unsettled links are kept elsewhere. This change is [#182 (Unsettled links, step 1: a stored list, and the mail counts as handled)](https://github.com/therealmodbom/jobadvaisor/issues/182), the first step of #175: a stored list of the links a run could not settle, so their mail can let go of them.
 
@@ -36,14 +36,14 @@ None.
 
 ### Modified Capabilities
 
-- `data-repository`: modifies „Documented schema per entity“ (names the new entity); adds „Unsettled links stored without mail text“.
+- `data-repository`: modifies „Documented schema per entity“ (names the new entity); adds „Unsettled links stored in the data repository“ and „Unsettled links stored without mail text“.
 - `posting-intake`:
   - Modifies „Handled mails“, „Mailbox entries added like alert entries“ and „Cancel an alert run“ (a mail counts as handled once the run has started).
-  - Adds „Unsettled links kept in a list“, „Links a run did not reach“, „Tries of an unsettled link“ and „Unsettled link removed“.
+  - Adds „Unsettled links kept in a list“, „Links a run did not reach“, „Tries of an unsettled link“, „No run while the list is unreadable“ and „Unsettled link removed“.
 - `web-ui`:
   - Modifies „Note on handled mails below the pick list“.
   - Removes „Mails offered again after a mailbox run“, replaced by „Unsettled links named after a run“.
-  - Adds „Unsettled links tab“, „Count of unsettled links“ and „Remove an unsettled link“.
+  - Adds „Unsettled links tab“, „Unsettled links tab address and empty states“, „Count of unsettled links“ and „Remove an unsettled link“.
 
 ## Impact
 
@@ -53,7 +53,7 @@ None.
   - `data/writer.py`: read and update functions under `write_gate`, like `read_mailbox` and `update_mailbox`.
   - `intake/alert_runs.py`: `start` takes the source and writes the waiting rows before the worker starts; each ended entry updates its row; the end of the run and a later start turn leftover waiting rows into not reached.
   - `intake/mailbox_checks.py`: `finish` marks every mail of the pick list after the run started; `_marks_at_end` and `ENDED_WELL` go.
-  - `api/app.py`: `GET /unsettled-links` and `DELETE /unsettled-links` (one link); the run routes pass their source.
+  - `api/app.py`: `GET /unsettled-links` and `DELETE /unsettled-links` (one link); the run routes pass their source (`POST /alert-mails/runs` takes it as an optional body field); an unreadable list answers 503.
 - **Frontend:** the tab and its list in `views/IntakeView.tsx` plus a new view, the badge in `App.tsx`, the texts in `lib/alert.ts` (`MAILBOX_WORDS`, `PASTE_WORDS`) and `components/mailbox-pick.tsx`.
 - **Docs:** ADR 0020 supersedes the first two decisions of ADR 0019; `AGENTS.md` (Current state) and the README where the mailbox workflow is described.
 - **Tests:** backend tests for the writer, runs and checks; frontend tests for the tab, badge and texts; the e2e walkthrough `test_mailbox_walkthrough.py`, whose disputed link no longer brings its mail back but lands in the list. If the navigation markup changes, the README images are retaken.

@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted, 2026-11-27. Supersedes the first two decisions of [ADR 0019](0019-a-mail-counts-as-handled-by-the-outcome-of-its-entries.md).
+Accepted, 2026-11-27. Supersedes the first decision of [ADR 0019](0019-a-mail-counts-as-handled-by-the-outcome-of-its-entries.md) and the marking at the end of the run in its second; its rejection of a persisted run stands, and is restated below.
 
 ## Context
 

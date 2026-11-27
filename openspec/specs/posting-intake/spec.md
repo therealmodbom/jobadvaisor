@@ -783,7 +783,7 @@ The system SHALL refuse to start a mailbox check while an alert run computes, an
 - **THEN** the check does not start, and the answer names the run
 
 ### Requirement: Unsettled links kept in a list
-Every alert run, from a mailbox check or a pasted mail, SHALL put each of its links into the list of unsettled links as waiting when it starts, before any mail of its pick list counts as handled. When the list cannot be written, the run SHALL NOT start. When an entry ends, its link SHALL leave the list if it ended stored, as a duplicate or closed, and SHALL stay with its outcome otherwise: not read (with its attempts, or the reason when no attempt was made) or not judgeable.
+Every alert run, from a mailbox check or a pasted mail, SHALL put each of its links into the list of unsettled links as waiting when it starts, before any mail of its pick list counts as handled. When an entry ends, its link SHALL leave the list if it ended stored, as a duplicate or closed, and SHALL stay with its outcome otherwise: not read (with its attempts, or the reason when no attempt was made) or not judgeable.
 
 #### Scenario: Failed link kept
 - **WHEN** a run reports an entry as failed after rate-limited attempts
@@ -801,9 +801,16 @@ Every alert run, from a mailbox check or a pasted mail, SHALL put each of its li
 - **WHEN** a run over 50 entries has ended 10
 - **THEN** the list shows the 40 links not yet ended as waiting
 
+### Requirement: No run while the list is unreadable
+When the list of unsettled links cannot be read or written, an alert run SHALL NOT start, no mail of its pick list SHALL count as handled, and the answer SHALL say that the list is unreadable.
+
 #### Scenario: List cannot be written
 - **WHEN** a pick list is finished and the list of unsettled links cannot be written
 - **THEN** no run starts, and no mail of the pick list counts as handled
+
+#### Scenario: Invalid list file
+- **WHEN** the list file in the data repository is invalid and the user adds the entries of a pasted mail
+- **THEN** no run starts, and the answer says that the list is unreadable
 
 ### Requirement: Links a run did not reach
 A link the run did not reach SHALL be not reached once the run has ended, whether it was cancelled or crashed. A link that is waiting in the list while no run computes, or while the computing run is not the one that took it, SHALL be reported as not reached, so a restart leaves no link waiting.

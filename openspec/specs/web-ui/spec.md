@@ -1122,7 +1122,7 @@ When a run, from a mailbox check or a pasted mail, ends with entries not read, n
 - **THEN** the report says that its link is kept under „Offene Links“
 
 ### Requirement: Unsettled links tab
-„Anzeige hinzufügen“ SHALL offer the source „Offene Links“ next to „Postfach“. It SHALL list the unsettled links, each with its title, its link (opening in a new tab), its outcome („Wartet“, „Nicht gelesen“, „Nicht beurteilbar“ or „Nicht erreicht“), its source („Postfach“ or „Alert-Mail“), its number of tries, the date it entered the list and when it was last tried. The attempts of a row SHALL sit behind „Details“, like those of a run row. Without unsettled links, the tab SHALL say that no link is open.
+„Anzeige hinzufügen“ SHALL offer the source „Offene Links“ next to „Postfach“. It SHALL list the unsettled links, each with its title, its link (opening in a new tab), its outcome („Wartet“, „Nicht gelesen“, „Nicht beurteilbar“ or „Nicht erreicht“), its source („Postfach“ or „Alert-Mail“), its number of tries, the date it entered the list and when it was last tried. The attempts of a row SHALL sit behind „Details“, like those of a run row.
 
 #### Scenario: List after a run
 - **WHEN** a mailbox run has ended with two entries not read and one not judgeable, and the user opens „Offene Links“
@@ -1132,16 +1132,27 @@ When a run, from a mailbox check or a pasted mail, ends with entries not read, n
 - **WHEN** the user opens „Offene Links“ on another device after the run
 - **THEN** it lists the same links
 
+### Requirement: Unsettled links tab address and empty states
+The tab „Offene Links“ SHALL have its own address, so a reload and the link of a run report open it. Without unsettled links, it SHALL say that no link is open. When the list cannot be read, it SHALL say so and name the file.
+
 #### Scenario: Empty list
 - **WHEN** no link is open and the user opens „Offene Links“
 - **THEN** the tab says that no link is open
 
+#### Scenario: Reload on the tab
+- **WHEN** the user reloads the app while „Offene Links“ is open
+- **THEN** „Offene Links“ is open again
+
+#### Scenario: Unreadable list
+- **WHEN** the list file in the data repository is invalid and the user opens „Offene Links“
+- **THEN** the tab says that the list cannot be read and names the file, and no badge shows
+
 ### Requirement: Count of unsettled links
-The source tab „Offene Links“ and the navigation item „Anzeige hinzufügen“ SHALL each show the number of unsettled links as a badge, and no badge while the list is empty. The number SHALL be part of the accessible name of the tab and the navigation item. It SHALL be read when the app loads, and again after a run has ended or a link was removed.
+The source tab „Offene Links“ and the navigation item „Anzeige hinzufügen“ SHALL each show the number of unsettled links as a badge, and no badge while the list is empty. The number SHALL be part of the accessible name of the tab and the navigation item. It SHALL be read when the app loads and when the tab is opened, and again when a run starts, each time it ends an entry, when it ends, and after a link was removed.
 
 #### Scenario: Open links after a run
-- **WHEN** a run has ended with 27 links unsettled and the list was empty before
-- **THEN** the navigation item „Anzeige hinzufügen“ and the tab „Offene Links“ show a badge with 27, and a screen reader announces the number with each name
+- **WHEN** a run has ended with 12 links unsettled and the list was empty before
+- **THEN** the navigation item „Anzeige hinzufügen“ and the tab „Offene Links“ show a badge with 12, and a screen reader announces the number with each name
 
 #### Scenario: No open link
 - **WHEN** the list of unsettled links is empty
